@@ -1,13 +1,10 @@
 import { useState } from "react";
 
 import { AppShell, type View } from "./components/AppShell";
+import { IndexersWorkspace } from "./components/IndexersWorkspace";
 import { SearchWorkspace } from "./components/SearchWorkspace";
 
-const viewCopy: Record<Exclude<View, "search">, { title: string; body: string }> = {
-  indexers: {
-    title: "Indexers",
-    body: "No definitions are installed. The first importer will consume the separate Indexers repository.",
-  },
+const viewCopy: Record<Exclude<View, "search" | "indexers">, { title: string; body: string }> = {
   history: {
     title: "History",
     body: "Search history is empty.",
@@ -23,14 +20,14 @@ export function App() {
 
   return (
     <AppShell activeView={view} onNavigate={setView}>
-      {view === "search" ? (
-        <SearchWorkspace />
-      ) : (
+      {view === "search" ? <SearchWorkspace /> : null}
+      {view === "indexers" ? <IndexersWorkspace /> : null}
+      {view === "history" || view === "settings" ? (
         <section className="empty-view">
           <h1>{viewCopy[view].title}</h1>
           <p>{viewCopy[view].body}</p>
         </section>
-      )}
+      ) : null}
     </AppShell>
   );
 }

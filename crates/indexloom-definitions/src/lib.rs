@@ -161,6 +161,198 @@ pub enum DefinitionEngine {
     Cardigann,
 }
 
+/// User-facing configuration contract derived from one definition.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationSchema {
+    /// Editable definition fields, excluding informational notices.
+    pub fields: Vec<ConfigurationField>,
+    /// The definition explicitly declares that `FlareSolverr` may be needed.
+    pub flaresolverr_recommended: bool,
+    /// The definition declares a dedicated browser `User-Agent` setting.
+    pub user_agent_recommended: bool,
+}
+
+/// One editable configuration field derived from Cardigann settings.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationField {
+    /// Stable key referenced by Cardigann templates.
+    pub name: String,
+    /// Human-readable field label.
+    pub label: String,
+    /// Input control expected by the frontend.
+    pub kind: ConfigurationFieldKind,
+    /// Whether the value is encrypted and never returned by the API.
+    pub secret: bool,
+    /// Optional scalar default from the source definition.
+    pub default_value: Option<ConfigurationValue>,
+    /// Allowed values for select controls.
+    pub options: Vec<ConfigurationOption>,
+}
+
+/// Supported editable Cardigann control types.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfigurationFieldKind {
+    /// Single-line text.
+    Text,
+    /// Password-like secret.
+    Password,
+    /// Boolean toggle.
+    Checkbox,
+    /// Select from a finite list.
+    Select,
+}
+
+/// Scalar value accepted by a configuration field.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum ConfigurationValue {
+    /// Text value.
+    String(String),
+    /// Boolean value.
+    Boolean(bool),
+    /// Integer value.
+    Integer(i64),
+    /// Floating-point value.
+    Number(f64),
+}
+
+/// One select option, with its source value preserved as text.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationOption {
+    /// Value rendered into Cardigann templates.
+    pub value: String,
+    /// Human-readable option label.
+    pub label: String,
+}
+
+impl IndexerDefinition {
+    /// Derives editable fields and browser-transport requirements.
+    #[must_use]
+    pub fn configuration_schema(&self) -> ConfigurationSchema {
+        let mut fields = Vec::new();
+        let mut flaresolverr_recommended = false;
+        let mut user_agent_recommended = false;
+
+        for setting in &self.spec.implementation.settings {
+            let Value::Mapping(mapping) = setting else {
+                continue;
+            };
+            let Some(setting_type) = mapping_string(mapping, "type") else {
+                continue;
+            };
+            if setting_type == "info_flaresolverr" {
+                flaresolverr_recommended = true;
+                continue;
+            }
+            if setting_type == "info_useragent" {
+                user_agent_recommended = true;
+                continue;
+            }
+            if setting_type.starts_with("info") {
+                continue;
+            }
+
+            let Some(name) = mapping_string(mapping, "name") else {
+                continue;
+            };
+            if name.eq_ignore_ascii_case("useragent") {
+                user_agent_recommended = true;
+                continue;
+            }
+            let Some(kind) = configuration_kind(&setting_type) else {
+                continue;
+            };
+            let label = mapping_string(mapping, "label").unwrap_or_else(|| name.clone());
+            let default_value = mapping
+                .get(Value::String("default".to_owned()))
+                .and_then(configuration_value);
+            let options = mapping
+                .get(Value::String("options".to_owned()))
+                .map(configuration_options)
+                .unwrap_or_default();
+            fields.push(ConfigurationField {
+                secret: matches!(kind, ConfigurationFieldKind::Password) || is_secret_name(&name),
+                name,
+                label,
+                kind,
+                default_value,
+                options,
+            });
+        }
+
+        ConfigurationSchema {
+            fields,
+            flaresolverr_recommended,
+            user_agent_recommended,
+        }
+    }
+}
+
+fn configuration_kind(setting_type: &str) -> Option<ConfigurationFieldKind> {
+    match setting_type {
+        "text" => Some(ConfigurationFieldKind::Text),
+        "password" => Some(ConfigurationFieldKind::Password),
+        "checkbox" => Some(ConfigurationFieldKind::Checkbox),
+        "select" => Some(ConfigurationFieldKind::Select),
+        _ => None,
+    }
+}
+
+fn mapping_string(mapping: &serde_yaml::Mapping, key: &str) -> Option<String> {
+    mapping
+        .get(Value::String(key.to_owned()))
+        .and_then(scalar_string)
+}
+
+fn scalar_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn configuration_value(value: &Value) -> Option<ConfigurationValue> {
+    match value {
+        Value::String(value) => Some(ConfigurationValue::String(value.clone())),
+        Value::Bool(value) => Some(ConfigurationValue::Boolean(*value)),
+        Value::Number(value) => value
+            .as_i64()
+            .map(ConfigurationValue::Integer)
+            .or_else(|| value.as_f64().map(ConfigurationValue::Number)),
+        _ => None,
+    }
+}
+
+fn configuration_options(value: &Value) -> Vec<ConfigurationOption> {
+    let Value::Mapping(mapping) = value else {
+        return Vec::new();
+    };
+    mapping
+        .iter()
+        .filter_map(|(value, label)| {
+            Some(ConfigurationOption {
+                value: scalar_string(value)?,
+                label: scalar_string(label)?,
+            })
+        })
+        .collect()
+}
+
+fn is_secret_name(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    [
+        "password", "passwd", "pass", "cookie", "token", "key", "pin", "2fa", "otp",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker))
+}
+
 /// Definition parsing and validation errors.
 #[derive(Debug, Error)]
 pub enum DefinitionError {
@@ -336,5 +528,62 @@ spec:
         assert_eq!(definition.api_version, API_VERSION);
         assert_eq!(definition.metadata.id, "example");
         assert_eq!(definition.provenance.source.source_id, "example");
+    }
+
+    #[test]
+    fn derives_secrets_and_browser_transport_hints() {
+        let source = r#"
+apiVersion: indexloom.io/v1alpha1
+kind: Indexer
+metadata:
+  id: private-example
+  name: Private example
+  description: Example definition
+  language: en-US
+provenance:
+  generatedBy: indexloom-importer/v1
+  source:
+    project: jackett
+    repository: https://github.com/Jackett/Jackett
+    revision: "0000000000000000000000000000000000000000"
+    path: src/Jackett.Common/Definitions/private-example.yml
+    sourceId: private-example
+    license: GPL-2.0-only
+    fileSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    contentSha256: "1111111111111111111111111111111111111111111111111111111111111111"
+spec:
+  protocol: torrent
+  privacy: private
+  baseUrls: [https://example.invalid/]
+  implementation:
+    engine: cardigann
+    encoding: UTF-8
+    capabilities: {}
+    settings:
+      - name: username
+        type: text
+        label: Username
+      - name: password
+        type: password
+        label: Password
+      - name: cookie
+        type: text
+        label: Cookie
+      - name: useragent
+        type: text
+        label: User-Agent
+      - name: info_flaresolverr
+        type: info_flaresolverr
+    search: { paths: [{ path: /search }], rows: { selector: .result }, fields: {} }
+"#;
+
+        let definition = parse_yaml(source).expect("definition should parse");
+        let schema = definition.configuration_schema();
+        assert!(schema.flaresolverr_recommended);
+        assert!(schema.user_agent_recommended);
+        assert_eq!(schema.fields.len(), 3);
+        assert!(!schema.fields[0].secret);
+        assert!(schema.fields[1].secret);
+        assert!(schema.fields[2].secret);
     }
 }

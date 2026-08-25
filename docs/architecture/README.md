@@ -25,11 +25,22 @@ SQLite in WAL mode is the initial supported database. Storage access is kept
 behind repository traits so PostgreSQL can be added without leaking SQL dialect
 details into the domain or API.
 
+Indexer non-secret values are stored as JSON. Passwords, cookies, API keys, and
+other secret fields are stored in a separate table as one authenticated
+XChaCha20-Poly1305 envelope per indexer. The indexer ID and format version are
+authenticated as associated data. API models expose only configured secret
+names, while an execution-only storage model performs decryption.
+
 ## Trust boundaries
 
 Definitions and remote HTML are untrusted input. The engine will enforce URL
 allowlists, private-network restrictions, response limits, parser limits,
 timeouts and bounded concurrency before a definition can execute.
+
+Management endpoints require an explicit bearer token and return `no-store`.
+Direct tracker HTTP has no shared cookie jar. `FlareSolverr` is configured as a
+named administrator-controlled connector and selected per indexer; the target
+URL must still pass the engine's outbound policy before solver execution.
 
 ## Decisions and roadmap
 

@@ -1,10 +1,11 @@
 use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::{Context, Result};
-use indexloom_server::{AppState, router};
-use indexloom_storage::Store;
+use indexloom_server::{AdminToken, AppState, router};
+use indexloom_storage::{SecretVault, Store};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+use zeroize::Zeroize;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,6 +24,16 @@ async fn main() -> Result<()> {
         "sqlite:///data/indexloom.db?mode=rwc",
     );
     let web_root = PathBuf::from(env_or("INDEXLOOM_WEB_ROOT", "/app/web"));
+    let mut admin_token_value =
+        env::var("INDEXLOOM_ADMIN_TOKEN").context("INDEXLOOM_ADMIN_TOKEN is required")?;
+    let admin_token = AdminToken::new(&admin_token_value);
+    admin_token_value.zeroize();
+    let admin_token = admin_token.map_err(anyhow::Error::msg)?;
+    let mut master_key =
+        env::var("INDEXLOOM_MASTER_KEY").context("INDEXLOOM_MASTER_KEY is required")?;
+    let vault = SecretVault::from_base64(&master_key);
+    master_key.zeroize();
+    let vault = vault.context("INDEXLOOM_MASTER_KEY is invalid")?;
 
     let store = Store::connect(&database_url)
         .await
@@ -32,10 +43,13 @@ async fn main() -> Result<()> {
         .with_context(|| format!("failed to bind {bind}"))?;
 
     tracing::info!(%bind, "IndexLoom is ready");
-    axum::serve(listener, router(AppState::new(store), web_root))
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("IndexLoom HTTP server failed")?;
+    axum::serve(
+        listener,
+        router(AppState::new(store, vault, admin_token), web_root),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("IndexLoom HTTP server failed")?;
 
     Ok(())
 }

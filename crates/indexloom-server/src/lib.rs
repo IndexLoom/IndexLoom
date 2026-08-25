@@ -1,32 +1,113 @@
-//! HTTP surface for `IndexLoom`.
+//! Authenticated HTTP surface for `IndexLoom`.
 
-use std::path::PathBuf;
+use std::{collections::BTreeMap, fmt, path::PathBuf, sync::Arc};
 
-use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
-use indexloom_storage::Store;
-use serde::Serialize;
+use axum::{
+    Json, Router,
+    extract::{DefaultBodyLimit, Path, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
+    routing::{get, put},
+};
+use indexloom_definitions::{
+    ConfigurationField, ConfigurationFieldKind, ConfigurationSchema, Privacy, parse_yaml,
+};
+use indexloom_storage::{
+    FlareSolverrInput, FlareSolverrInstance, IndexerConfigurationRecord, SecretVault, StorageError,
+    Store,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use subtle::ConstantTimeEq;
 use tower_http::services::ServeDir;
+use url::Url;
+
+const MAX_CONFIGURATION_BODY: usize = 128 * 1024;
+const MAX_USER_AGENT_BYTES: usize = 512;
+const MAX_SECRET_BYTES: usize = 64 * 1024;
+const MAX_CONFIGURATION_FIELDS: usize = 128;
 
 /// Shared application state.
 #[derive(Clone, Debug)]
 pub struct AppState {
     store: Store,
+    vault: SecretVault,
+    admin_token: AdminToken,
 }
 
 impl AppState {
-    /// Creates application state around an initialized storage backend.
+    /// Creates application state around storage, encryption, and authorization.
     #[must_use]
-    pub const fn new(store: Store) -> Self {
-        Self { store }
+    pub const fn new(store: Store, vault: SecretVault, admin_token: AdminToken) -> Self {
+        Self {
+            store,
+            vault,
+            admin_token,
+        }
     }
 }
 
-/// Builds the API and frontend router.
+/// Bearer token protecting configuration and credential endpoints.
+#[derive(Clone)]
+pub struct AdminToken(Arc<[u8]>);
+
+impl AdminToken {
+    /// Accepts an administrator token with at least 32 bytes of input.
+    ///
+    /// # Errors
+    ///
+    /// Returns a static validation message when the token is too short or
+    /// contains surrounding whitespace.
+    pub fn new(value: &str) -> Result<Self, &'static str> {
+        if value.len() < 32 {
+            return Err("INDEXLOOM_ADMIN_TOKEN must be at least 32 bytes");
+        }
+        if value.trim() != value {
+            return Err("INDEXLOOM_ADMIN_TOKEN must not contain surrounding whitespace");
+        }
+        Ok(Self(Arc::from(value.as_bytes())))
+    }
+
+    fn authorizes(&self, headers: &HeaderMap) -> bool {
+        let Some(candidate) = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+        else {
+            return false;
+        };
+        let expected = self.0.as_ref();
+        expected.len() == candidate.len() && bool::from(expected.ct_eq(candidate.as_bytes()))
+    }
+}
+
+impl fmt::Debug for AdminToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("AdminToken(<redacted>)")
+    }
+}
+
+/// Builds the public health route, authenticated management API, and frontend.
 pub fn router(state: AppState, web_root: PathBuf) -> Router {
     let web = ServeDir::new(web_root).append_index_html_on_directories(true);
+    let protected = Router::new()
+        .route("/api/v1/indexers", get(list_indexers))
+        .route(
+            "/api/v1/indexers/{id}/configuration",
+            put(save_indexer_configuration),
+        )
+        .route("/api/v1/flaresolverr", get(list_flaresolverr))
+        .route(
+            "/api/v1/flaresolverr/{id}",
+            put(upsert_flaresolverr).delete(delete_flaresolverr),
+        )
+        .layer(DefaultBodyLimit::max(MAX_CONFIGURATION_BODY))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
 
     Router::new()
         .route("/api/v1/health", get(health))
+        .merge(protected)
         .fallback_service(web)
         .with_state(state)
 }
@@ -36,6 +117,42 @@ struct HealthResponse {
     status: &'static str,
     version: &'static str,
     database: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IndexerView {
+    id: String,
+    definition_id: String,
+    display_name: String,
+    enabled: bool,
+    privacy: Privacy,
+    user_agent: Option<String>,
+    flaresolverr_instance_id: Option<String>,
+    values: BTreeMap<String, Value>,
+    configured_secrets: Vec<String>,
+    configuration_schema: ConfigurationSchema,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SaveConfigurationRequest {
+    user_agent: Option<String>,
+    flaresolverr_instance_id: Option<String>,
+    #[serde(default)]
+    values: BTreeMap<String, Value>,
+    /// A missing key is unchanged, a string replaces it, and `null` clears it.
+    #[serde(default)]
+    secrets: BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FlareSolverrRequest {
+    name: String,
+    endpoint: String,
+    enabled: bool,
+    timeout_seconds: i64,
 }
 
 async fn health(
@@ -61,25 +178,422 @@ async fn health(
     }
 }
 
+async fn require_admin(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    if !state.admin_token.authorizes(request.headers()) {
+        return ApiError::unauthorized().into_response();
+    }
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    response
+}
+
+async fn list_indexers(State(state): State<AppState>) -> Result<Json<Vec<IndexerView>>, ApiError> {
+    let records = state.store.list_indexers(&state.vault).await?;
+    let views = records
+        .into_iter()
+        .map(indexer_view)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(views))
+}
+
+async fn save_indexer_configuration(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<SaveConfigurationRequest>,
+) -> Result<Json<IndexerView>, ApiError> {
+    validate_identifier(&id)?;
+    let record = state.store.get_indexer(&id, &state.vault).await?;
+    let definition = parse_yaml(&record.definition_yaml)
+        .map_err(|_| ApiError::internal("stored indexer definition is invalid"))?;
+    let schema = definition.configuration_schema();
+    validate_configuration(&request, &schema)?;
+
+    if let Some(connector_id) = request.flaresolverr_instance_id.as_deref() {
+        validate_identifier(connector_id)?;
+        let connectors = state.store.list_flaresolverr().await?;
+        if !connectors
+            .iter()
+            .any(|connector| connector.id == connector_id)
+        {
+            return Err(ApiError::bad_request(
+                "selected FlareSolverr connector was not found",
+            ));
+        }
+    }
+
+    let mut resolved = state
+        .store
+        .resolve_indexer_configuration(&id, &state.vault)
+        .await?;
+    for (name, update) in request.secrets {
+        if let Some(value) = update {
+            resolved.secrets.insert(name, value);
+        } else {
+            resolved.secrets.remove(&name);
+        }
+    }
+    state
+        .store
+        .save_indexer_configuration(
+            &id,
+            request.user_agent.as_deref(),
+            request.flaresolverr_instance_id.as_deref(),
+            &request.values,
+            &resolved.secrets,
+            &state.vault,
+        )
+        .await?;
+
+    let refreshed = state.store.get_indexer(&id, &state.vault).await?;
+    Ok(Json(indexer_view(refreshed)?))
+}
+
+async fn list_flaresolverr(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<FlareSolverrInstance>>, ApiError> {
+    Ok(Json(state.store.list_flaresolverr().await?))
+}
+
+async fn upsert_flaresolverr(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<FlareSolverrRequest>,
+) -> Result<Json<FlareSolverrInstance>, ApiError> {
+    validate_identifier(&id)?;
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 100 {
+        return Err(ApiError::bad_request(
+            "FlareSolverr name must contain 1 to 100 bytes",
+        ));
+    }
+    if !(5..=300).contains(&request.timeout_seconds) {
+        return Err(ApiError::bad_request(
+            "FlareSolverr timeout must be between 5 and 300 seconds",
+        ));
+    }
+    let endpoint = normalize_flaresolverr_endpoint(&request.endpoint)?;
+    let input = FlareSolverrInput {
+        id,
+        name: name.to_owned(),
+        endpoint,
+        enabled: request.enabled,
+        timeout_seconds: request.timeout_seconds,
+    };
+    Ok(Json(state.store.upsert_flaresolverr(&input).await?))
+}
+
+async fn delete_flaresolverr(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    validate_identifier(&id)?;
+    state.store.delete_flaresolverr(&id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn indexer_view(record: IndexerConfigurationRecord) -> Result<IndexerView, ApiError> {
+    let definition = parse_yaml(&record.definition_yaml)
+        .map_err(|_| ApiError::internal("stored indexer definition is invalid"))?;
+    Ok(IndexerView {
+        id: record.id,
+        definition_id: record.definition_id,
+        display_name: record.display_name,
+        enabled: record.enabled,
+        privacy: definition.spec.privacy,
+        user_agent: record.user_agent,
+        flaresolverr_instance_id: record.flaresolverr_instance_id,
+        values: record.values,
+        configured_secrets: record.configured_secrets,
+        configuration_schema: definition.configuration_schema(),
+    })
+}
+
+fn validate_configuration(
+    request: &SaveConfigurationRequest,
+    schema: &ConfigurationSchema,
+) -> Result<(), ApiError> {
+    if request.values.len() > MAX_CONFIGURATION_FIELDS
+        || request.secrets.len() > MAX_CONFIGURATION_FIELDS
+    {
+        return Err(ApiError::bad_request("too many configuration fields"));
+    }
+    if let Some(user_agent) = request.user_agent.as_deref()
+        && (user_agent.is_empty()
+            || user_agent.len() > MAX_USER_AGENT_BYTES
+            || user_agent.chars().any(char::is_control))
+    {
+        return Err(ApiError::bad_request(
+            "User-Agent must contain 1 to 512 bytes without control characters",
+        ));
+    }
+
+    let fields = schema
+        .fields
+        .iter()
+        .map(|field| (field.name.as_str(), field))
+        .collect::<BTreeMap<_, _>>();
+    for (name, value) in &request.values {
+        let field = fields
+            .get(name.as_str())
+            .ok_or_else(|| ApiError::bad_request("unknown configuration field"))?;
+        if field.secret {
+            return Err(ApiError::bad_request(
+                "secret fields must be sent through the secrets object",
+            ));
+        }
+        validate_public_value(field, value)?;
+    }
+    for (name, update) in &request.secrets {
+        let field = fields
+            .get(name.as_str())
+            .ok_or_else(|| ApiError::bad_request("unknown secret field"))?;
+        if !field.secret {
+            return Err(ApiError::bad_request(
+                "non-secret fields must be sent through the values object",
+            ));
+        }
+        if let Some(value) = update
+            && (value.is_empty() || value.len() > MAX_SECRET_BYTES)
+        {
+            return Err(ApiError::bad_request(
+                "secret values must contain 1 to 65536 bytes; use null to clear",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_public_value(field: &ConfigurationField, value: &Value) -> Result<(), ApiError> {
+    match field.kind {
+        ConfigurationFieldKind::Text if value.is_string() => Ok(()),
+        ConfigurationFieldKind::Checkbox if value.is_boolean() => Ok(()),
+        ConfigurationFieldKind::Select => {
+            let Some(selected) = scalar_json_string(value) else {
+                return Err(ApiError::bad_request("select values must be scalar"));
+            };
+            if field.options.iter().any(|option| option.value == selected) {
+                Ok(())
+            } else {
+                Err(ApiError::bad_request("invalid select option"))
+            }
+        }
+        ConfigurationFieldKind::Password => Err(ApiError::bad_request(
+            "password fields must be stored as secrets",
+        )),
+        _ => Err(ApiError::bad_request(
+            "configuration value has the wrong type",
+        )),
+    }
+}
+
+fn scalar_json_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Bool(value) => Some(value.to_string()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_flaresolverr_endpoint(value: &str) -> Result<String, ApiError> {
+    let mut url = Url::parse(value.trim())
+        .map_err(|_| ApiError::bad_request("FlareSolverr endpoint is not a valid URL"))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.host_str().is_none()
+    {
+        return Err(ApiError::bad_request(
+            "FlareSolverr endpoint must be an HTTP(S) URL without credentials, query, or fragment",
+        ));
+    }
+    match url.path().trim_end_matches('/') {
+        "" | "/v1" => url.set_path("/v1"),
+        _ => {
+            return Err(ApiError::bad_request(
+                "FlareSolverr endpoint path must be /v1",
+            ));
+        }
+    }
+    Ok(url.to_string())
+}
+
+fn validate_identifier(value: &str) -> Result<(), ApiError> {
+    let valid = !value.is_empty()
+        && value.len() <= 100
+        && value.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(ApiError::bad_request(
+            "identifier must be lowercase ASCII kebab-case",
+        ))
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorBody {
+    code: &'static str,
+    message: &'static str,
+}
+
+#[derive(Debug)]
+struct ApiError {
+    status: StatusCode,
+    body: ErrorBody,
+}
+
+impl ApiError {
+    const fn unauthorized() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            body: ErrorBody {
+                code: "UNAUTHORIZED",
+                message: "a valid administrator bearer token is required",
+            },
+        }
+    }
+
+    const fn bad_request(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            body: ErrorBody {
+                code: "INVALID_CONFIGURATION",
+                message,
+            },
+        }
+    }
+
+    const fn not_found(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            body: ErrorBody {
+                code: "NOT_FOUND",
+                message,
+            },
+        }
+    }
+
+    const fn internal(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body: ErrorBody {
+                code: "INTERNAL_ERROR",
+                message,
+            },
+        }
+    }
+}
+
+impl From<StorageError> for ApiError {
+    fn from(error: StorageError) -> Self {
+        if matches!(error, StorageError::NotFound(_)) {
+            return Self::not_found("requested record was not found");
+        }
+        tracing::error!(%error, "management API storage failure");
+        Self::internal("storage operation failed")
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let mut response = (self.status, Json(self.body)).into_response();
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        response
+            .headers_mut()
+            .insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+        response
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use axum::{
-        body::Body,
-        http::{Request, StatusCode},
+        body::{Body, to_bytes},
+        http::{Request, StatusCode, header},
     };
-    use indexloom_storage::Store;
+    use indexloom_storage::{SecretVault, Store};
     use tower::ServiceExt;
 
-    use super::{AppState, router};
+    use super::{AdminToken, AppState, normalize_flaresolverr_endpoint, router};
 
-    #[tokio::test]
-    async fn health_endpoint_reports_ready_database() {
+    const TOKEN: &str = "test-admin-token-with-at-least-32-bytes";
+    const DEFINITION: &str = r#"
+apiVersion: indexloom.io/v1alpha1
+kind: Indexer
+metadata: { id: example, name: Example, description: Example, language: en-US }
+provenance:
+  generatedBy: indexloom-importer/v1
+  source:
+    project: jackett
+    repository: https://github.com/Jackett/Jackett
+    revision: "0000000000000000000000000000000000000000"
+    path: src/Jackett.Common/Definitions/example.yml
+    sourceId: example
+    license: GPL-2.0-only
+    fileSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    contentSha256: "1111111111111111111111111111111111111111111111111111111111111111"
+spec:
+  protocol: torrent
+  privacy: private
+  baseUrls: [https://example.invalid/]
+  implementation:
+    engine: cardigann
+    encoding: UTF-8
+    capabilities: {}
+    settings:
+      - { name: username, type: text, label: Username }
+      - { name: password, type: password, label: Password }
+      - { name: cookie, type: text, label: Cookie }
+      - { name: info_flaresolverr, type: info_flaresolverr }
+    search: { paths: [{ path: /search }], rows: { selector: .result }, fields: {} }
+"#;
+
+    async fn test_state() -> AppState {
         let store = Store::connect("sqlite::memory:")
             .await
             .expect("in-memory database should initialize");
-        let response = router(AppState::new(store), PathBuf::from("missing-web-root"))
+        store
+            .upsert_definition(
+                "example",
+                "test",
+                None,
+                "indexloom.io/v1alpha1",
+                DEFINITION,
+                &"0".repeat(64),
+            )
+            .await
+            .expect("definition should persist");
+        store
+            .create_indexer("example-main", "example", "Example", true)
+            .await
+            .expect("indexer should persist");
+        AppState::new(
+            store,
+            SecretVault::generate().expect("vault should initialize"),
+            AdminToken::new(TOKEN).expect("token should validate"),
+        )
+    }
+
+    #[tokio::test]
+    async fn health_endpoint_reports_ready_database() {
+        let response = router(test_state().await, PathBuf::from("missing-web-root"))
             .oneshot(
                 Request::builder()
                     .uri("/api/v1/health")
@@ -88,7 +602,104 @@ mod tests {
             )
             .await
             .expect("health request should complete");
-
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn management_api_requires_bearer_token() {
+        let response = router(test_state().await, PathBuf::from("missing-web-root"))
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("request should complete");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn saves_and_redacts_secret_fields() {
+        let app = router(test_state().await, PathBuf::from("missing-web-root"));
+        let body = r#"{
+          "userAgent":"Mozilla/5.0",
+          "flaresolverrInstanceId":null,
+          "values":{"username":"alice"},
+          "secrets":{"password":"correct horse","cookie":"session=secret"}
+        }"#;
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/indexers/example-main/configuration")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("save request should complete");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), 256 * 1024)
+            .await
+            .expect("response should read");
+        let text = String::from_utf8(bytes.to_vec()).expect("response should be UTF-8");
+        assert!(text.contains("configuredSecrets"));
+        assert!(!text.contains("correct horse"));
+        assert!(!text.contains("session=secret"));
+
+        let preserve = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/indexers/example-main/configuration")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"userAgent":null,"flaresolverrInstanceId":null,"values":{"username":"bob"},"secrets":{}}"#,
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("preserve request should complete");
+        let preserved = to_bytes(preserve.into_body(), 256 * 1024)
+            .await
+            .expect("response should read");
+        let preserved = String::from_utf8(preserved.to_vec()).expect("response should be UTF-8");
+        assert!(preserved.contains(r#""configuredSecrets":["cookie","password"]"#));
+
+        let clear = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/indexers/example-main/configuration")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"userAgent":null,"flaresolverrInstanceId":null,"values":{"username":"bob"},"secrets":{"cookie":null}}"#,
+                    ))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("clear request should complete");
+        let cleared = to_bytes(clear.into_body(), 256 * 1024)
+            .await
+            .expect("response should read");
+        let cleared = String::from_utf8(cleared.to_vec()).expect("response should be UTF-8");
+        assert!(cleared.contains(r#""configuredSecrets":["password"]"#));
+    }
+
+    #[test]
+    fn normalizes_flaresolverr_base_url() {
+        assert_eq!(
+            normalize_flaresolverr_endpoint("http://flaresolverr:8191")
+                .expect("URL should validate"),
+            "http://flaresolverr:8191/v1"
+        );
+        assert!(normalize_flaresolverr_endpoint("file:///etc/passwd").is_err());
+        assert!(normalize_flaresolverr_endpoint("http://user:pass@host/v1").is_err());
     }
 }

@@ -11,7 +11,10 @@ repository.workspace = true
 indexloom-definitions = { path = "../indexloom-definitions" }
 reqwest.workspace = true
 scraper.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

@@ -16,6 +16,8 @@ services:
       INDEXLOOM_BIND: 0.0.0.0:8080
       INDEXLOOM_DATABASE_URL: sqlite:///data/indexloom.db?mode=rwc
       INDEXLOOM_WEB_ROOT: /app/web
+      INDEXLOOM_ADMIN_TOKEN: ${INDEXLOOM_ADMIN_TOKEN:?set INDEXLOOM_ADMIN_TOKEN}
+      INDEXLOOM_MASTER_KEY: ${INDEXLOOM_MASTER_KEY:?set INDEXLOOM_MASTER_KEY}
       RUST_LOG: indexloom=info,tower_http=info
     ports:
       - "127.0.0.1:8080:8080"

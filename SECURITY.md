@@ -10,3 +10,20 @@ credentials or personal data.
 Security-sensitive areas include definition execution, SSRF boundaries,
 credential storage, parser resource limits, authentication and outbound proxy
 handling.
+
+## Credential model
+
+Configuration writes require `INDEXLOOM_ADMIN_TOKEN`. Tracker passwords,
+cookies, API keys, passkeys, PINs, and 2FA tokens are encrypted with
+XChaCha20-Poly1305 under the independent `INDEXLOOM_MASTER_KEY`. The API returns
+only the names of configured secret fields, never their values. The master key
+must be supplied as standard Base64 for exactly 32 bytes and kept outside the
+database and source tree.
+
+Direct HTTP requests do not share a cookie jar. Each request receives only the
+credentials selected for that indexer. A configured `FlareSolverr` endpoint is
+an administrator-controlled outbound trust boundary and should be reachable
+only over a trusted local or private network.
+
+Master-key rotation is not implemented yet. Back up the key independently from
+the database and treat loss of the key as loss of the encrypted credentials.

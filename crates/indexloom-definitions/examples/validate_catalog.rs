@@ -4,8 +4,11 @@ use indexloom_definitions::parse_yaml;
 
 fn main() -> ExitCode {
     match validate_catalog() {
-        Ok(count) => {
-            println!("Validated {count} IndexLoom definition(s) with the Rust model.");
+        Ok(report) => {
+            println!(
+                "Validated {} IndexLoom definition(s), {} secret field(s), and {} FlareSolverr-aware definition(s) with the Rust model.",
+                report.definitions, report.secret_fields, report.flaresolverr_definitions
+            );
             ExitCode::SUCCESS
         }
         Err(error) => {
@@ -15,7 +18,13 @@ fn main() -> ExitCode {
     }
 }
 
-fn validate_catalog() -> Result<usize, String> {
+struct Report {
+    definitions: usize,
+    secret_fields: usize,
+    flaresolverr_definitions: usize,
+}
+
+fn validate_catalog() -> Result<Report, String> {
     let mut arguments = env::args_os().skip(1);
     let directory = PathBuf::from(
         arguments
@@ -35,6 +44,8 @@ fn validate_catalog() -> Result<usize, String> {
     paths.sort();
 
     let mut identifiers = BTreeSet::new();
+    let mut secret_fields = 0;
+    let mut flaresolverr_definitions = 0;
     for path in &paths {
         let metadata = fs::symlink_metadata(path)
             .map_err(|error| format!("cannot inspect {}: {error}", path.display()))?;
@@ -59,6 +70,23 @@ fn validate_catalog() -> Result<usize, String> {
         if !identifiers.insert(definition.metadata.id.clone()) {
             return Err(format!("duplicate metadata.id {}", definition.metadata.id));
         }
+        let configuration = definition.configuration_schema();
+        let mut field_names = BTreeSet::new();
+        for field in configuration.fields {
+            if !field_names.insert(field.name.clone()) {
+                return Err(format!(
+                    "{} contains duplicate configuration field {}",
+                    path.display(),
+                    field.name
+                ));
+            }
+            secret_fields += usize::from(field.secret);
+        }
+        flaresolverr_definitions += usize::from(configuration.flaresolverr_recommended);
     }
-    Ok(paths.len())
+    Ok(Report {
+        definitions: paths.len(),
+        secret_fields,
+        flaresolverr_definitions,
+    })
 }

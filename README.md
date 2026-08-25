@@ -44,13 +44,28 @@ cargo run -p indexloom-definitions --example validate_catalog -- \
 
 ## Development
 
-The supported development path is Docker Compose:
+Create a local `.env` with independent administrator and encryption keys:
+
+```bash
+cp .env.example .env
+openssl rand -hex 32
+openssl rand -base64 32
+```
+
+Put the first value in `INDEXLOOM_ADMIN_TOKEN` and the second in
+`INDEXLOOM_MASTER_KEY`. Never reuse the admin token as the encryption key and
+do not lose the master key: encrypted tracker credentials cannot be recovered
+without it. Then use the supported Docker Compose path:
 
 ```bash
 docker compose up --build
 ```
 
 The API health endpoint is available at `http://127.0.0.1:8080/api/v1/health`.
+The Indexers screen accepts the administrator token for the current browser-tab
+session and manages per-indexer cookies, API keys, login credentials,
+`User-Agent` overrides, and `FlareSolverr` routing. Secret values are never
+returned by the API after saving.
 
 ## Versioning
 
