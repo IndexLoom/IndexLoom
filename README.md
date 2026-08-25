@@ -14,16 +14,17 @@ engine written in Rust with a React and TypeScript web interface.
 - Normalized categories, capabilities and results across heterogeneous sources.
 - SQLite-first storage with a clean boundary for a future PostgreSQL backend.
 - A documented REST API and a responsive web interface.
-- Safe, explicit import adapters for supported third-party definition formats.
+- Verifiable, licensed catalog conversion and explicit runtime import adapters.
 
 ## Repository boundaries
 
-This repository contains only the original IndexLoom implementation. Source
-code and definitions from Jackett, Prowlarr and Prowlarr/Indexers are not
-vendored. Importing third-party definitions is an explicit user action and does
-not change the license of those definitions.
+This repository contains only the original IndexLoom implementation and does
+not vendor Jackett or Prowlarr source or definitions. The separate catalog
+repository reproducibly converts compatible Cardigann definitions, pins their
+source revisions, preserves their license and provenance, and removes duplicate
+site definitions.
 
-The community-maintained IndexLoom definitions live in the separate
+The generated and community-maintained IndexLoom catalog lives in the separate
 [IndexLoom/Indexers](https://github.com/IndexLoom/Indexers) repository.
 
 The product shell follows the design direction recorded in
@@ -33,6 +34,13 @@ the mockup's sample indexers and results are not shipped as application data.
 The application owns the executable Rust contract for
 `indexloom.io/v1alpha1`. Its JSON Schema is mirrored into the Indexers
 repository and checked there in CI.
+
+To validate a checked-out catalog against the Rust model:
+
+```bash
+cargo run -p indexloom-definitions --example validate_catalog -- \
+  /path/to/Indexers/definitions
+```
 
 ## Development
 

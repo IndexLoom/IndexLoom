@@ -15,14 +15,15 @@ The roadmap describes ordering, not release dates.
 - Indexer configuration and encrypted secret storage boundary.
 - Concurrent search orchestration and normalized result categories.
 - Search history, per-indexer health, structured errors, and API documentation.
-- First reviewed original definitions in `IndexLoom/Indexers`.
+- Execute and compatibility-test the generated Cardigann catalog from
+  `IndexLoom/Indexers`.
 
 ## Application integrations (`0.3.x`)
 
 - Torznab-compatible API surface.
 - Download-client integrations and notifications.
 - Statistics, rate limiting, scheduling, and backup/restore.
-- Compatibility-tested external import adapters where licensing permits.
+- Compatibility-tested runtime import adapters where licensing permits.
 
 ## Stabilization (`0.x`)
 

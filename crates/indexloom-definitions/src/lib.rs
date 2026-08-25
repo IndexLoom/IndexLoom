@@ -1,12 +1,15 @@
 //! Canonical, versioned `IndexLoom` definition model.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
 use thiserror::Error;
 
 /// Current pre-stable schema identifier.
 pub const API_VERSION: &str = "indexloom.io/v1alpha1";
+/// Reproducible catalog converter identifier.
+pub const GENERATED_BY: &str = "indexloom-importer/v1";
+/// License carried by converted Cardigann definitions.
+pub const CARDIGANN_LICENSE: &str = "GPL-2.0-only";
 
 /// A complete YAML indexer definition.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -18,6 +21,8 @@ pub struct IndexerDefinition {
     pub kind: String,
     /// Human and machine-readable identity.
     pub metadata: Metadata,
+    /// Verifiable source and conversion metadata.
+    pub provenance: Provenance,
     /// Executable indexer behavior.
     pub spec: IndexerSpec,
 }
@@ -30,28 +35,80 @@ pub struct Metadata {
     pub id: String,
     /// Display name.
     pub name: String,
-    /// Optional summary.
-    pub description: Option<String>,
+    /// Human-readable summary.
+    pub description: String,
     /// Definition language tag.
-    pub language: Option<String>,
+    pub language: String,
 }
 
-/// Runtime-neutral behavior consumed by the engine.
+/// Reproducibility metadata for a converted definition.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Provenance {
+    /// Deterministic converter and format revision.
+    pub generated_by: String,
+    /// Exact upstream source document.
+    pub source: SourceProvenance,
+}
+
+/// Immutable origin of one converted definition.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceProvenance {
+    /// Upstream project identifier.
+    pub project: SourceProject,
+    /// Canonical upstream Git repository URL.
+    pub repository: String,
+    /// Full upstream Git commit SHA.
+    pub revision: String,
+    /// Source path relative to the repository root.
+    pub path: String,
+    /// Original identifier before canonicalization.
+    pub source_id: String,
+    /// SPDX license identifier inherited by the generated definition.
+    pub license: String,
+    /// SHA-256 of the exact source file bytes.
+    pub file_sha256: String,
+    /// SHA-256 of the canonicalized source document.
+    pub content_sha256: String,
+}
+
+/// Supported catalog origins.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceProject {
+    /// Jackett's Cardigann definition catalog.
+    Jackett,
+    /// Prowlarr's Cardigann compatibility catalog.
+    ProwlarrIndexers,
+}
+
+/// Runtime-neutral definition envelope.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IndexerSpec {
+    /// Result transport exposed by the indexer.
+    pub protocol: Protocol,
     /// Access model of the upstream indexer.
     pub privacy: Privacy,
-    /// Candidate upstream base URLs.
+    /// Candidate current upstream base URLs.
     pub base_urls: Vec<String>,
-    /// Supported normalized search capabilities.
+    /// Historical or fallback upstream URLs.
     #[serde(default)]
-    pub capabilities: Vec<String>,
-    /// User-configurable fields.
+    pub legacy_urls: Vec<String>,
+    /// Definition identifiers superseded by this definition.
     #[serde(default)]
-    pub settings: Vec<SettingDefinition>,
-    /// Search request and extraction rules.
-    pub search: SearchDefinition,
+    pub replaced_ids: Vec<String>,
+    /// Engine-specific declarative implementation.
+    pub implementation: CardigannImplementation,
+}
+
+/// Supported result protocols.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Protocol {
+    /// `BitTorrent` metadata and releases.
+    Torrent,
 }
 
 /// Upstream access model.
@@ -66,79 +123,42 @@ pub enum Privacy {
     Private,
 }
 
-/// One user-facing setting requested by a definition.
+/// Lossless Cardigann compatibility document inside the `IndexLoom` envelope.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SettingDefinition {
-    /// Stable key stored in the database.
-    pub key: String,
-    /// Label displayed in the UI.
-    pub label: String,
-    /// Input type understood by the frontend.
-    #[serde(rename = "type")]
-    pub value_type: SettingType,
-    /// Whether the value is required.
+pub struct CardigannImplementation {
+    /// Declarative execution engine.
+    pub engine: DefinitionEngine,
+    /// Source response encoding.
+    pub encoding: String,
+    /// Whether HTTP redirects may be followed after policy checks.
+    pub follow_redirects: Option<bool>,
+    /// Whether download links should be tested as torrents.
+    pub test_link_torrent: Option<bool>,
+    /// Minimum delay between requests.
+    pub request_delay_seconds: Option<f64>,
+    /// Explicit certificate material used by a small number of definitions.
     #[serde(default)]
-    pub required: bool,
-    /// Whether the value must be treated as a secret.
+    pub certificates: Vec<String>,
+    /// Search modes and category mappings.
+    pub capabilities: Value,
+    /// User-facing configuration declarations.
     #[serde(default)]
-    pub secret: bool,
+    pub settings: Vec<Value>,
+    /// Optional authentication workflow.
+    pub authentication: Option<Value>,
+    /// Optional secondary download-page extraction workflow.
+    pub download: Option<Value>,
+    /// Search requests, selectors, filters, and normalized result fields.
+    pub search: Value,
 }
 
-/// Supported configuration input types.
+/// Supported declarative execution engines.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum SettingType {
-    /// Single-line string.
-    Text,
-    /// Masked secret.
-    Password,
-    /// Boolean toggle.
-    Boolean,
-    /// Numeric value.
-    Number,
-}
-
-/// Search request and HTML extraction rules.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SearchDefinition {
-    /// HTTP method used for search.
-    pub method: HttpMethod,
-    /// Path relative to the selected base URL.
-    pub path: String,
-    /// Query or form parameters expressed as templates.
-    #[serde(default)]
-    pub inputs: BTreeMap<String, String>,
-    /// CSS selector for result rows.
-    pub rows: String,
-    /// Named extraction rules for normalized result fields.
-    pub fields: BTreeMap<String, FieldSelector>,
-}
-
-/// HTTP methods initially accepted by the schema.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum HttpMethod {
-    /// HTTP GET.
-    Get,
-    /// HTTP POST.
-    Post,
-}
-
-/// CSS-based field extraction.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct FieldSelector {
-    /// CSS selector relative to a result row.
-    pub selector: String,
-    /// Attribute to read, or `text` for text content.
-    #[serde(default = "default_text_attribute")]
-    pub attribute: String,
-}
-
-fn default_text_attribute() -> String {
-    "text".to_owned()
+pub enum DefinitionEngine {
+    /// Cardigann-compatible request and extraction behavior.
+    Cardigann,
 }
 
 /// Definition parsing and validation errors.
@@ -182,21 +202,89 @@ pub fn validate(definition: &IndexerDefinition) -> Result<(), DefinitionError> {
     if definition.kind != "Indexer" {
         return Err(DefinitionError::Invalid("kind must be Indexer".to_owned()));
     }
-    if definition.metadata.id.is_empty()
-        || !definition.metadata.id.chars().all(|character| {
-            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
-        })
-    {
+    if !is_canonical_id(&definition.metadata.id) {
         return Err(DefinitionError::Invalid(
-            "metadata.id must contain lowercase ASCII letters, digits or hyphens".to_owned(),
+            "metadata.id must be lowercase kebab-case ASCII".to_owned(),
         ));
     }
-    if definition.spec.base_urls.is_empty() {
+    if definition.metadata.name.is_empty() || definition.metadata.language.is_empty() {
         return Err(DefinitionError::Invalid(
-            "spec.baseUrls must not be empty".to_owned(),
+            "metadata.name and metadata.language must not be empty".to_owned(),
+        ));
+    }
+    if definition.spec.base_urls.is_empty()
+        || definition
+            .spec
+            .base_urls
+            .iter()
+            .any(|url| !(url.starts_with("http://") || url.starts_with("https://")))
+    {
+        return Err(DefinitionError::Invalid(
+            "spec.baseUrls must contain HTTP(S) URLs".to_owned(),
+        ));
+    }
+    if definition.provenance.generated_by != GENERATED_BY {
+        return Err(DefinitionError::Invalid(
+            "unsupported provenance.generatedBy value".to_owned(),
+        ));
+    }
+    let source = &definition.provenance.source;
+    if source.license != CARDIGANN_LICENSE {
+        return Err(DefinitionError::Invalid(
+            "converted Cardigann definitions must retain GPL-2.0-only".to_owned(),
+        ));
+    }
+    if !source.repository.starts_with("https://github.com/")
+        || source.path.is_empty()
+        || source.path.starts_with('/')
+        || source.path.split('/').any(|part| part == "..")
+    {
+        return Err(DefinitionError::Invalid(
+            "invalid provenance source location".to_owned(),
+        ));
+    }
+    if !is_lower_hex(&source.revision, 40)
+        || !is_lower_hex(&source.file_sha256, 64)
+        || !is_lower_hex(&source.content_sha256, 64)
+    {
+        return Err(DefinitionError::Invalid(
+            "invalid provenance revision or SHA-256".to_owned(),
+        ));
+    }
+    if let Some(delay) = definition.spec.implementation.request_delay_seconds
+        && (!delay.is_finite() || delay.is_sign_negative())
+    {
+        return Err(DefinitionError::Invalid(
+            "requestDelaySeconds must be finite and non-negative".to_owned(),
+        ));
+    }
+    if !matches!(
+        definition.spec.implementation.capabilities,
+        Value::Mapping(_)
+    ) || !matches!(definition.spec.implementation.search, Value::Mapping(_))
+    {
+        return Err(DefinitionError::Invalid(
+            "Cardigann capabilities and search must be mappings".to_owned(),
         ));
     }
     Ok(())
+}
+
+fn is_canonical_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.split('-').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+        })
+}
+
+fn is_lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .chars()
+            .all(|character| character.is_ascii_digit() || ('a'..='f').contains(&character))
 }
 
 #[cfg(test)]
@@ -204,28 +292,49 @@ mod tests {
     use super::{API_VERSION, parse_yaml};
 
     #[test]
-    fn parses_minimal_definition() {
-        let source = r"
+    fn parses_converted_definition() {
+        let source = r#"
 apiVersion: indexloom.io/v1alpha1
 kind: Indexer
 metadata:
   id: example
   name: Example
+  description: Example definition
+  language: en-US
+provenance:
+  generatedBy: indexloom-importer/v1
+  source:
+    project: jackett
+    repository: https://github.com/Jackett/Jackett
+    revision: "0000000000000000000000000000000000000000"
+    path: src/Jackett.Common/Definitions/example.yml
+    sourceId: example
+    license: GPL-2.0-only
+    fileSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    contentSha256: "1111111111111111111111111111111111111111111111111111111111111111"
 spec:
+  protocol: torrent
   privacy: public
   baseUrls:
-    - https://example.invalid
-  search:
-    method: GET
-    path: /search
-    rows: .result
-    fields:
-      title:
-        selector: .title
-";
+    - https://example.invalid/
+  implementation:
+    engine: cardigann
+    encoding: UTF-8
+    capabilities: {}
+    settings: []
+    search:
+      paths:
+        - path: /search
+      rows:
+        selector: .result
+      fields:
+        title:
+          selector: .title
+"#;
 
         let definition = parse_yaml(source).expect("definition should parse");
         assert_eq!(definition.api_version, API_VERSION);
         assert_eq!(definition.metadata.id, "example");
+        assert_eq!(definition.provenance.source.source_id, "example");
     }
 }
