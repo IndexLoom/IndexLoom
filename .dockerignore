@@ -1,0 +1,11 @@
+.git
+.github
+target
+web/node_modules
+web/dist
+data
+.env
+*.db
+*.db-shm
+*.db-wal
+*.log

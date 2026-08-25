@@ -1,0 +1,15 @@
+[package]
+name = "indexloom-importers"
+description = "Explicit third-party definition import adapters for IndexLoom"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+indexloom-definitions = { path = "../indexloom-definitions" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "indexloom-engine"
+description = "HTTP and HTML execution engine for IndexLoom definitions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+indexloom-definitions = { path = "../indexloom-definitions" }
+reqwest.workspace = true
+scraper.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

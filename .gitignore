@@ -1,0 +1,15 @@
+/target/
+/web/node_modules/
+/web/dist/
+*.tsbuildinfo
+/data/
+/.env
+/.env.*
+!/.env.example
+*.db
+*.db-shm
+*.db-wal
+*.log
+.DS_Store
+.idea/
+.vscode/
