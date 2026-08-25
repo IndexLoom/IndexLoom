@@ -1,4 +1,10 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   ApiError,
@@ -7,14 +13,33 @@ import {
   type FlareSolverrInstance,
   type FlareSolverrUpdate,
   type Indexer,
+  type IndexerGroup,
+  type IndexerGroupUpdate,
+  type IndexerSelection,
+  type IndexerTestJob,
+  type OutboundProxy,
+  type OutboundProxyUpdate,
+  type ProxyKind,
+  type RoutingSettings,
   fetchFlareSolverr,
+  fetchGroups,
+  fetchIndexerTestJob,
   fetchIndexers,
+  fetchProxies,
+  fetchRouting,
+  removeGroup,
   removeFlareSolverr,
+  removeProxy,
+  saveGroup,
   saveFlareSolverr,
   saveIndexerConfiguration,
+  saveIndexerOrganization,
+  saveProxy,
+  saveRouting,
+  startIndexerTests,
 } from "../lib/api";
+import { AdminTokenGate, useAdminSession } from "./AdminSession";
 
-const ADMIN_SESSION_KEY = "indexloom.admin-token.v1";
 const EMPTY_CONNECTOR: ConnectorDraft = {
   id: "",
   name: "",
@@ -24,6 +49,28 @@ const EMPTY_CONNECTOR: ConnectorDraft = {
 };
 
 type ConnectorDraft = FlareSolverrUpdate & { id: string };
+type ProxyDraft = OutboundProxyUpdate & { id: string };
+type GroupDraft = IndexerGroupUpdate & { id: string };
+
+const EMPTY_PROXY: ProxyDraft = {
+  id: "",
+  name: "",
+  kind: "http",
+  host: "",
+  port: 8080,
+  enabled: true,
+  username: null,
+  clearPassword: false,
+};
+
+const EMPTY_GROUP: GroupDraft = {
+  id: "",
+  name: "",
+  description: "",
+  enabled: true,
+  priority: 0,
+  proxyId: null,
+};
 
 type ManagerState =
   | { kind: "loading" }
@@ -32,60 +79,18 @@ type ManagerState =
       kind: "ready";
       indexers: Indexer[];
       connectors: FlareSolverrInstance[];
+      proxies: OutboundProxy[];
+      groups: IndexerGroup[];
+      routing: RoutingSettings;
     };
 
 export function IndexersWorkspace() {
-  const [token, setToken] = useState(() => sessionStorage.getItem(ADMIN_SESSION_KEY) ?? "");
-
-  const acceptToken = useCallback((value: string) => {
-    sessionStorage.setItem(ADMIN_SESSION_KEY, value);
-    setToken(value);
-  }, []);
-
-  const clearToken = useCallback(() => {
-    sessionStorage.removeItem(ADMIN_SESSION_KEY);
-    setToken("");
-  }, []);
+  const { token, acceptToken, clearToken } = useAdminSession();
 
   if (!token) {
     return <AdminTokenGate onSubmit={acceptToken} />;
   }
   return <IndexersManager onUnauthorized={clearToken} token={token} />;
-}
-
-function AdminTokenGate({ onSubmit }: { onSubmit: (token: string) => void }) {
-  const [value, setValue] = useState("");
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (value.length >= 32) {
-      onSubmit(value);
-    }
-  }
-
-  return (
-    <section className="empty-view credential-gate" aria-labelledby="credential-heading">
-      <p className="eyebrow">Protected configuration</p>
-      <h1 id="credential-heading">Administrator token</h1>
-      <p>
-        Tracker cookies, API keys, and passwords are managed through an authenticated API.
-        The token is kept only in this browser tab session.
-      </p>
-      <form className="credential-gate-form" onSubmit={submit}>
-        <label htmlFor="admin-token">INDEXLOOM_ADMIN_TOKEN</label>
-        <input
-          autoComplete="current-password"
-          id="admin-token"
-          minLength={32}
-          onChange={(event) => setValue(event.target.value)}
-          required
-          type="password"
-          value={value}
-        />
-        <button className="primary-button" type="submit">Unlock</button>
-      </form>
-    </section>
-  );
 }
 
 function IndexersManager({
@@ -102,9 +107,19 @@ function IndexersManager({
     Promise.all([
       fetchIndexers(token, controller.signal),
       fetchFlareSolverr(token, controller.signal),
+      fetchProxies(token, controller.signal),
+      fetchGroups(token, controller.signal),
+      fetchRouting(token, controller.signal),
     ])
-      .then(([indexers, connectors]) => {
-        setState({ kind: "ready", indexers, connectors });
+      .then(([indexers, connectors, proxies, groups, routing]) => {
+        setState({
+          kind: "ready",
+          indexers,
+          connectors,
+          proxies,
+          groups,
+          routing,
+        });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
@@ -116,17 +131,30 @@ function IndexersManager({
         }
         setState({
           kind: "error",
-          message: error instanceof Error ? error.message : "configuration request failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "configuration request failed",
         });
       });
     return () => controller.abort();
   }, [onUnauthorized, token]);
 
   if (state.kind === "loading") {
-    return <WorkspaceMessage title="Loading indexers" body="Reading redacted configuration state." />;
+    return (
+      <WorkspaceMessage
+        title="Loading indexers"
+        body="Reading redacted configuration state."
+      />
+    );
   }
   if (state.kind === "error") {
-    return <WorkspaceMessage title="Configuration unavailable" body={state.message} />;
+    return (
+      <WorkspaceMessage
+        title="Configuration unavailable"
+        body={state.message}
+      />
+    );
   }
 
   function updateConnector(connector: FlareSolverrInstance) {
@@ -134,7 +162,9 @@ function IndexersManager({
       if (current.kind !== "ready") {
         return current;
       }
-      const connectors = current.connectors.filter((item) => item.id !== connector.id);
+      const connectors = current.connectors.filter(
+        (item) => item.id !== connector.id,
+      );
       connectors.push(connector);
       connectors.sort((left, right) => left.name.localeCompare(right.name));
       return { ...current, connectors };
@@ -146,7 +176,9 @@ function IndexersManager({
       current.kind === "ready"
         ? {
             ...current,
-            connectors: current.connectors.filter((connector) => connector.id !== id),
+            connectors: current.connectors.filter(
+              (connector) => connector.id !== id,
+            ),
             indexers: current.indexers.map((indexer) =>
               indexer.flaresolverrInstanceId === id
                 ? { ...indexer, flaresolverrInstanceId: null }
@@ -162,9 +194,73 @@ function IndexersManager({
       current.kind === "ready"
         ? {
             ...current,
-            indexers: current.indexers.map((item) => (item.id === indexer.id ? indexer : item)),
+            indexers: current.indexers.map((item) =>
+              item.id === indexer.id ? indexer : item,
+            ),
           }
         : current,
+    );
+  }
+
+  function updateProxy(proxy: OutboundProxy) {
+    setState((current) => {
+      if (current.kind !== "ready") return current;
+      const proxies = current.proxies.filter((item) => item.id !== proxy.id);
+      proxies.push(proxy);
+      proxies.sort((left, right) => left.name.localeCompare(right.name));
+      return { ...current, proxies };
+    });
+  }
+
+  function deleteProxy(id: string) {
+    setState((current) =>
+      current.kind === "ready"
+        ? {
+            ...current,
+            proxies: current.proxies.filter((proxy) => proxy.id !== id),
+            routing:
+              current.routing.globalProxyId === id
+                ? { globalProxyId: null }
+                : current.routing,
+            groups: current.groups.map((group) =>
+              group.proxyId === id ? { ...group, proxyId: null } : group,
+            ),
+            indexers: current.indexers.map((indexer) =>
+              indexer.proxyId === id ? { ...indexer, proxyId: null } : indexer,
+            ),
+          }
+        : current,
+    );
+  }
+
+  function updateGroup(group: IndexerGroup) {
+    setState((current) => {
+      if (current.kind !== "ready") return current;
+      const groups = current.groups.filter((item) => item.id !== group.id);
+      groups.push(group);
+      groups.sort((left, right) => left.name.localeCompare(right.name));
+      return { ...current, groups };
+    });
+  }
+
+  function deleteGroup(id: string) {
+    setState((current) =>
+      current.kind === "ready"
+        ? {
+            ...current,
+            groups: current.groups.filter((group) => group.id !== id),
+            indexers: current.indexers.map((indexer) => ({
+              ...indexer,
+              groupIds: indexer.groupIds.filter((groupId) => groupId !== id),
+            })),
+          }
+        : current,
+    );
+  }
+
+  function updateRouting(routing: RoutingSettings) {
+    setState((current) =>
+      current.kind === "ready" ? { ...current, routing } : current,
     );
   }
 
@@ -175,7 +271,9 @@ function IndexersManager({
           <p className="eyebrow">Network identity and credentials</p>
           <h1 id="indexers-heading">Indexers</h1>
         </div>
-        <button className="quiet-button" onClick={onUnauthorized} type="button">Lock</button>
+        <button className="quiet-button" onClick={onUnauthorized} type="button">
+          Lock
+        </button>
       </div>
 
       <FlareSolverrPanel
@@ -186,33 +284,41 @@ function IndexersManager({
         token={token}
       />
 
-      <section className="configuration-section" aria-labelledby="tracker-config-heading">
-        <div className="section-heading stacked-heading">
-          <div>
-            <h2 id="tracker-config-heading">Tracker configurations</h2>
-            <p>Secret values are encrypted at rest and the API returns only configured/not configured state.</p>
-          </div>
-          <span className="muted">{state.indexers.length} configured</span>
-        </div>
-        {state.indexers.length === 0 ? (
-          <div className="panel-empty">
-            No indexer instances are installed yet. Configuration controls will appear here after a definition is installed.
-          </div>
-        ) : (
-          <div className="indexer-grid">
-            {state.indexers.map((indexer) => (
-              <IndexerEditor
-                connectors={state.connectors}
-                indexer={indexer}
-                key={indexer.id}
-                onSaved={updateIndexer}
-                onUnauthorized={onUnauthorized}
-                token={token}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      <ProxyPanel
+        onDelete={deleteProxy}
+        onRouting={updateRouting}
+        onUnauthorized={onUnauthorized}
+        onUpdate={updateProxy}
+        proxies={state.proxies}
+        routing={state.routing}
+        token={token}
+      />
+
+      <GroupPanel
+        groups={state.groups}
+        onDelete={deleteGroup}
+        onUnauthorized={onUnauthorized}
+        onUpdate={updateGroup}
+        proxies={state.proxies}
+        token={token}
+      />
+
+      <IndexerTestPanel
+        groups={state.groups}
+        indexers={state.indexers}
+        onUnauthorized={onUnauthorized}
+        token={token}
+      />
+
+      <IndexerConfigurationPanel
+        connectors={state.connectors}
+        groups={state.groups}
+        indexers={state.indexers}
+        onSaved={updateIndexer}
+        onUnauthorized={onUnauthorized}
+        proxies={state.proxies}
+        token={token}
+      />
     </section>
   );
 }
@@ -222,6 +328,840 @@ function WorkspaceMessage({ title, body }: { title: string; body: string }) {
     <section className="empty-view">
       <h1>{title}</h1>
       <p>{body}</p>
+    </section>
+  );
+}
+
+function ProxyPanel({
+  proxies,
+  routing,
+  token,
+  onUpdate,
+  onDelete,
+  onRouting,
+  onUnauthorized,
+}: {
+  proxies: OutboundProxy[];
+  routing: RoutingSettings;
+  token: string;
+  onUpdate: (proxy: OutboundProxy) => void;
+  onDelete: (id: string) => void;
+  onRouting: (routing: RoutingSettings) => void;
+  onUnauthorized: () => void;
+}) {
+  const [draft, setDraft] = useState<ProxyDraft>({ ...EMPTY_PROXY });
+  const [editing, setEditing] = useState(false);
+  const [password, setPassword] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setDraft({ ...EMPTY_PROXY });
+    setPassword("");
+    setEditing(false);
+  }
+
+  function edit(proxy: OutboundProxy) {
+    setDraft({
+      id: proxy.id,
+      name: proxy.name,
+      kind: proxy.kind,
+      host: proxy.host,
+      port: proxy.port,
+      enabled: proxy.enabled,
+      username: proxy.username,
+      clearPassword: false,
+    });
+    setPassword("");
+    setEditing(true);
+    setStatus(null);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setStatus(null);
+    try {
+      const update: OutboundProxyUpdate = {
+        name: draft.name,
+        kind: draft.kind,
+        host: draft.host,
+        port: draft.port,
+        enabled: draft.enabled,
+        username: draft.username?.trim() || null,
+        clearPassword: draft.clearPassword,
+      };
+      if (password) update.password = password;
+      const proxy = await saveProxy(token, draft.id, update);
+      onUpdate(proxy);
+      reset();
+      setStatus("Outbound proxy saved.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        return onUnauthorized();
+      setStatus(error instanceof Error ? error.message : "proxy save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (
+      !window.confirm(
+        "Delete this outbound proxy? Global, group and indexer assignments will fall back automatically.",
+      )
+    )
+      return;
+    try {
+      await removeProxy(token, id);
+      onDelete(id);
+      if (draft.id === id) reset();
+      setStatus("Outbound proxy deleted.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        return onUnauthorized();
+      setStatus(error instanceof Error ? error.message : "proxy delete failed");
+    }
+  }
+
+  async function changeGlobal(value: string) {
+    try {
+      onRouting(await saveRouting(token, { globalProxyId: value || null }));
+      setStatus(
+        value ? "Global proxy route saved." : "Global direct route saved.",
+      );
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        return onUnauthorized();
+      setStatus(error instanceof Error ? error.message : "routing save failed");
+    }
+  }
+
+  return (
+    <section className="configuration-section" aria-labelledby="proxy-heading">
+      <div className="section-heading stacked-heading">
+        <div>
+          <h2 id="proxy-heading">Outbound proxies</h2>
+          <p>
+            HTTP, SOCKS4a and SOCKS5h routes can be assigned globally, by group,
+            or to one indexer.
+          </p>
+        </div>
+        <label className="inline-select">
+          Global route
+          <select
+            onChange={(event) => void changeGlobal(event.target.value)}
+            value={routing.globalProxyId ?? ""}
+          >
+            <option value="">Direct</option>
+            {proxies
+              .filter((proxy) => proxy.enabled)
+              .map((proxy) => (
+                <option key={proxy.id} value={proxy.id}>
+                  {proxy.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      </div>
+      <div className="connector-layout">
+        <div className="connector-list">
+          {proxies.length === 0 ? (
+            <p className="panel-empty">No outbound proxies configured.</p>
+          ) : null}
+          {proxies.map((proxy) => (
+            <article className="connector-row" key={proxy.id}>
+              <div>
+                <strong>{proxy.name}</strong>
+                <span>
+                  {proxy.kind} · {proxy.host}:{proxy.port}
+                  {proxy.passwordConfigured ? " · password saved" : ""}
+                </span>
+              </div>
+              <span
+                className={
+                  proxy.enabled ? "status-pill healthy" : "status-pill"
+                }
+              >
+                {proxy.enabled ? "enabled" : "disabled"}
+              </span>
+              <button
+                className="text-button"
+                onClick={() => edit(proxy)}
+                type="button"
+              >
+                Edit
+              </button>
+              <button
+                className="text-button danger"
+                onClick={() => void remove(proxy.id)}
+                type="button"
+              >
+                Delete
+              </button>
+            </article>
+          ))}
+        </div>
+        <form className="connector-form" onSubmit={submit}>
+          <label>
+            Proxy ID
+            <input
+              disabled={editing}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, id: event.target.value }))
+              }
+              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+              placeholder="tracker-proxy"
+              required
+              value={draft.id}
+            />
+          </label>
+          <label>
+            Name
+            <input
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
+              required
+              value={draft.name}
+            />
+          </label>
+          <label>
+            Protocol
+            <select
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  kind: event.target.value as ProxyKind,
+                }))
+              }
+              value={draft.kind}
+            >
+              <option value="http">HTTP</option>
+              <option value="socks4">SOCKS4a</option>
+              <option value="socks5">SOCKS5h</option>
+            </select>
+          </label>
+          <label>
+            Port
+            <input
+              max={65535}
+              min={1}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  port: event.target.valueAsNumber,
+                }))
+              }
+              required
+              type="number"
+              value={draft.port}
+            />
+          </label>
+          <label className="wide-field">
+            Host
+            <input
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  host: event.target.value,
+                }))
+              }
+              placeholder="proxy.example.net"
+              required
+              value={draft.host}
+            />
+          </label>
+          <label>
+            Username
+            <input
+              autoComplete="off"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  username: event.target.value,
+                }))
+              }
+              value={draft.username ?? ""}
+            />
+          </label>
+          <label>
+            Password
+            <input
+              autoComplete="new-password"
+              disabled={draft.clearPassword}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder={editing ? "Leave blank to preserve" : "Optional"}
+              type="password"
+              value={password}
+            />
+          </label>
+          {editing ? (
+            <label className="checkbox-field wide-field">
+              <input
+                checked={draft.clearPassword}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    clearPassword: event.target.checked,
+                  }))
+                }
+                type="checkbox"
+              />
+              Clear saved password
+            </label>
+          ) : null}
+          <label className="checkbox-field">
+            <input
+              checked={draft.enabled}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  enabled: event.target.checked,
+                }))
+              }
+              type="checkbox"
+            />
+            Enabled
+          </label>
+          <div className="form-actions wide-field">
+            <button className="primary-button" disabled={saving} type="submit">
+              {saving ? "Saving…" : editing ? "Update proxy" : "Add proxy"}
+            </button>
+            {editing ? (
+              <button className="quiet-button" onClick={reset} type="button">
+                Cancel
+              </button>
+            ) : null}
+          </div>
+          {status ? (
+            <p className="form-status wide-field" role="status">
+              {status}
+            </p>
+          ) : null}
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function GroupPanel({
+  groups,
+  proxies,
+  token,
+  onUpdate,
+  onDelete,
+  onUnauthorized,
+}: {
+  groups: IndexerGroup[];
+  proxies: OutboundProxy[];
+  token: string;
+  onUpdate: (group: IndexerGroup) => void;
+  onDelete: (id: string) => void;
+  onUnauthorized: () => void;
+}) {
+  const [draft, setDraft] = useState<GroupDraft>({ ...EMPTY_GROUP });
+  const [editing, setEditing] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  function reset() {
+    setDraft({ ...EMPTY_GROUP });
+    setEditing(false);
+  }
+  function edit(group: IndexerGroup) {
+    setDraft({
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      enabled: group.enabled,
+      priority: group.priority,
+      proxyId: group.proxyId,
+    });
+    setEditing(true);
+    setStatus(null);
+  }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      onUpdate(
+        await saveGroup(token, draft.id, {
+          name: draft.name,
+          description: draft.description,
+          enabled: draft.enabled,
+          priority: draft.priority,
+          proxyId: draft.proxyId || null,
+        }),
+      );
+      reset();
+      setStatus("Indexer group saved.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        return onUnauthorized();
+      setStatus(error instanceof Error ? error.message : "group save failed");
+    }
+  }
+  async function remove(id: string) {
+    if (
+      !window.confirm(
+        "Delete this group? Indexers stay installed and only membership is removed.",
+      )
+    )
+      return;
+    try {
+      await removeGroup(token, id);
+      onDelete(id);
+      if (draft.id === id) reset();
+      setStatus("Indexer group deleted.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        return onUnauthorized();
+      setStatus(error instanceof Error ? error.message : "group delete failed");
+    }
+  }
+  return (
+    <section className="configuration-section" aria-labelledby="group-heading">
+      <div className="section-heading stacked-heading">
+        <div>
+          <h2 id="group-heading">Indexer groups</h2>
+          <p>
+            One indexer can belong to several groups. Higher-priority enabled
+            groups provide the inherited proxy.
+          </p>
+        </div>
+        <span className="muted">{groups.length} groups</span>
+      </div>
+      <div className="connector-layout">
+        <div className="connector-list">
+          {groups.length === 0 ? (
+            <p className="panel-empty">No groups configured.</p>
+          ) : null}
+          {groups.map((group) => (
+            <article className="connector-row" key={group.id}>
+              <div>
+                <strong>{group.name}</strong>
+                <span>
+                  {group.memberCount} members · priority {group.priority}
+                  {group.proxyId ? ` · proxy ${group.proxyId}` : ""}
+                </span>
+              </div>
+              <span
+                className={
+                  group.enabled ? "status-pill healthy" : "status-pill"
+                }
+              >
+                {group.enabled ? "enabled" : "disabled"}
+              </span>
+              <button
+                className="text-button"
+                onClick={() => edit(group)}
+                type="button"
+              >
+                Edit
+              </button>
+              <button
+                className="text-button danger"
+                onClick={() => void remove(group.id)}
+                type="button"
+              >
+                Delete
+              </button>
+            </article>
+          ))}
+        </div>
+        <form className="connector-form" onSubmit={submit}>
+          <label>
+            Group ID
+            <input
+              disabled={editing}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, id: event.target.value }))
+              }
+              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+              placeholder="anime"
+              required
+              value={draft.id}
+            />
+          </label>
+          <label>
+            Name
+            <input
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
+              required
+              value={draft.name}
+            />
+          </label>
+          <label>
+            Priority
+            <input
+              max={10000}
+              min={-10000}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  priority: event.target.valueAsNumber,
+                }))
+              }
+              required
+              type="number"
+              value={draft.priority}
+            />
+          </label>
+          <label>
+            Inherited proxy
+            <select
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  proxyId: event.target.value || null,
+                }))
+              }
+              value={draft.proxyId ?? ""}
+            >
+              <option value="">Inherit global</option>
+              {proxies
+                .filter((proxy) => proxy.enabled)
+                .map((proxy) => (
+                  <option key={proxy.id} value={proxy.id}>
+                    {proxy.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label className="wide-field">
+            Description
+            <input
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
+              }
+              value={draft.description}
+            />
+          </label>
+          <label className="checkbox-field">
+            <input
+              checked={draft.enabled}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  enabled: event.target.checked,
+                }))
+              }
+              type="checkbox"
+            />
+            Enabled
+          </label>
+          <div className="form-actions wide-field">
+            <button className="primary-button" type="submit">
+              {editing ? "Update group" : "Add group"}
+            </button>
+            {editing ? (
+              <button className="quiet-button" onClick={reset} type="button">
+                Cancel
+              </button>
+            ) : null}
+          </div>
+          {status ? (
+            <p className="form-status wide-field" role="status">
+              {status}
+            </p>
+          ) : null}
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function IndexerTestPanel({
+  indexers,
+  groups,
+  token,
+  onUnauthorized,
+}: {
+  indexers: Indexer[];
+  groups: IndexerGroup[];
+  token: string;
+  onUnauthorized: () => void;
+}) {
+  const [selection, setSelection] = useState<IndexerSelection>({
+    all: true,
+    indexerIds: [],
+    groupIds: [],
+  });
+  const [job, setJob] = useState<IndexerTestJob | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!job || job.status === "completed") return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      fetchIndexerTestJob(token, job.id)
+        .then((next) => {
+          if (active) setJob(next);
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          if (error instanceof ApiError && error.status === 401)
+            onUnauthorized();
+          else
+            setStatus(
+              error instanceof Error
+                ? error.message
+                : "test status request failed",
+            );
+        });
+    }, 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [job, onUnauthorized, token]);
+
+  function toggle(
+    kind: "indexerIds" | "groupIds",
+    id: string,
+    checked: boolean,
+  ) {
+    const values = new Set(selection[kind]);
+    if (checked) values.add(id);
+    else values.delete(id);
+    setSelection({
+      ...selection,
+      all: false,
+      [kind]: Array.from(values).sort(),
+    });
+  }
+
+  async function start(chosen: IndexerSelection) {
+    setStatus(null);
+    try {
+      setJob(await startIndexerTests(token, chosen));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401)
+        return onUnauthorized();
+      setStatus(error instanceof Error ? error.message : "test start failed");
+    }
+  }
+
+  return (
+    <section className="configuration-section" aria-labelledby="test-heading">
+      <div className="section-heading stacked-heading">
+        <div>
+          <h2 id="test-heading">Indexer tests</h2>
+          <p>
+            Test every enabled indexer, selected groups, or individual
+            definitions with bounded parallelism.
+          </p>
+        </div>
+        <span className="muted">
+          {job ? `${job.completed}/${job.total} ${job.status}` : "idle"}
+        </span>
+      </div>
+      <div className="test-panel">
+        <div className="bulk-actions">
+          <button
+            className="primary-button"
+            disabled={job?.status === "running"}
+            onClick={() =>
+              void start({ all: true, indexerIds: [], groupIds: [] })
+            }
+            type="button"
+          >
+            Test all enabled
+          </button>
+          <button
+            className="quiet-button"
+            disabled={
+              job?.status === "running" ||
+              (selection.indexerIds.length === 0 &&
+                selection.groupIds.length === 0)
+            }
+            onClick={() => void start(selection)}
+            type="button"
+          >
+            Test selection
+          </button>
+        </div>
+        <details className="test-selection">
+          <summary>Choose groups and indexers</summary>
+          <div className="test-choice-grid">
+            <fieldset>
+              <legend>Groups</legend>
+              {groups.map((group) => (
+                <label className="checkbox-field" key={group.id}>
+                  <input
+                    checked={selection.groupIds.includes(group.id)}
+                    onChange={(event) =>
+                      toggle("groupIds", group.id, event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  {group.name} <small>{group.memberCount}</small>
+                </label>
+              ))}
+            </fieldset>
+            <fieldset>
+              <legend>Indexers</legend>
+              <div className="test-indexer-list">
+                {indexers
+                  .filter((indexer) => indexer.enabled)
+                  .map((indexer) => (
+                    <label className="checkbox-field" key={indexer.id}>
+                      <input
+                        checked={selection.indexerIds.includes(indexer.id)}
+                        onChange={(event) =>
+                          toggle("indexerIds", indexer.id, event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      {indexer.displayName}
+                    </label>
+                  ))}
+              </div>
+            </fieldset>
+          </div>
+        </details>
+        {status ? (
+          <p className="form-status" role="status">
+            {status}
+          </p>
+        ) : null}
+        {job?.results.length ? (
+          <div className="table-frame">
+            <table>
+              <thead>
+                <tr>
+                  <th>Indexer</th>
+                  <th>Result</th>
+                  <th>Response</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {job.results.map((result) => (
+                  <tr key={result.indexerId}>
+                    <td>{result.indexerName}</td>
+                    <td>
+                      <span
+                        className={
+                          result.success ? "status-pill healthy" : "status-pill"
+                        }
+                      >
+                        {result.success ? "success" : "failed"}
+                      </span>
+                    </td>
+                    <td>{result.responseTimeMs} ms</td>
+                    <td>{result.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function IndexerConfigurationPanel({
+  indexers,
+  connectors,
+  proxies,
+  groups,
+  token,
+  onSaved,
+  onUnauthorized,
+}: {
+  indexers: Indexer[];
+  connectors: FlareSolverrInstance[];
+  proxies: OutboundProxy[];
+  groups: IndexerGroup[];
+  token: string;
+  onSaved: (indexer: Indexer) => void;
+  onUnauthorized: () => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const [limit, setLimit] = useState(100);
+  const deferredFilter = useDeferredValue(filter.trim().toLocaleLowerCase());
+  const filtered = useMemo(
+    () =>
+      indexers.filter((indexer) => {
+        const haystack =
+          `${indexer.displayName} ${indexer.definitionId} ${indexer.tags.join(" ")}`.toLocaleLowerCase();
+        return haystack.includes(deferredFilter);
+      }),
+    [deferredFilter, indexers],
+  );
+  const visible = filtered.slice(0, limit);
+  return (
+    <section
+      className="configuration-section"
+      aria-labelledby="tracker-config-heading"
+    >
+      <div className="section-heading stacked-heading">
+        <div>
+          <h2 id="tracker-config-heading">Tracker configurations</h2>
+          <p>
+            Organization, routing, cookies, API keys and credentials are saved
+            per indexer. Secrets stay encrypted and redacted.
+          </p>
+        </div>
+        <span className="muted">
+          {filtered.length}/{indexers.length}
+        </span>
+      </div>
+      <div className="indexer-toolbar">
+        <input
+          onChange={(event) => {
+            setFilter(event.target.value);
+            setLimit(100);
+          }}
+          placeholder="Filter by name, definition or tag"
+          type="search"
+          value={filter}
+        />
+      </div>
+      {indexers.length === 0 ? (
+        <div className="panel-empty">
+          No indexer instances are installed yet. Catalog synchronization
+          installs definitions disabled by default.
+        </div>
+      ) : (
+        <div className="indexer-grid">
+          {visible.map((indexer) => (
+            <IndexerEditor
+              connectors={connectors}
+              groups={groups}
+              indexer={indexer}
+              key={indexer.id}
+              onSaved={onSaved}
+              onUnauthorized={onUnauthorized}
+              proxies={proxies}
+              token={token}
+            />
+          ))}
+        </div>
+      )}
+      {visible.length < filtered.length ? (
+        <div className="show-more">
+          <button
+            className="quiet-button"
+            onClick={() => setLimit((current) => current + 100)}
+            type="button"
+          >
+            Show 100 more
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -239,7 +1179,9 @@ function FlareSolverrPanel({
   onDelete: (id: string) => void;
   onUnauthorized: () => void;
 }) {
-  const [draft, setDraft] = useState<ConnectorDraft>(() => ({ ...EMPTY_CONNECTOR }));
+  const [draft, setDraft] = useState<ConnectorDraft>(() => ({
+    ...EMPTY_CONNECTOR,
+  }));
   const [editing, setEditing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -281,14 +1223,20 @@ function FlareSolverrPanel({
         onUnauthorized();
         return;
       }
-      setStatus(error instanceof Error ? error.message : "connector save failed");
+      setStatus(
+        error instanceof Error ? error.message : "connector save failed",
+      );
     } finally {
       setSaving(false);
     }
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Delete this FlareSolverr connector? Assigned indexers will return to direct mode.")) {
+    if (
+      !window.confirm(
+        "Delete this FlareSolverr connector? Assigned indexers will return to direct mode.",
+      )
+    ) {
       return;
     }
     setStatus(null);
@@ -304,33 +1252,59 @@ function FlareSolverrPanel({
         onUnauthorized();
         return;
       }
-      setStatus(error instanceof Error ? error.message : "connector delete failed");
+      setStatus(
+        error instanceof Error ? error.message : "connector delete failed",
+      );
     }
   }
 
   return (
-    <section className="configuration-section" aria-labelledby="flaresolverr-heading">
+    <section
+      className="configuration-section"
+      aria-labelledby="flaresolverr-heading"
+    >
       <div className="section-heading stacked-heading">
         <div>
           <h2 id="flaresolverr-heading">FlareSolverr connectors</h2>
-          <p>Use a browser solver only for definitions that need challenge handling.</p>
+          <p>
+            Use a browser solver only for definitions that need challenge
+            handling.
+          </p>
         </div>
         <span className="muted">{connectors.length} configured</span>
       </div>
       <div className="connector-layout">
         <div className="connector-list">
-          {connectors.length === 0 ? <p className="panel-empty">No connectors configured.</p> : null}
+          {connectors.length === 0 ? (
+            <p className="panel-empty">No connectors configured.</p>
+          ) : null}
           {connectors.map((connector) => (
             <article className="connector-row" key={connector.id}>
               <div>
                 <strong>{connector.name}</strong>
                 <span>{connector.endpoint}</span>
               </div>
-              <span className={connector.enabled ? "status-pill healthy" : "status-pill"}>
+              <span
+                className={
+                  connector.enabled ? "status-pill healthy" : "status-pill"
+                }
+              >
                 {connector.enabled ? "enabled" : "disabled"}
               </span>
-              <button className="text-button" onClick={() => edit(connector)} type="button">Edit</button>
-              <button className="text-button danger" onClick={() => void remove(connector.id)} type="button">Delete</button>
+              <button
+                className="text-button"
+                onClick={() => edit(connector)}
+                type="button"
+              >
+                Edit
+              </button>
+              <button
+                className="text-button danger"
+                onClick={() => void remove(connector.id)}
+                type="button"
+              >
+                Delete
+              </button>
             </article>
           ))}
         </div>
@@ -339,7 +1313,9 @@ function FlareSolverrPanel({
             Connector ID
             <input
               disabled={editing}
-              onChange={(event) => setDraft((current) => ({ ...current, id: event.target.value }))}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, id: event.target.value }))
+              }
               pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
               placeholder="local"
               required
@@ -349,7 +1325,12 @@ function FlareSolverrPanel({
           <label>
             Name
             <input
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  name: event.target.value,
+                }))
+              }
               placeholder="Local FlareSolverr"
               required
               value={draft.name}
@@ -358,7 +1339,12 @@ function FlareSolverrPanel({
           <label className="wide-field">
             Endpoint
             <input
-              onChange={(event) => setDraft((current) => ({ ...current, endpoint: event.target.value }))}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  endpoint: event.target.value,
+                }))
+              }
               required
               type="url"
               value={draft.endpoint}
@@ -369,7 +1355,12 @@ function FlareSolverrPanel({
             <input
               max={300}
               min={5}
-              onChange={(event) => setDraft((current) => ({ ...current, timeoutSeconds: event.target.valueAsNumber }))}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  timeoutSeconds: event.target.valueAsNumber,
+                }))
+              }
               required
               type="number"
               value={draft.timeoutSeconds}
@@ -378,18 +1369,35 @@ function FlareSolverrPanel({
           <label className="checkbox-field">
             <input
               checked={draft.enabled}
-              onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  enabled: event.target.checked,
+                }))
+              }
               type="checkbox"
             />
             Enabled
           </label>
           <div className="form-actions wide-field">
             <button className="primary-button" disabled={saving} type="submit">
-              {saving ? "Saving…" : editing ? "Update connector" : "Add connector"}
+              {saving
+                ? "Saving…"
+                : editing
+                  ? "Update connector"
+                  : "Add connector"}
             </button>
-            {editing ? <button className="quiet-button" onClick={reset} type="button">Cancel</button> : null}
+            {editing ? (
+              <button className="quiet-button" onClick={reset} type="button">
+                Cancel
+              </button>
+            ) : null}
           </div>
-          {status ? <p className="form-status wide-field" role="status">{status}</p> : null}
+          {status ? (
+            <p className="form-status wide-field" role="status">
+              {status}
+            </p>
+          ) : null}
         </form>
       </div>
     </section>
@@ -399,21 +1407,38 @@ function FlareSolverrPanel({
 function IndexerEditor({
   indexer,
   connectors,
+  proxies,
+  groups,
   token,
   onSaved,
   onUnauthorized,
 }: {
   indexer: Indexer;
   connectors: FlareSolverrInstance[];
+  proxies: OutboundProxy[];
+  groups: IndexerGroup[];
   token: string;
   onSaved: (indexer: Indexer) => void;
   onUnauthorized: () => void;
 }) {
-  const [values, setValues] = useState<Record<string, ConfigurationValue>>(() => initialValues(indexer));
+  const [values, setValues] = useState<Record<string, ConfigurationValue>>(() =>
+    initialValues(indexer),
+  );
   const [userAgent, setUserAgent] = useState(indexer.userAgent ?? "");
-  const [connectorId, setConnectorId] = useState(indexer.flaresolverrInstanceId ?? "");
+  const [connectorId, setConnectorId] = useState(
+    indexer.flaresolverrInstanceId ?? "",
+  );
+  const [displayName, setDisplayName] = useState(indexer.displayName);
+  const [enabled, setEnabled] = useState(indexer.enabled);
+  const [proxyId, setProxyId] = useState(indexer.proxyId ?? "");
+  const [groupIds, setGroupIds] = useState<Set<string>>(
+    () => new Set(indexer.groupIds),
+  );
+  const [tags, setTags] = useState(indexer.tags.join(", "));
   const [secretInputs, setSecretInputs] = useState<Record<string, string>>({});
-  const [clearSecrets, setClearSecrets] = useState<Set<string>>(() => new Set());
+  const [clearSecrets, setClearSecrets] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const configured = new Set(indexer.configuredSecrets);
@@ -430,6 +1455,15 @@ function IndexerEditor({
       } else {
         next.delete(name);
       }
+      return next;
+    });
+  }
+
+  function toggleGroup(id: string, included: boolean) {
+    setGroupIds((current) => {
+      const next = new Set(current);
+      if (included) next.add(id);
+      else next.delete(id);
       return next;
     });
   }
@@ -453,13 +1487,32 @@ function IndexerEditor({
       }
     }
     try {
-      const saved = await saveIndexerConfiguration(token, indexer.id, {
-        userAgent: userAgent.trim() || null,
-        flaresolverrInstanceId: connectorId || null,
-        values,
-        secrets,
+      const [configuration, organization] = await Promise.all([
+        saveIndexerConfiguration(token, indexer.id, {
+          userAgent: userAgent.trim() || null,
+          flaresolverrInstanceId: connectorId || null,
+          values,
+          secrets,
+        }),
+        saveIndexerOrganization(token, indexer.id, {
+          displayName: displayName.trim(),
+          enabled,
+          proxyId: proxyId || null,
+          groupIds: Array.from(groupIds).sort(),
+          tags: tags
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+        }),
+      ]);
+      onSaved({
+        ...configuration,
+        displayName: organization.displayName,
+        enabled: organization.enabled,
+        proxyId: organization.proxyId,
+        groupIds: organization.groupIds,
+        tags: organization.tags,
       });
-      onSaved(saved);
       setSecretInputs({});
       setClearSecrets(new Set());
       setStatus("Configuration saved. Secret values remain redacted.");
@@ -468,7 +1521,9 @@ function IndexerEditor({
         onUnauthorized();
         return;
       }
-      setStatus(error instanceof Error ? error.message : "configuration save failed");
+      setStatus(
+        error instanceof Error ? error.message : "configuration save failed",
+      );
     } finally {
       setSaving(false);
     }
@@ -481,12 +1536,82 @@ function IndexerEditor({
           <h3>{indexer.displayName}</h3>
           <p>{indexer.definitionId}</p>
         </div>
-        <span className={`privacy-pill ${indexer.privacy}`}>{indexer.privacy}</span>
+        <div className="card-badges">
+          <span className={`privacy-pill ${indexer.privacy}`}>
+            {indexer.privacy}
+          </span>
+          <span className={enabled ? "status-pill healthy" : "status-pill"}>
+            {enabled ? "enabled" : "disabled"}
+          </span>
+        </div>
       </header>
       {indexer.configurationSchema.flaresolverrRecommended ? (
-        <p className="recommendation">This definition recommends FlareSolverr challenge handling.</p>
+        <p className="recommendation">
+          This definition recommends FlareSolverr challenge handling.
+        </p>
       ) : null}
       <div className="field-grid">
+        <label className="wide-field">
+          Display name
+          <input
+            onChange={(event) => setDisplayName(event.target.value)}
+            required
+            value={displayName}
+          />
+        </label>
+        <label className="checkbox-field wide-field">
+          <input
+            checked={enabled}
+            onChange={(event) => setEnabled(event.target.checked)}
+            type="checkbox"
+          />
+          Enabled for tests and search
+        </label>
+        <label className="wide-field">
+          Tags (comma separated)
+          <input
+            onChange={(event) => setTags(event.target.value)}
+            placeholder="anime, private"
+            value={tags}
+          />
+        </label>
+        <fieldset className="group-membership wide-field">
+          <legend>Groups</legend>
+          <div>
+            {groups.length === 0 ? (
+              <small>No groups configured.</small>
+            ) : (
+              groups.map((group) => (
+                <label className="checkbox-field" key={group.id}>
+                  <input
+                    checked={groupIds.has(group.id)}
+                    onChange={(event) =>
+                      toggleGroup(group.id, event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  {group.name}
+                </label>
+              ))
+            )}
+          </div>
+        </fieldset>
+        <label className="wide-field">
+          Outbound proxy
+          <select
+            onChange={(event) => setProxyId(event.target.value)}
+            value={proxyId}
+          >
+            <option value="">Inherit group or global route</option>
+            {proxies
+              .filter((proxy) => proxy.enabled)
+              .map((proxy) => (
+                <option key={proxy.id} value={proxy.id}>
+                  {proxy.name} ({proxy.kind})
+                </option>
+              ))}
+          </select>
+        </label>
         <label className="wide-field">
           User-Agent override
           <input
@@ -496,12 +1621,19 @@ function IndexerEditor({
           />
         </label>
         <label className="wide-field">
-          Request route
-          <select onChange={(event) => setConnectorId(event.target.value)} value={connectorId}>
-            <option value="">Direct HTTP</option>
-            {connectors.filter((connector) => connector.enabled).map((connector) => (
-              <option key={connector.id} value={connector.id}>{connector.name}</option>
-            ))}
+          Browser challenge route
+          <select
+            onChange={(event) => setConnectorId(event.target.value)}
+            value={connectorId}
+          >
+            <option value="">No FlareSolverr</option>
+            {connectors
+              .filter((connector) => connector.enabled)
+              .map((connector) => (
+                <option key={connector.id} value={connector.id}>
+                  {connector.name}
+                </option>
+              ))}
           </select>
         </label>
         {indexer.configurationSchema.fields.map((field) =>
@@ -512,7 +1644,9 @@ function IndexerEditor({
               field={field}
               key={field.name}
               onClear={toggleClear}
-              onValue={(name, value) => setSecretInputs((current) => ({ ...current, [name]: value }))}
+              onValue={(name, value) =>
+                setSecretInputs((current) => ({ ...current, [name]: value }))
+              }
               value={secretInputs[field.name] ?? ""}
             />
           ) : (
@@ -527,9 +1661,13 @@ function IndexerEditor({
       </div>
       <div className="form-actions">
         <button className="primary-button" disabled={saving} type="submit">
-          {saving ? "Saving…" : "Save configuration"}
+          {saving ? "Saving…" : "Save indexer"}
         </button>
-        {status ? <p className="form-status" role="status">{status}</p> : null}
+        {status ? (
+          <p className="form-status" role="status">
+            {status}
+          </p>
+        ) : null}
       </div>
     </form>
   );
@@ -565,7 +1703,9 @@ function PublicField({
           value={value === undefined ? "" : String(value)}
         >
           {field.options.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
           ))}
         </select>
       </label>
@@ -602,7 +1742,9 @@ function SecretField({
       <label>
         <span>
           {field.label}
-          <small className={configured ? "secret-state configured" : "secret-state"}>
+          <small
+            className={configured ? "secret-state configured" : "secret-state"}
+          >
             {configured ? "configured" : "not configured"}
           </small>
         </span>
@@ -610,7 +1752,11 @@ function SecretField({
           autoComplete="new-password"
           disabled={clear}
           onChange={(event) => onValue(field.name, event.target.value)}
-          placeholder={configured ? "Leave blank to keep current value" : "Enter secret value"}
+          placeholder={
+            configured
+              ? "Leave blank to keep current value"
+              : "Enter secret value"
+          }
           type="password"
           value={value}
         />

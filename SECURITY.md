@@ -25,5 +25,11 @@ credentials selected for that indexer. A configured `FlareSolverr` endpoint is
 an administrator-controlled outbound trust boundary and should be reachable
 only over a trusted local or private network.
 
+Outbound proxy passwords are encrypted independently from tracker credentials
+and are never returned by the API. SOCKS routes use remote DNS resolution to
+avoid bypassing the selected route. A proxy administrator can still observe or
+modify traffic according to the protocol's capabilities; only configure
+trusted proxies and prefer end-to-end HTTPS tracker URLs.
+
 Master-key rotation is not implemented yet. Back up the key independently from
 the database and treat loss of the key as loss of the encrypted credentials.

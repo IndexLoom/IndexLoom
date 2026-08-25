@@ -64,8 +64,24 @@ docker compose up --build
 The API health endpoint is available at `http://127.0.0.1:8080/api/v1/health`.
 The Indexers screen accepts the administrator token for the current browser-tab
 session and manages per-indexer cookies, API keys, login credentials,
-`User-Agent` overrides, and `FlareSolverr` routing. Secret values are never
-returned by the API after saving.
+`User-Agent` overrides, tags, many-to-many groups, outbound proxies, and
+`FlareSolverr` routing. Secret values are never returned by the API after
+saving.
+
+At startup IndexLoom downloads the separate catalog archive, verifies the
+manifest, SHA-256 digest, schema and identifier of every definition, then
+updates SQLite in one transaction. Existing configuration is preserved and
+new catalog entries are created disabled, so an update cannot unexpectedly
+contact hundreds of trackers. The default six-hour refresh can be changed with
+`INDEXLOOM_CATALOG_SYNC_SECONDS`; set it to `0` to disable periodic refreshes.
+
+The first Cardigann execution layer supports bounded concurrent tests and
+search, direct HTTP, HTTP/SOCKS4a/SOCKS5h routing, cookie/form authentication,
+common templates and filters, HTML/JSON results, and optional FlareSolverr.
+Search can target all enabled indexers, individual indexers, or groups; results
+are returned and rendered in collapsible per-indexer sections. See the current
+[API guide](docs/API.md) and the compatibility limits in the
+[architecture notes](docs/architecture/README.md).
 
 ## Versioning
 

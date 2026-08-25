@@ -33,14 +33,35 @@ names, while an execution-only storage model performs decryption.
 
 ## Trust boundaries
 
-Definitions and remote HTML are untrusted input. The engine will enforce URL
-allowlists, private-network restrictions, response limits, parser limits,
-timeouts and bounded concurrency before a definition can execute.
+Definitions and remote HTML are untrusted input. Catalog archives have bounded
+download/extraction sizes and every manifest entry is verified before an
+atomic SQLite update. The executor restricts requests and redirects to declared
+tracker origins, bounds response bodies, applies timeouts, and uses bounded
+concurrency. Newly discovered indexers remain disabled until an administrator
+opts in.
 
 Management endpoints require an explicit bearer token and return `no-store`.
 Direct tracker HTTP has no shared cookie jar. `FlareSolverr` is configured as a
 named administrator-controlled connector and selected per indexer; the target
 URL must still pass the engine's outbound policy before solver execution.
+
+Outbound routes are named HTTP, SOCKS4a or SOCKS5h records. Passwords use a
+separate authenticated-encryption context from tracker credentials. Resolution
+is deterministic: an indexer override wins, otherwise the enabled member group
+with the highest priority wins, otherwise the global route is used. Equal group
+priorities are broken by stable group ID ordering.
+
+## Cardigann compatibility stage
+
+The current interpreter is intentionally an executable compatibility layer,
+not a claim of complete Jackett parity. It supports the first declared search
+path, Go-style templates used by the converted catalog, common text filters,
+GET/POST/form authentication, configured cookies, HTML and JSON extraction,
+and optional FlareSolverr GET execution. Interactive CAPTCHA acquisition,
+advanced selector-input workflows, every legacy filter, multi-path fallback,
+full XML semantics, and broad date parsing remain explicit compatibility work.
+An unsupported construct fails that indexer with a structured error; it does
+not weaken the outbound policy or abort other indexers in the same search.
 
 ## Decisions and roadmap
 

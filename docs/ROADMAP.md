@@ -18,6 +18,11 @@ The roadmap describes ordering, not release dates.
 - Execute and compatibility-test the generated Cardigann catalog from
   `IndexLoom/Indexers`.
 
+The initial vertical slice is now present: verified catalog synchronization,
+encrypted configuration, groups/tags/proxy routing, bounded bulk tests, and
+grouped concurrent search. Compatibility coverage, normalized category maps,
+history, metrics, and API stabilization remain before `0.2.x` is complete.
+
 ## Application integrations (`0.3.x`)
 
 - Torznab-compatible API surface.

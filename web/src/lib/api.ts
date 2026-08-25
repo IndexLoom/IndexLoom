@@ -28,6 +28,10 @@ export type Indexer = {
   privacy: "public" | "semi-private" | "private";
   userAgent: string | null;
   flaresolverrInstanceId: string | null;
+  proxyId: string | null;
+  groupIds: string[];
+  tags: string[];
+  lastTest: IndexerTestResult | null;
   values: Record<string, ConfigurationValue>;
   configuredSecrets: string[];
   configurationSchema: {
@@ -35,6 +39,126 @@ export type Indexer = {
     flaresolverrRecommended: boolean;
     userAgentRecommended: boolean;
   };
+};
+
+export type ProxyKind = "http" | "socks4" | "socks5";
+
+export type OutboundProxy = {
+  id: string;
+  name: string;
+  kind: ProxyKind;
+  host: string;
+  port: number;
+  enabled: boolean;
+  username: string | null;
+  passwordConfigured: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OutboundProxyUpdate = {
+  name: string;
+  kind: ProxyKind;
+  host: string;
+  port: number;
+  enabled: boolean;
+  username: string | null;
+  password?: string;
+  clearPassword: boolean;
+};
+
+export type IndexerGroup = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  priority: number;
+  proxyId: string | null;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IndexerGroupUpdate = {
+  name: string;
+  description: string;
+  enabled: boolean;
+  priority: number;
+  proxyId: string | null;
+};
+
+export type RoutingSettings = {
+  globalProxyId: string | null;
+};
+
+export type IndexerOrganizationUpdate = {
+  displayName: string;
+  enabled: boolean;
+  proxyId: string | null;
+  groupIds: string[];
+  tags: string[];
+};
+
+export type IndexerSelection = {
+  all: boolean;
+  indexerIds: string[];
+  groupIds: string[];
+};
+
+export type IndexerTestResult = {
+  indexerId?: string;
+  indexerName?: string;
+  status?: "success" | "failed";
+  success?: boolean;
+  responseTimeMs: number | null;
+  message: string;
+  testedAt?: string;
+};
+
+export type IndexerTestJob = {
+  id: string;
+  status: "running" | "completed";
+  total: number;
+  completed: number;
+  results: Array<
+    Required<
+      Pick<
+        IndexerTestResult,
+        "indexerId" | "indexerName" | "success" | "message"
+      >
+    > & {
+      responseTimeMs: number;
+    }
+  >;
+  createdAt: string;
+  finishedAt: string | null;
+};
+
+export type SearchResult = {
+  id: string;
+  indexerId: string;
+  title: string;
+  link: string;
+  details: string | null;
+  category: string | null;
+  size: number | null;
+  seeders: number | null;
+  leechers: number | null;
+  publishedAt: string | null;
+};
+
+export type SearchIndexerResults = {
+  indexerId: string;
+  indexerName: string;
+  responseTimeMs: number;
+  results: SearchResult[];
+  error: string | null;
+};
+
+export type SearchResponse = {
+  query: string;
+  indexers: SearchIndexerResults[];
+  resultCount: number;
 };
 
 export type FlareSolverrInstance = {
@@ -80,7 +204,10 @@ export async function fetchHealth(signal: AbortSignal): Promise<Health> {
   return readJson<Health>(response);
 }
 
-export function fetchIndexers(token: string, signal: AbortSignal): Promise<Indexer[]> {
+export function fetchIndexers(
+  token: string,
+  signal: AbortSignal,
+): Promise<Indexer[]> {
   return authenticatedJson<Indexer[]>("/api/v1/indexers", token, { signal });
 }
 
@@ -88,7 +215,36 @@ export function fetchFlareSolverr(
   token: string,
   signal: AbortSignal,
 ): Promise<FlareSolverrInstance[]> {
-  return authenticatedJson<FlareSolverrInstance[]>("/api/v1/flaresolverr", token, {
+  return authenticatedJson<FlareSolverrInstance[]>(
+    "/api/v1/flaresolverr",
+    token,
+    {
+      signal,
+    },
+  );
+}
+
+export function fetchProxies(
+  token: string,
+  signal?: AbortSignal,
+): Promise<OutboundProxy[]> {
+  return authenticatedJson<OutboundProxy[]>("/api/v1/proxies", token, {
+    signal,
+  });
+}
+
+export function fetchGroups(
+  token: string,
+  signal?: AbortSignal,
+): Promise<IndexerGroup[]> {
+  return authenticatedJson<IndexerGroup[]>("/api/v1/groups", token, { signal });
+}
+
+export function fetchRouting(
+  token: string,
+  signal?: AbortSignal,
+): Promise<RoutingSettings> {
+  return authenticatedJson<RoutingSettings>("/api/v1/routing", token, {
     signal,
   });
 }
@@ -123,11 +279,132 @@ export function saveFlareSolverr(
   );
 }
 
-export async function removeFlareSolverr(token: string, id: string): Promise<void> {
-  const response = await fetch(`/api/v1/flaresolverr/${encodeURIComponent(id)}`, {
+export function saveIndexerOrganization(
+  token: string,
+  id: string,
+  update: IndexerOrganizationUpdate,
+): Promise<Indexer> {
+  return authenticatedJson<Indexer>(
+    `/api/v1/indexers/${encodeURIComponent(id)}/organization`,
+    token,
+    { body: JSON.stringify(update), method: "PUT" },
+  );
+}
+
+export function saveProxy(
+  token: string,
+  id: string,
+  update: OutboundProxyUpdate,
+): Promise<OutboundProxy> {
+  return authenticatedJson<OutboundProxy>(
+    `/api/v1/proxies/${encodeURIComponent(id)}`,
+    token,
+    {
+      body: JSON.stringify(update),
+      method: "PUT",
+    },
+  );
+}
+
+export async function removeProxy(token: string, id: string): Promise<void> {
+  return authenticatedEmpty(
+    `/api/v1/proxies/${encodeURIComponent(id)}`,
+    token,
+    "DELETE",
+  );
+}
+
+export function saveGroup(
+  token: string,
+  id: string,
+  update: IndexerGroupUpdate,
+): Promise<IndexerGroup> {
+  return authenticatedJson<IndexerGroup>(
+    `/api/v1/groups/${encodeURIComponent(id)}`,
+    token,
+    {
+      body: JSON.stringify(update),
+      method: "PUT",
+    },
+  );
+}
+
+export async function removeGroup(token: string, id: string): Promise<void> {
+  return authenticatedEmpty(
+    `/api/v1/groups/${encodeURIComponent(id)}`,
+    token,
+    "DELETE",
+  );
+}
+
+export function saveRouting(
+  token: string,
+  update: RoutingSettings,
+): Promise<RoutingSettings> {
+  return authenticatedJson<RoutingSettings>("/api/v1/routing", token, {
+    body: JSON.stringify(update),
+    method: "PUT",
+  });
+}
+
+export function startIndexerTests(
+  token: string,
+  selection: IndexerSelection,
+): Promise<IndexerTestJob> {
+  return authenticatedJson<IndexerTestJob>("/api/v1/indexer-tests", token, {
+    body: JSON.stringify(selection),
+    method: "POST",
+  });
+}
+
+export function fetchIndexerTestJob(
+  token: string,
+  id: string,
+): Promise<IndexerTestJob> {
+  return authenticatedJson<IndexerTestJob>(
+    `/api/v1/indexer-tests/${encodeURIComponent(id)}`,
+    token,
+  );
+}
+
+export function searchIndexers(
+  token: string,
+  query: string,
+  selection: IndexerSelection,
+  limitPerIndexer = 50,
+): Promise<SearchResponse> {
+  return authenticatedJson<SearchResponse>("/api/v1/search", token, {
+    body: JSON.stringify({ query, selection, limitPerIndexer }),
+    method: "POST",
+  });
+}
+
+export async function removeFlareSolverr(
+  token: string,
+  id: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/v1/flaresolverr/${encodeURIComponent(id)}`,
+    {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+      method: "DELETE",
+    },
+  );
+  if (!response.ok) {
+    throw await responseError(response);
+  }
+}
+
+async function authenticatedEmpty(
+  path: string,
+  token: string,
+  method: string,
+): Promise<void> {
+  const response = await fetch(path, {
     cache: "no-store",
     headers: { Authorization: `Bearer ${token}` },
-    method: "DELETE",
+    method,
   });
   if (!response.ok) {
     throw await responseError(response);
