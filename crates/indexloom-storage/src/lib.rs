@@ -17,6 +17,15 @@ use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use zeroize::Zeroize;
 
+mod catalog;
+mod routing;
+
+pub use catalog::{CatalogDefinitionInput, CatalogSyncReport};
+pub use routing::{
+    IndexerGroup, IndexerGroupInput, IndexerTestRecord, LastIndexerTest, OutboundProxy,
+    OutboundProxyInput, ProxyKind, ProxyPasswordUpdate, ResolvedOutboundProxy,
+};
+
 const MASTER_KEY_BYTES: usize = 32;
 const NONCE_BYTES: usize = 24;
 const KEY_VERSION: i64 = 1;
@@ -76,21 +85,63 @@ impl SecretVault {
         Self { cipher }
     }
 
-    fn encrypt(
+    fn encrypt_indexer(
         &self,
         indexer_id: &str,
+        secrets: &BTreeMap<String, String>,
+    ) -> Result<EncryptedSecrets, StorageError> {
+        self.encrypt_scoped(&associated_indexer_data(indexer_id), secrets)
+    }
+
+    fn decrypt_indexer(
+        &self,
+        indexer_id: &str,
+        nonce: &[u8],
+        ciphertext: &[u8],
+    ) -> Result<BTreeMap<String, String>, StorageError> {
+        self.decrypt_scoped(&associated_indexer_data(indexer_id), nonce, ciphertext)
+    }
+
+    pub(crate) fn encrypt_proxy_password(
+        &self,
+        proxy_id: &str,
+        password: &str,
+    ) -> Result<EncryptedSecrets, StorageError> {
+        self.encrypt_scoped(
+            &format!("indexloom:proxy-secrets:v{KEY_VERSION}:{proxy_id}"),
+            &BTreeMap::from([("password".to_owned(), password.to_owned())]),
+        )
+    }
+
+    pub(crate) fn decrypt_proxy_password(
+        &self,
+        proxy_id: &str,
+        nonce: &[u8],
+        ciphertext: &[u8],
+    ) -> Result<String, StorageError> {
+        self.decrypt_scoped(
+            &format!("indexloom:proxy-secrets:v{KEY_VERSION}:{proxy_id}"),
+            nonce,
+            ciphertext,
+        )?
+        .remove("password")
+        .ok_or_else(|| StorageError::InvalidData("encrypted proxy password is missing".to_owned()))
+    }
+
+    fn encrypt_scoped(
+        &self,
+        associated_data: &str,
         secrets: &BTreeMap<String, String>,
     ) -> Result<EncryptedSecrets, StorageError> {
         let mut plaintext = serde_json::to_vec(secrets)?;
         let mut nonce = [0_u8; NONCE_BYTES];
         getrandom::fill(&mut nonce).map_err(|_| StorageError::RandomSource)?;
         let nonce_array = XNonce::from(nonce);
-        let aad = associated_data(indexer_id);
         let ciphertext = self.cipher.encrypt(
             &nonce_array,
             Payload {
                 msg: &plaintext,
-                aad: aad.as_bytes(),
+                aad: associated_data.as_bytes(),
             },
         );
         plaintext.zeroize();
@@ -101,9 +152,9 @@ impl SecretVault {
         })
     }
 
-    fn decrypt(
+    fn decrypt_scoped(
         &self,
-        indexer_id: &str,
+        associated_data: &str,
         nonce: &[u8],
         ciphertext: &[u8],
     ) -> Result<BTreeMap<String, String>, StorageError> {
@@ -115,14 +166,13 @@ impl SecretVault {
         let nonce_array = XNonce::try_from(nonce).map_err(|_| {
             StorageError::InvalidData("encrypted credential nonce is invalid".to_owned())
         })?;
-        let aad = associated_data(indexer_id);
         let mut plaintext = self
             .cipher
             .decrypt(
                 &nonce_array,
                 Payload {
                     msg: ciphertext,
-                    aad: aad.as_bytes(),
+                    aad: associated_data.as_bytes(),
                 },
             )
             .map_err(|_| StorageError::Decryption)?;
@@ -132,13 +182,13 @@ impl SecretVault {
     }
 }
 
-fn associated_data(indexer_id: &str) -> String {
+fn associated_indexer_data(indexer_id: &str) -> String {
     format!("indexloom:indexer-secrets:v{KEY_VERSION}:{indexer_id}")
 }
 
-struct EncryptedSecrets {
-    nonce: Vec<u8>,
-    ciphertext: Vec<u8>,
+pub(crate) struct EncryptedSecrets {
+    pub(crate) nonce: Vec<u8>,
+    pub(crate) ciphertext: Vec<u8>,
 }
 
 /// Stored indexer plus its definition and redacted configuration state.
@@ -157,6 +207,14 @@ pub struct IndexerConfigurationRecord {
     pub user_agent: Option<String>,
     /// Optional `FlareSolverr` connector ID.
     pub flaresolverr_instance_id: Option<String>,
+    /// Optional proxy explicitly assigned to this indexer.
+    pub proxy_id: Option<String>,
+    /// Group identifiers assigned to this indexer.
+    pub group_ids: Vec<String>,
+    /// Free-form normalized tags assigned to this indexer.
+    pub tags: Vec<String>,
+    /// Latest persisted connectivity test, if one has run.
+    pub last_test: Option<LastIndexerTest>,
     /// Non-secret Cardigann configuration values.
     pub values: BTreeMap<String, Value>,
     /// Secret field names that currently contain a value.
@@ -172,6 +230,8 @@ pub struct ResolvedIndexerConfiguration {
     pub user_agent: Option<String>,
     /// Optional `FlareSolverr` connector ID.
     pub flaresolverr_instance_id: Option<String>,
+    /// Optional proxy explicitly assigned to this indexer.
+    pub proxy_id: Option<String>,
     /// Non-secret Cardigann values.
     pub values: BTreeMap<String, Value>,
     /// Decrypted tracker credentials.
@@ -184,6 +244,7 @@ impl fmt::Debug for ResolvedIndexerConfiguration {
             .debug_struct("ResolvedIndexerConfiguration")
             .field("user_agent", &self.user_agent)
             .field("flaresolverr_instance_id", &self.flaresolverr_instance_id)
+            .field("proxy_id", &self.proxy_id)
             .field("values", &self.values)
             .field("secret_names", &self.secrets.keys().collect::<Vec<_>>())
             .finish()
@@ -234,6 +295,7 @@ struct IndexerRow {
     configuration_json: String,
     user_agent: Option<String>,
     flaresolverr_instance_id: Option<String>,
+    proxy_id: Option<String>,
     content_yaml: String,
     nonce: Option<Vec<u8>>,
     ciphertext: Option<Vec<u8>>,
@@ -286,7 +348,7 @@ impl Store {
     ) -> Result<Vec<IndexerConfigurationRecord>, StorageError> {
         let rows = sqlx::query_as::<_, IndexerRow>(
             "SELECT i.id, i.definition_id, i.display_name, i.enabled, \
-                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, \
+                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, \
                     d.content_yaml, s.nonce, s.ciphertext \
              FROM indexers i \
              JOIN indexer_definitions d ON d.id = i.definition_id \
@@ -295,7 +357,13 @@ impl Store {
         )
         .fetch_all(&self.pool)
         .await?;
-        rows.into_iter().map(|row| row.redacted(vault)).collect()
+        let metadata = self.load_indexer_metadata().await?;
+        rows.into_iter()
+            .map(|row| {
+                let extra = metadata.get(&row.id).cloned().unwrap_or_default();
+                row.redacted(vault, extra)
+            })
+            .collect()
     }
 
     /// Loads one indexer and its redacted credential state.
@@ -309,7 +377,10 @@ impl Store {
         indexer_id: &str,
         vault: &SecretVault,
     ) -> Result<IndexerConfigurationRecord, StorageError> {
-        self.indexer_row(indexer_id).await?.redacted(vault)
+        let row = self.indexer_row(indexer_id).await?;
+        let mut metadata = self.load_indexer_metadata().await?;
+        let extra = metadata.remove(indexer_id).unwrap_or_default();
+        row.redacted(vault, extra)
     }
 
     /// Loads one indexer with decrypted execution credentials.
@@ -329,6 +400,7 @@ impl Store {
         Ok(ResolvedIndexerConfiguration {
             user_agent: row.user_agent,
             flaresolverr_instance_id: row.flaresolverr_instance_id,
+            proxy_id: row.proxy_id,
             values,
             secrets,
         })
@@ -516,7 +588,7 @@ impl Store {
     async fn indexer_row(&self, indexer_id: &str) -> Result<IndexerRow, StorageError> {
         sqlx::query_as::<_, IndexerRow>(
             "SELECT i.id, i.definition_id, i.display_name, i.enabled, \
-                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, \
+                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, \
                     d.content_yaml, s.nonce, s.ciphertext \
              FROM indexers i \
              JOIN indexer_definitions d ON d.id = i.definition_id \
@@ -531,7 +603,11 @@ impl Store {
 }
 
 impl IndexerRow {
-    fn redacted(self, vault: &SecretVault) -> Result<IndexerConfigurationRecord, StorageError> {
+    fn redacted(
+        self,
+        vault: &SecretVault,
+        metadata: routing::IndexerMetadata,
+    ) -> Result<IndexerConfigurationRecord, StorageError> {
         let values = parse_values(&self.configuration_json)?;
         let configured_secrets = decrypt_row_secrets(&self, vault)?.into_keys().collect();
         Ok(IndexerConfigurationRecord {
@@ -541,6 +617,10 @@ impl IndexerRow {
             enabled: self.enabled,
             user_agent: self.user_agent,
             flaresolverr_instance_id: self.flaresolverr_instance_id,
+            proxy_id: self.proxy_id,
+            group_ids: metadata.group_ids,
+            tags: metadata.tags,
+            last_test: metadata.last_test,
             values,
             configured_secrets,
             definition_yaml: self.content_yaml,
@@ -553,7 +633,7 @@ fn decrypt_row_secrets(
     vault: &SecretVault,
 ) -> Result<BTreeMap<String, String>, StorageError> {
     match (&row.nonce, &row.ciphertext) {
-        (Some(nonce), Some(ciphertext)) => vault.decrypt(&row.id, nonce, ciphertext),
+        (Some(nonce), Some(ciphertext)) => vault.decrypt_indexer(&row.id, nonce, ciphertext),
         (None, None) => Ok(BTreeMap::new()),
         _ => Err(StorageError::InvalidData(
             "encrypted credential row is incomplete".to_owned(),
@@ -579,7 +659,7 @@ async fn save_secrets(
             .await?;
         return Ok(());
     }
-    let encrypted = vault.encrypt(indexer_id, secrets)?;
+    let encrypted = vault.encrypt_indexer(indexer_id, secrets)?;
     sqlx::query(
         "INSERT INTO indexer_secrets \
              (indexer_id, key_version, nonce, ciphertext, updated_at) \
@@ -598,7 +678,7 @@ async fn save_secrets(
     Ok(())
 }
 
-fn now() -> Result<String, StorageError> {
+pub(crate) fn now() -> Result<String, StorageError> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
         .map_err(|error| StorageError::InvalidData(error.to_string()))
@@ -642,7 +722,10 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{FlareSolverrInput, SecretVault, Store};
+    use super::{
+        FlareSolverrInput, IndexerGroupInput, OutboundProxyInput, ProxyKind, ProxyPasswordUpdate,
+        SecretVault, Store,
+    };
 
     const DEFINITION: &str = r#"
 apiVersion: indexloom.io/v1alpha1
@@ -749,6 +832,120 @@ spec:
             .await
             .expect("configuration should remain readable");
         assert!(resolved.flaresolverr_instance_id.is_none());
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn resolves_proxy_precedence_and_group_selection() {
+        let store = Store::connect("sqlite::memory:")
+            .await
+            .expect("database should initialize");
+        let vault = SecretVault::generate().expect("key generation should work");
+        store
+            .upsert_definition(
+                "example",
+                "test",
+                None,
+                "indexloom.io/v1alpha1",
+                DEFINITION,
+                &"0".repeat(64),
+            )
+            .await
+            .expect("definition should persist");
+        store
+            .create_indexer("example-main", "example", "Example", true)
+            .await
+            .expect("indexer should persist");
+
+        for (id, port) in [("global", 8001), ("group", 8002), ("explicit", 8003)] {
+            store
+                .upsert_proxy(
+                    &OutboundProxyInput {
+                        id: id.to_owned(),
+                        name: id.to_owned(),
+                        kind: ProxyKind::Socks5,
+                        host: "proxy.invalid".to_owned(),
+                        port,
+                        enabled: true,
+                        username: Some("proxyuser".to_owned()),
+                    },
+                    ProxyPasswordUpdate::Replace(format!("secret-{id}")),
+                    &vault,
+                )
+                .await
+                .expect("proxy should persist");
+        }
+        store
+            .set_global_proxy_id(Some("global"))
+            .await
+            .expect("global route should persist");
+        store
+            .upsert_group(&IndexerGroupInput {
+                id: "anime".to_owned(),
+                name: "Anime".to_owned(),
+                description: String::new(),
+                enabled: true,
+                priority: 50,
+                proxy_id: Some("group".to_owned()),
+            })
+            .await
+            .expect("group should persist");
+        store
+            .save_indexer_organization(
+                "example-main",
+                "Example",
+                true,
+                None,
+                &["anime".to_owned()],
+                &["private".to_owned()],
+            )
+            .await
+            .expect("organization should persist");
+
+        let inherited = store
+            .effective_proxy_for_indexer("example-main", &vault)
+            .await
+            .expect("effective proxy should resolve")
+            .expect("group route should exist");
+        assert_eq!(inherited.id, "group");
+        assert_eq!(inherited.password.as_deref(), Some("secret-group"));
+        assert_eq!(inherited.transport_url(), "socks5h://proxy.invalid:8002");
+
+        store
+            .save_indexer_organization(
+                "example-main",
+                "Example",
+                true,
+                Some("explicit"),
+                &["anime".to_owned()],
+                &["private".to_owned()],
+            )
+            .await
+            .expect("explicit route should persist");
+        let explicit = store
+            .effective_proxy_for_indexer("example-main", &vault)
+            .await
+            .expect("effective proxy should resolve")
+            .expect("explicit route should exist");
+        assert_eq!(explicit.id, "explicit");
+
+        let selected = store
+            .select_indexer_ids(false, &[], &["anime".to_owned()], true)
+            .await
+            .expect("group selection should resolve");
+        assert_eq!(selected, ["example-main"]);
+        let listed = store
+            .list_indexers(&vault)
+            .await
+            .expect("indexer should load");
+        assert_eq!(listed[0].group_ids, ["anime"]);
+        assert_eq!(listed[0].tags, ["private"]);
+        let proxies = store
+            .list_proxies(&vault)
+            .await
+            .expect("proxies should load");
+        let serialized = serde_json::to_string(&proxies).expect("proxies should serialize");
+        assert!(!serialized.contains("secret-"));
     }
 
     #[test]

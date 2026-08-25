@@ -29,10 +29,16 @@ pub struct SearchResult {
     pub title: String,
     /// Download or details URL.
     pub link: String,
+    /// Optional tracker details page when `link` is a direct download.
+    pub details: Option<String>,
+    /// Normalized or tracker-native category label.
+    pub category: Option<String>,
     /// Optional size in bytes.
     pub size: Option<u64>,
     /// Optional seeder count.
     pub seeders: Option<u32>,
+    /// Optional leecher count.
+    pub leechers: Option<u32>,
     /// Optional publication time.
     pub published_at: Option<OffsetDateTime>,
 }

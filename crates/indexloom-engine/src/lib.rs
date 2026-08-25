@@ -8,6 +8,12 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
+mod cardigann;
+
+pub use cardigann::{
+    CardigannExecutor, IndexerExecutionConfig, IndexerSearchBatch, IndexerTestOutcome,
+};
+
 const MAX_FLARESOLVERR_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Shared HTTP execution engine.
@@ -23,9 +29,33 @@ impl SearchEngine {
     ///
     /// Returns [`EngineError`] when the TLS or HTTP client cannot be initialized.
     pub fn new() -> Result<Self, EngineError> {
-        let client = Client::builder()
+        Self::with_proxy(None)
+    }
+
+    /// Builds an isolated cookie store and optional HTTP/SOCKS route for one
+    /// indexer. A client is never shared across tracker instances.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError`] when the proxy or HTTP client is invalid.
+    pub fn with_proxy(proxy: Option<&ProxyRoute>) -> Result<Self, EngineError> {
+        if proxy.is_some_and(|route| !route.enabled) {
+            return Err(EngineError::ProxyDisabled);
+        }
+        let mut builder = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .cookie_store(true);
+        if let Some(route) = proxy {
+            let mut configured = reqwest::Proxy::all(&route.url)?;
+            if let Some(username) = route.username.as_deref() {
+                configured =
+                    configured.basic_auth(username, route.password.as_deref().unwrap_or(""));
+            }
+            builder = builder.proxy(configured);
+        }
+        let client = builder.build()?;
         Ok(Self { client })
     }
 
@@ -77,6 +107,30 @@ pub struct DirectRequestProfile {
     pub user_agent: Option<String>,
     /// Optional raw Cookie request header.
     pub cookie_header: Option<String>,
+}
+
+/// Execution-only proxy route. The password is deliberately not serializable
+/// and is redacted from debug output.
+#[derive(Clone)]
+pub struct ProxyRoute {
+    pub id: String,
+    pub url: String,
+    pub enabled: bool,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+impl std::fmt::Debug for ProxyRoute {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ProxyRoute")
+            .field("id", &self.id)
+            .field("url", &self.url)
+            .field("enabled", &self.enabled)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 impl std::fmt::Debug for DirectRequestProfile {
@@ -139,12 +193,14 @@ impl FlareSolverrClient {
         &self,
         target: &Url,
         cookies: &[BrowserCookie],
+        proxy: Option<&ProxyRoute>,
     ) -> Result<BrowserSolution, EngineError> {
         let request = FlareSolverrRequest {
             command: "request.get",
             url: target,
             max_timeout_ms: u64::try_from(self.max_timeout.as_millis()).unwrap_or(u64::MAX),
             cookies,
+            proxy: proxy.map(FlareSolverrProxy::from),
         };
         let response = self
             .client
@@ -187,6 +243,40 @@ struct FlareSolverrRequest<'a> {
     max_timeout_ms: u64,
     #[serde(skip_serializing_if = "<[BrowserCookie]>::is_empty")]
     cookies: &'a [BrowserCookie],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proxy: Option<FlareSolverrProxy>,
+}
+
+#[derive(Debug, Serialize)]
+struct FlareSolverrProxy {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    password: Option<String>,
+}
+
+impl From<&ProxyRoute> for FlareSolverrProxy {
+    fn from(proxy: &ProxyRoute) -> Self {
+        // FlareSolverr accepts the standard SOCKS scheme names while reqwest
+        // uses the `a`/`h` suffixes to make remote DNS resolution explicit.
+        let url = proxy
+            .url
+            .strip_prefix("socks4a://")
+            .map(|rest| format!("socks4://{rest}"))
+            .or_else(|| {
+                proxy
+                    .url
+                    .strip_prefix("socks5h://")
+                    .map(|rest| format!("socks5://{rest}"))
+            })
+            .unwrap_or_else(|| proxy.url.clone());
+        Self {
+            url,
+            username: proxy.username.clone(),
+            password: proxy.password.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -244,6 +334,9 @@ pub enum EngineError {
     /// HTTP client construction failed.
     #[error("failed to build HTTP client: {0}")]
     HttpClient(#[from] reqwest::Error),
+    /// A definition or runtime endpoint is not a valid URL.
+    #[error("invalid URL: {0}")]
+    InvalidUrl(#[from] url::ParseError),
     /// A solver response was not valid JSON.
     #[error("invalid FlareSolverr response: {0}")]
     FlareSolverrJson(#[from] serde_json::Error),
@@ -265,6 +358,63 @@ pub enum EngineError {
     /// A nominally successful response did not contain a solution.
     #[error("FlareSolverr response did not contain a solution")]
     MissingFlareSolverrSolution,
+    /// A route is assigned but administratively disabled.
+    #[error("assigned outbound proxy is disabled")]
+    ProxyDisabled,
+    /// The definition has no usable base URL.
+    #[error("indexer definition has no base URL")]
+    MissingBaseUrl,
+    /// Search input was empty.
+    #[error("search term must not be empty")]
+    EmptySearchTerm,
+    /// A dynamic Cardigann document is structurally invalid.
+    #[error("invalid Cardigann search definition: {0}")]
+    InvalidSearchDefinition(&'static str),
+    /// A Go-compatible Cardigann template could not be rendered.
+    #[error("Cardigann template failed: {0}")]
+    Template(String),
+    /// A filter expression was malformed.
+    #[error("Cardigann filter failed: {0}")]
+    InvalidFilter(String),
+    /// An HTTP header name in a definition is invalid.
+    #[error("invalid Cardigann header name: {0}")]
+    InvalidHeaderName(String),
+    /// The HTTP method is not supported by this execution stage.
+    #[error("unsupported Cardigann HTTP method: {0}")]
+    UnsupportedHttpMethod(String),
+    /// The response format is not supported by this execution stage.
+    #[error("unsupported Cardigann response type: {0}")]
+    UnsupportedResponseType(String),
+    /// Authentication requires a workflow not yet representable safely.
+    #[error("unsupported Cardigann authentication: {0}")]
+    UnsupportedAuthentication(String),
+    /// Login form expected by the definition was absent.
+    #[error("tracker authentication form was not found")]
+    AuthenticationFormMissing,
+    /// Login/test selectors indicate rejected credentials.
+    #[error("tracker authentication was rejected")]
+    AuthenticationRejected,
+    /// `FlareSolverr` cannot represent the required request without losing headers.
+    #[error("FlareSolverr route supports GET searches without custom headers only")]
+    FlareSolverrUnsupportedRequest,
+    /// A response used an invalid numeric HTTP status.
+    #[error("invalid HTTP response status: {0}")]
+    InvalidResponseStatus(u16),
+    /// A direct response exceeded the bounded memory budget.
+    #[error("tracker response exceeded the 16 MiB size limit")]
+    ResponseTooLarge,
+    /// A tracker returned an unsuccessful HTTP status.
+    #[error("tracker returned HTTP {0}")]
+    UnexpectedStatus(u16),
+    /// A redirect did not carry a Location header.
+    #[error("tracker redirect did not include a Location header")]
+    RedirectWithoutLocation,
+    /// Redirect policy budget was exceeded.
+    #[error("tracker exceeded the maximum redirect count")]
+    TooManyRedirects,
+    /// A definition tried to leave its declared tracker origins.
+    #[error("outbound URL was rejected by the definition origin policy: {0}")]
+    OutboundUrlRejected(String),
 }
 
 #[cfg(test)]

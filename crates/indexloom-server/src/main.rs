@@ -1,7 +1,11 @@
-use std::{env, net::SocketAddr, path::PathBuf};
+use std::{env, net::SocketAddr, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
-use indexloom_server::{AdminToken, AppState, router};
+use indexloom_server::{
+    AdminToken, AppState,
+    catalog::{CatalogSource, synchronize},
+    router,
+};
 use indexloom_storage::{SecretVault, Store};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -38,6 +42,28 @@ async fn main() -> Result<()> {
     let store = Store::connect(&database_url)
         .await
         .context("failed to initialize IndexLoom storage")?;
+    let catalog_source = CatalogSource::from_values(
+        env::var("INDEXLOOM_CATALOG_DIR").ok(),
+        &env_or(
+            "INDEXLOOM_CATALOG_ARCHIVE_URL",
+            "https://github.com/IndexLoom/Indexers/archive/refs/heads/main.tar.gz",
+        ),
+    )
+    .context("INDEXLOOM catalog source is invalid")?;
+    synchronize_catalog_or_retain(&store, &catalog_source).await?;
+    let catalog_interval = env_or("INDEXLOOM_CATALOG_SYNC_SECONDS", "21600")
+        .parse::<u64>()
+        .context("INDEXLOOM_CATALOG_SYNC_SECONDS must be an integer")?;
+    if catalog_interval != 0 {
+        if catalog_interval < 300 {
+            anyhow::bail!("INDEXLOOM_CATALOG_SYNC_SECONDS must be 0 or at least 300");
+        }
+        tokio::spawn(catalog_sync_loop(
+            store.clone(),
+            catalog_source,
+            Duration::from_secs(catalog_interval),
+        ));
+    }
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind {bind}"))?;
@@ -52,6 +78,41 @@ async fn main() -> Result<()> {
     .context("IndexLoom HTTP server failed")?;
 
     Ok(())
+}
+
+async fn synchronize_catalog_or_retain(store: &Store, source: &CatalogSource) -> Result<()> {
+    match synchronize(store, source).await {
+        Ok(report) => {
+            tracing::info!(
+                definitions = report.definitions,
+                new_indexers = report.new_indexers,
+                "indexer catalog synchronized"
+            );
+            Ok(())
+        }
+        Err(error) => {
+            let retained = store
+                .definition_count()
+                .await
+                .context("failed to count retained indexer definitions")?;
+            if retained == 0 {
+                return Err(error).context("initial indexer catalog synchronization failed");
+            }
+            tracing::warn!(%error, retained, "catalog sync failed; retaining last valid catalog");
+            Ok(())
+        }
+    }
+}
+
+async fn catalog_sync_loop(store: Store, source: CatalogSource, interval: Duration) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.tick().await;
+    loop {
+        ticker.tick().await;
+        if let Err(error) = synchronize(&store, &source).await {
+            tracing::warn!(%error, "scheduled catalog synchronization failed");
+        }
+    }
 }
 
 fn env_or(key: &str, default: &str) -> String {

@@ -14,14 +14,18 @@ use indexloom_definitions::{
     ConfigurationField, ConfigurationFieldKind, ConfigurationSchema, Privacy, parse_yaml,
 };
 use indexloom_storage::{
-    FlareSolverrInput, FlareSolverrInstance, IndexerConfigurationRecord, SecretVault, StorageError,
-    Store,
+    FlareSolverrInput, FlareSolverrInstance, IndexerConfigurationRecord, LastIndexerTest,
+    SecretVault, StorageError, Store,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use subtle::ConstantTimeEq;
 use tower_http::services::ServeDir;
 use url::Url;
+
+pub mod catalog;
+mod execution;
+mod management;
 
 const MAX_CONFIGURATION_BODY: usize = 128 * 1024;
 const MAX_USER_AGENT_BYTES: usize = 512;
@@ -34,16 +38,18 @@ pub struct AppState {
     store: Store,
     vault: SecretVault,
     admin_token: AdminToken,
+    test_jobs: execution::TestJobRegistry,
 }
 
 impl AppState {
     /// Creates application state around storage, encryption, and authorization.
     #[must_use]
-    pub const fn new(store: Store, vault: SecretVault, admin_token: AdminToken) -> Self {
+    pub fn new(store: Store, vault: SecretVault, admin_token: AdminToken) -> Self {
         Self {
             store,
             vault,
             admin_token,
+            test_jobs: execution::TestJobRegistry::default(),
         }
     }
 }
@@ -102,6 +108,8 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
             "/api/v1/flaresolverr/{id}",
             put(upsert_flaresolverr).delete(delete_flaresolverr),
         )
+        .merge(management::routes())
+        .merge(execution::routes())
         .layer(DefaultBodyLimit::max(MAX_CONFIGURATION_BODY))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
 
@@ -129,6 +137,10 @@ struct IndexerView {
     privacy: Privacy,
     user_agent: Option<String>,
     flaresolverr_instance_id: Option<String>,
+    proxy_id: Option<String>,
+    group_ids: Vec<String>,
+    tags: Vec<String>,
+    last_test: Option<LastIndexerTest>,
     values: BTreeMap<String, Value>,
     configured_secrets: Vec<String>,
     configuration_schema: ConfigurationSchema,
@@ -307,6 +319,10 @@ fn indexer_view(record: IndexerConfigurationRecord) -> Result<IndexerView, ApiEr
         privacy: definition.spec.privacy,
         user_agent: record.user_agent,
         flaresolverr_instance_id: record.flaresolverr_instance_id,
+        proxy_id: record.proxy_id,
+        group_ids: record.group_ids,
+        tags: record.tags,
+        last_test: record.last_test,
         values: record.values,
         configured_secrets: record.configured_secrets,
         configuration_schema: definition.configuration_schema(),
@@ -690,6 +706,64 @@ spec:
             .expect("response should read");
         let cleared = String::from_utf8(cleared.to_vec()).expect("response should be UTF-8");
         assert!(cleared.contains(r#""configuredSecrets":["password"]"#));
+    }
+
+    #[tokio::test]
+    async fn manages_proxy_groups_and_indexer_organization() {
+        let app = router(test_state().await, PathBuf::from("missing-web-root"));
+        let requests = [
+            (
+                "/api/v1/proxies/private-route",
+                r#"{"name":"Private route","kind":"socks5","host":"proxy.invalid","port":1080,"enabled":true,"username":"alice","password":"secret","clearPassword":false}"#,
+            ),
+            (
+                "/api/v1/groups/private",
+                r#"{"name":"Private","description":"Private trackers","enabled":true,"priority":10,"proxyId":"private-route"}"#,
+            ),
+            (
+                "/api/v1/indexers/example-main/organization",
+                r#"{"displayName":"Example Private","enabled":true,"proxyId":null,"groupIds":["private"],"tags":["private","anime"]}"#,
+            ),
+        ];
+        for (uri, body) in requests {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("PUT")
+                        .uri(uri)
+                        .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(body))
+                        .expect("request should build"),
+                )
+                .await
+                .expect("management request should complete");
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let body = to_bytes(response.into_body(), 256 * 1024)
+                .await
+                .expect("response should read");
+            assert!(!String::from_utf8_lossy(&body).contains(r#""password":"secret""#));
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("list request should complete");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 256 * 1024)
+            .await
+            .expect("response should read");
+        let text = String::from_utf8(body.to_vec()).expect("response should be UTF-8");
+        assert!(text.contains(r#""displayName":"Example Private""#));
+        assert!(text.contains(r#""groupIds":["private"]"#));
+        assert!(text.contains(r#""tags":["anime","private"]"#));
     }
 
     #[test]

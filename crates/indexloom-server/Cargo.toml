@@ -10,16 +10,25 @@ repository.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+flate2.workspace = true
 indexloom-definitions = { path = "../indexloom-definitions" }
+indexloom-core = { path = "../indexloom-core" }
+indexloom-engine = { path = "../indexloom-engine" }
 indexloom-storage = { path = "../indexloom-storage" }
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 subtle.workspace = true
+tar.workspace = true
+thiserror.workspace = true
+time.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
+uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
