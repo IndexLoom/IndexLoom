@@ -39,13 +39,14 @@ export function AdminTokenGate({
       <p className="eyebrow">Protected workspace</p>
       <h1 id="credential-heading">Administrator token</h1>
       <p>
-        Search and tracker configuration use the authenticated API. The token
-        stays only in this browser tab.
+        Unlock search and configuration for this tab. Your token is stored in
+        session storage and disappears when the tab closes.
       </p>
       <form className="credential-gate-form" onSubmit={submit}>
-        <label htmlFor="admin-token">INDEXLOOM_ADMIN_TOKEN</label>
+        <label htmlFor="admin-token">Administrator token</label>
         <input
           autoComplete="current-password"
+          autoFocus
           id="admin-token"
           minLength={32}
           onChange={(event) => setValue(event.target.value)}
@@ -54,7 +55,7 @@ export function AdminTokenGate({
           value={value}
         />
         <button className="primary-button" type="submit">
-          Unlock
+          Unlock workspace
         </button>
       </form>
     </section>

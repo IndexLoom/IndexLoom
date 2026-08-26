@@ -181,7 +181,7 @@ source metadata.
 
 ## Versioning and license
 
-IndexLoom follows Semantic Versioning. Application tags such as `v0.2.0`, REST
+IndexLoom follows Semantic Versioning. Application tags such as `v0.3.0`, REST
 API versions and definition schema versions evolve independently.
 
 The application is licensed under

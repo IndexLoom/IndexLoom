@@ -198,10 +198,29 @@ function AuthenticatedSearch({
         <div>
           <p className="eyebrow">Federated torrent search</p>
           <h1 id="search-heading">Search</h1>
+          <p className="page-description">
+            Query every enabled source at once and inspect results as each
+            indexer responds.
+          </p>
         </div>
         <button className="quiet-button" onClick={onUnauthorized} type="button">
           Lock
         </button>
+      </div>
+
+      <div className="overview-grid search-overview" aria-label="Search overview">
+        <div className="overview-metric healthy">
+          <strong>{enabledIndexers.length.toLocaleString()}</strong>
+          <span>Enabled indexers</span>
+        </div>
+        <div className="overview-metric">
+          <strong>{workspace.groups.filter((group) => group.enabled).length}</strong>
+          <span>Active groups</span>
+        </div>
+        <div className="overview-metric">
+          <strong>{response?.resultCount ?? 0}</strong>
+          <span>Current results</span>
+        </div>
       </div>
 
       <form className="search-toolbar" onSubmit={submitSearch}>

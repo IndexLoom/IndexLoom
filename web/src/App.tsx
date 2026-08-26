@@ -7,11 +7,11 @@ import { SearchWorkspace } from "./components/SearchWorkspace";
 const viewCopy: Record<Exclude<View, "search" | "indexers">, { title: string; body: string }> = {
   history: {
     title: "History",
-    body: "Search history is empty.",
+    body: "Completed searches will appear here when persistent history is enabled.",
   },
   settings: {
     title: "Settings",
-    body: "Runtime settings will appear here as the configuration API is implemented.",
+    body: "Runtime preferences will appear here as the configuration API expands.",
   },
 };
 

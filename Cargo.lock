@@ -1252,7 +1252,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-definitions"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fancy-regex",
  "gtmpl",
@@ -1293,7 +1293,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-importers"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexloom-definitions",
  "thiserror 2.0.20",
@@ -1301,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1331,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-storage"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",

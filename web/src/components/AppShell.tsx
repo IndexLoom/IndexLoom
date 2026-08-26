@@ -18,6 +18,9 @@ const navigation: Array<{ id: View; label: string }> = [
 export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-workspace">
+        Skip to workspace
+      </a>
       <aside className="sidebar">
         <div className="brand" aria-label="IndexLoom">
           <span className="brand-mark" aria-hidden="true">
@@ -32,9 +35,11 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
         <nav className="navigation" aria-label="Primary navigation">
           {navigation.map((item) => (
             <button
+              aria-current={item.id === activeView ? "page" : undefined}
               className={item.id === activeView ? "nav-item active" : "nav-item"}
               key={item.id}
               onClick={() => onNavigate(item.id)}
+              title={item.label}
               type="button"
             >
               <NavIcon view={item.id} />
@@ -45,7 +50,9 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
 
         <p className="sidebar-footnote">Pre-alpha · schema v1alpha1</p>
       </aside>
-      <main className="workspace">{children}</main>
+      <main className="workspace" id="main-workspace" tabIndex={-1}>
+        {children}
+      </main>
     </div>
   );
 }

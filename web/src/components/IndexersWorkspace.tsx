@@ -3,6 +3,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -84,6 +85,37 @@ type ManagerState =
       routing: RoutingSettings;
     };
 
+type ManagementView =
+  | "catalog"
+  | "tests"
+  | "routing"
+  | "groups"
+  | "flaresolverr";
+
+const managementNavigation: Array<{
+  id: ManagementView;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "catalog",
+    label: "Catalog",
+    description: "Enable and configure indexers",
+  },
+  { id: "tests", label: "Tests", description: "Check selected indexers" },
+  {
+    id: "routing",
+    label: "Routing",
+    description: "Global and scoped proxies",
+  },
+  { id: "groups", label: "Groups", description: "Organize indexers" },
+  {
+    id: "flaresolverr",
+    label: "FlareSolverr",
+    description: "Browser challenge connectors",
+  },
+];
+
 export function IndexersWorkspace() {
   const { token, acceptToken, clearToken } = useAdminSession();
 
@@ -101,6 +133,8 @@ function IndexersManager({
   onUnauthorized: () => void;
 }) {
   const [state, setState] = useState<ManagerState>({ kind: "loading" });
+  const [managementView, setManagementView] =
+    useState<ManagementView>("catalog");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -264,62 +298,127 @@ function IndexersManager({
     );
   }
 
+  const enabledCount = state.indexers.filter(
+    (indexer) => indexer.enabled,
+  ).length;
+  const activeProxyCount = state.proxies.filter(
+    (proxy) => proxy.enabled,
+  ).length;
+
   return (
     <section className="settings-view" aria-labelledby="indexers-heading">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Network identity and credentials</p>
+          <p className="eyebrow">Indexer control center</p>
           <h1 id="indexers-heading">Indexers</h1>
+          <p className="page-description">
+            Configure sources, routing, credentials, and health checks without
+            leaving this workspace.
+          </p>
         </div>
         <button className="quiet-button" onClick={onUnauthorized} type="button">
           Lock
         </button>
       </div>
 
-      <FlareSolverrPanel
-        connectors={state.connectors}
-        onDelete={deleteConnector}
-        onUnauthorized={onUnauthorized}
-        onUpdate={updateConnector}
-        token={token}
-      />
+      <div className="overview-grid" aria-label="Indexer overview">
+        <OverviewMetric label="Definitions" value={state.indexers.length} />
+        <OverviewMetric label="Enabled" tone="healthy" value={enabledCount} />
+        <OverviewMetric label="Groups" value={state.groups.length} />
+        <OverviewMetric
+          label="Active proxies"
+          value={activeProxyCount}
+        />
+      </div>
 
-      <ProxyPanel
-        onDelete={deleteProxy}
-        onRouting={updateRouting}
-        onUnauthorized={onUnauthorized}
-        onUpdate={updateProxy}
-        proxies={state.proxies}
-        routing={state.routing}
-        token={token}
-      />
+      <nav className="management-tabs" aria-label="Indexer management">
+        {managementNavigation.map((item) => (
+          <button
+            aria-pressed={managementView === item.id}
+            className={managementView === item.id ? "active" : ""}
+            key={item.id}
+            onClick={() => setManagementView(item.id)}
+            type="button"
+          >
+            <strong>{item.label}</strong>
+            <span>{item.description}</span>
+          </button>
+        ))}
+      </nav>
 
-      <GroupPanel
-        groups={state.groups}
-        onDelete={deleteGroup}
-        onUnauthorized={onUnauthorized}
-        onUpdate={updateGroup}
-        proxies={state.proxies}
-        token={token}
-      />
+      <div className="management-panel">
+        {managementView === "catalog" ? (
+          <IndexerConfigurationPanel
+            connectors={state.connectors}
+            groups={state.groups}
+            indexers={state.indexers}
+            onSaved={updateIndexer}
+            onUnauthorized={onUnauthorized}
+            proxies={state.proxies}
+            token={token}
+          />
+        ) : null}
 
-      <IndexerTestPanel
-        groups={state.groups}
-        indexers={state.indexers}
-        onUnauthorized={onUnauthorized}
-        token={token}
-      />
+        {managementView === "tests" ? (
+          <IndexerTestPanel
+            groups={state.groups}
+            indexers={state.indexers}
+            onUnauthorized={onUnauthorized}
+            token={token}
+          />
+        ) : null}
 
-      <IndexerConfigurationPanel
-        connectors={state.connectors}
-        groups={state.groups}
-        indexers={state.indexers}
-        onSaved={updateIndexer}
-        onUnauthorized={onUnauthorized}
-        proxies={state.proxies}
-        token={token}
-      />
+        {managementView === "routing" ? (
+          <ProxyPanel
+            onDelete={deleteProxy}
+            onRouting={updateRouting}
+            onUnauthorized={onUnauthorized}
+            onUpdate={updateProxy}
+            proxies={state.proxies}
+            routing={state.routing}
+            token={token}
+          />
+        ) : null}
+
+        {managementView === "groups" ? (
+          <GroupPanel
+            groups={state.groups}
+            onDelete={deleteGroup}
+            onUnauthorized={onUnauthorized}
+            onUpdate={updateGroup}
+            proxies={state.proxies}
+            token={token}
+          />
+        ) : null}
+
+        {managementView === "flaresolverr" ? (
+          <FlareSolverrPanel
+            connectors={state.connectors}
+            onDelete={deleteConnector}
+            onUnauthorized={onUnauthorized}
+            onUpdate={updateConnector}
+            token={token}
+          />
+        ) : null}
+      </div>
     </section>
+  );
+}
+
+function OverviewMetric({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: number;
+  tone?: "neutral" | "healthy";
+}) {
+  return (
+    <div className={`overview-metric ${tone}`}>
+      <strong>{value.toLocaleString()}</strong>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -1090,45 +1189,86 @@ function IndexerConfigurationPanel({
   onUnauthorized: () => void;
 }) {
   const [filter, setFilter] = useState("");
-  const [limit, setLimit] = useState(100);
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "enabled" | "disabled"
+  >("all");
+  const [limit, setLimit] = useState(60);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const editorPanelRef = useRef<HTMLDivElement>(null);
   const deferredFilter = useDeferredValue(filter.trim().toLocaleLowerCase());
   const filtered = useMemo(
     () =>
       indexers.filter((indexer) => {
         const haystack =
           `${indexer.displayName} ${indexer.definitionId} ${indexer.tags.join(" ")}`.toLocaleLowerCase();
-        return haystack.includes(deferredFilter);
+        const matchesState =
+          statusFilter === "all" ||
+          (statusFilter === "enabled" && indexer.enabled) ||
+          (statusFilter === "disabled" && !indexer.enabled);
+        return matchesState && haystack.includes(deferredFilter);
       }),
-    [deferredFilter, indexers],
+    [deferredFilter, indexers, statusFilter],
   );
   const visible = filtered.slice(0, limit);
+  const selected = selectedId
+    ? indexers.find((indexer) => indexer.id === selectedId) ?? null
+    : null;
+
+  function selectIndexer(id: string) {
+    setSelectedId(id);
+    if (window.matchMedia("(max-width: 51.25rem)").matches) {
+      window.requestAnimationFrame(() => {
+        editorPanelRef.current?.scrollIntoView({ block: "start" });
+      });
+    }
+  }
+
   return (
     <section
-      className="configuration-section"
+      className="configuration-section catalog-section"
       aria-labelledby="tracker-config-heading"
     >
       <div className="section-heading stacked-heading">
         <div>
-          <h2 id="tracker-config-heading">Tracker configurations</h2>
+          <h2 id="tracker-config-heading">Indexer catalog</h2>
           <p>
-            Organization, routing, cookies, API keys and credentials are saved
-            per indexer. Secrets stay encrypted and redacted.
+            Select one definition to configure it. Credentials remain encrypted
+            and are never returned by the API.
           </p>
         </div>
         <span className="muted">
-          {filtered.length}/{indexers.length}
+          Showing {filtered.length} of {indexers.length}
         </span>
       </div>
       <div className="indexer-toolbar">
-        <input
-          onChange={(event) => {
-            setFilter(event.target.value);
-            setLimit(100);
-          }}
-          placeholder="Filter by name, definition or tag"
-          type="search"
-          value={filter}
-        />
+        <label className="catalog-filter">
+          <span>Find an indexer</span>
+          <input
+            onChange={(event) => {
+              setFilter(event.target.value);
+              setLimit(60);
+            }}
+            placeholder="Name, definition, or tag"
+            type="search"
+            value={filter}
+          />
+        </label>
+        <label className="catalog-filter status-filter">
+          <span>Status</span>
+          <select
+            onChange={(event) => {
+              setStatusFilter(
+                event.target.value as "all" | "enabled" | "disabled",
+              );
+              setLimit(60);
+            }}
+            value={statusFilter}
+          >
+            <option value="all">All indexers</option>
+            <option value="enabled">Enabled</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </label>
       </div>
       {indexers.length === 0 ? (
         <div className="panel-empty">
@@ -1136,32 +1276,84 @@ function IndexerConfigurationPanel({
           installs definitions disabled by default.
         </div>
       ) : (
-        <div className="indexer-grid">
-          {visible.map((indexer) => (
-            <IndexerEditor
-              connectors={connectors}
-              groups={groups}
-              indexer={indexer}
-              key={indexer.id}
-              onSaved={onSaved}
-              onUnauthorized={onUnauthorized}
-              proxies={proxies}
-              token={token}
-            />
-          ))}
+        <div className="indexer-browser">
+          <div className="indexer-directory" aria-label="Available indexers">
+            {visible.length === 0 ? (
+              <p className="panel-empty">
+                No indexers match the current filters.
+              </p>
+            ) : null}
+            {visible.map((indexer) => (
+              <button
+                aria-pressed={selectedId === indexer.id}
+                className={
+                  selectedId === indexer.id
+                    ? "indexer-list-item active"
+                    : "indexer-list-item"
+                }
+                key={indexer.id}
+                onClick={() => selectIndexer(indexer.id)}
+                type="button"
+              >
+                <span className="indexer-list-copy">
+                  <strong>{indexer.displayName}</strong>
+                  <small>{indexer.definitionId}</small>
+                </span>
+                <span className="indexer-list-meta">
+                  <span className={`privacy-pill ${indexer.privacy}`}>
+                    {indexer.privacy}
+                  </span>
+                  <span
+                    className={
+                      indexer.enabled ? "status-pill healthy" : "status-pill"
+                    }
+                  >
+                    {indexer.enabled ? "enabled" : "disabled"}
+                  </span>
+                </span>
+              </button>
+            ))}
+            {visible.length < filtered.length ? (
+              <div className="show-more">
+                <button
+                  className="quiet-button"
+                  onClick={() => setLimit((current) => current + 60)}
+                  type="button"
+                >
+                  Show {Math.min(60, filtered.length - visible.length)} more
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="indexer-editor-panel" ref={editorPanelRef}>
+            {selected ? (
+              <IndexerEditor
+                connectors={connectors}
+                groups={groups}
+                indexer={selected}
+                key={selected.id}
+                onClose={() => setSelectedId(null)}
+                onSaved={onSaved}
+                onUnauthorized={onUnauthorized}
+                proxies={proxies}
+                token={token}
+              />
+            ) : (
+              <div className="editor-empty">
+                <span className="editor-empty-mark" aria-hidden="true">
+                  +
+                </span>
+                <h3>Select an indexer</h3>
+                <p>
+                  Choose a definition from the catalog to enable it, assign
+                  routing, or add credentials.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
-      {visible.length < filtered.length ? (
-        <div className="show-more">
-          <button
-            className="quiet-button"
-            onClick={() => setLimit((current) => current + 100)}
-            type="button"
-          >
-            Show 100 more
-          </button>
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -1410,6 +1602,7 @@ function IndexerEditor({
   proxies,
   groups,
   token,
+  onClose,
   onSaved,
   onUnauthorized,
 }: {
@@ -1418,6 +1611,7 @@ function IndexerEditor({
   proxies: OutboundProxy[];
   groups: IndexerGroup[];
   token: string;
+  onClose: () => void;
   onSaved: (indexer: Indexer) => void;
   onUnauthorized: () => void;
 }) {
@@ -1533,16 +1727,27 @@ function IndexerEditor({
     <form className="indexer-card" onSubmit={submit}>
       <header>
         <div>
-          <h3>{indexer.displayName}</h3>
+          <p className="eyebrow">Indexer configuration</p>
+          <h3>{displayName}</h3>
           <p>{indexer.definitionId}</p>
         </div>
-        <div className="card-badges">
-          <span className={`privacy-pill ${indexer.privacy}`}>
-            {indexer.privacy}
-          </span>
-          <span className={enabled ? "status-pill healthy" : "status-pill"}>
-            {enabled ? "enabled" : "disabled"}
-          </span>
+        <div className="editor-header-actions">
+          <div className="card-badges">
+            <span className={`privacy-pill ${indexer.privacy}`}>
+              {indexer.privacy}
+            </span>
+            <span className={enabled ? "status-pill healthy" : "status-pill"}>
+              {enabled ? "enabled" : "disabled"}
+            </span>
+          </div>
+          <button
+            aria-label="Close indexer configuration"
+            className="icon-button"
+            onClick={onClose}
+            type="button"
+          >
+            ×
+          </button>
         </div>
       </header>
       {indexer.configurationSchema.flaresolverrRecommended ? (
@@ -1661,7 +1866,7 @@ function IndexerEditor({
       </div>
       <div className="form-actions">
         <button className="primary-button" disabled={saving} type="submit">
-          {saving ? "Saving…" : "Save indexer"}
+          {saving ? "Saving changes…" : "Save changes"}
         </button>
         {status ? (
           <p className="form-status" role="status">

@@ -10,8 +10,8 @@ repository.workspace = true
 [dependencies]
 fancy-regex.workspace = true
 gtmpl.workspace = true
-indexloom-core = { path = "../indexloom-core", version = "0.2.0" }
-indexloom-definitions = { path = "../indexloom-definitions", version = "0.2.0" }
+indexloom-core = { path = "../indexloom-core", version = "0.3.0" }
+indexloom-definitions = { path = "../indexloom-definitions", version = "0.3.0" }
 regex.workspace = true
 reqwest.workspace = true
 scraper.workspace = true
