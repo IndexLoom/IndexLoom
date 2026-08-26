@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+fancy-regex.workspace = true
 gtmpl.workspace = true
 indexloom-core = { path = "../indexloom-core", version = "0.2.0" }
 indexloom-definitions = { path = "../indexloom-definitions", version = "0.2.0" }

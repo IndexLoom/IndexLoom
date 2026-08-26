@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use fancy_regex::{Regex as FancyRegex, RegexBuilder as FancyRegexBuilder};
 use gtmpl::{Context, FuncError, Template, Value as TemplateValue};
 use indexloom_core::SearchResult;
 use indexloom_definitions::{ConfigurationValue, IndexerDefinition};
@@ -25,6 +26,7 @@ use crate::{
 const MAX_DIRECT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
 const AUTH_SESSION_TTL: Duration = Duration::from_mins(15);
+const CARDIGANN_REGEX_BACKTRACK_LIMIT: usize = 1_000_000;
 static HYPHENATED_CONFIG_REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\.Config\.([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+)")
         .expect("static Cardigann config-reference regex must compile")
@@ -729,13 +731,16 @@ fn template_regex_replace(arguments: &[TemplateValue]) -> Result<TemplateValue, 
     if arguments.len() != 3 {
         return Err(FuncError::ExactlyXArgs("re_replace".to_owned(), 3));
     }
-    let expression = Regex::new(&arguments[1].to_string())
+    let mut builder = FancyRegexBuilder::new(&arguments[1].to_string());
+    builder.backtrack_limit(CARDIGANN_REGEX_BACKTRACK_LIMIT);
+    let expression = builder
+        .build()
         .map_err(|error| FuncError::Generic(error.to_string()))?;
-    Ok(TemplateValue::String(
-        expression
-            .replace_all(&arguments[0].to_string(), arguments[2].to_string())
-            .into_owned(),
-    ))
+    let input = arguments[0].to_string();
+    let rendered = expression
+        .try_replacen(&input, 0, arguments[2].to_string())
+        .map_err(|error| FuncError::Generic(error.to_string()))?;
+    Ok(TemplateValue::String(rendered.into_owned()))
 }
 
 fn first_search_path(search: &Mapping) -> Result<&Mapping, EngineError> {
@@ -921,7 +926,10 @@ fn extract_html_row(
         if specification.contains_key(key("text")) {
             continue;
         }
-        if let Some(value) = extract_html_field(row, specification, context, keywords, &result)? {
+        let render_result = complete_result_fields(fields, &result);
+        if let Some(value) =
+            extract_html_field(row, specification, context, keywords, &render_result)?
+        {
             result.insert(name, value);
         }
     }
@@ -935,7 +943,9 @@ fn extract_html_row(
             let Some(specification) = mapping(specification) else {
                 continue;
             };
-            if let Some(value) = extract_html_field(row, specification, context, keywords, &result)?
+            let render_result = complete_result_fields(fields, &result);
+            if let Some(value) =
+                extract_html_field(row, specification, context, keywords, &render_result)?
             {
                 result.insert(name, value);
             }
@@ -950,6 +960,20 @@ fn extract_html_row(
         &result,
         final_url,
     ))
+}
+
+fn complete_result_fields(
+    fields: &Mapping,
+    result: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    fields
+        .keys()
+        .filter_map(scalar)
+        .map(|name| {
+            let value = result.get(&name).cloned().unwrap_or_default();
+            (name, value)
+        })
+        .collect()
 }
 
 fn extract_html_field(
@@ -1092,7 +1116,7 @@ fn extract_json_row(
             let Some(specification) = mapping(specification) else {
                 continue;
             };
-            let render = context.for_search(keywords, result.clone());
+            let render = context.for_search(keywords, complete_result_fields(fields, &result));
             let mut value = if let Some(text) = specification.get(key("text")).and_then(scalar) {
                 render_template(&text, &render)?
             } else if let Some(selector) = specification.get(key("selector")).and_then(scalar) {
@@ -1309,15 +1333,17 @@ fn apply_filters(mut value: String, filters: &YamlValue) -> Result<String, Engin
         match name.as_str() {
             "replace" if args.len() >= 2 => value = value.replace(&args[0], &args[1]),
             "re_replace" if args.len() >= 2 => {
-                let regex = Regex::new(&args[0])
-                    .map_err(|error| EngineError::InvalidFilter(error.to_string()))?;
-                value = regex.replace_all(&value, args[1].as_str()).into_owned();
+                let regex = cardigann_regex(&args[0])?;
+                value = regex
+                    .try_replacen(&value, 0, args[1].as_str())
+                    .map_err(|error| EngineError::InvalidFilter(error.to_string()))?
+                    .into_owned();
             }
             "regexp" if !args.is_empty() => {
-                let regex = Regex::new(&args[0])
-                    .map_err(|error| EngineError::InvalidFilter(error.to_string()))?;
+                let regex = cardigann_regex(&args[0])?;
                 value = regex
                     .captures(&value)
+                    .map_err(|error| EngineError::InvalidFilter(error.to_string()))?
                     .and_then(|captures| captures.get(1).or_else(|| captures.get(0)))
                     .map_or_else(String::new, |capture| capture.as_str().to_owned());
             }
@@ -1359,6 +1385,14 @@ fn apply_filters(mut value: String, filters: &YamlValue) -> Result<String, Engin
         }
     }
     Ok(value)
+}
+
+fn cardigann_regex(pattern: &str) -> Result<FancyRegex, EngineError> {
+    let mut builder = FancyRegexBuilder::new(pattern);
+    builder.backtrack_limit(CARDIGANN_REGEX_BACKTRACK_LIMIT);
+    builder
+        .build()
+        .map_err(|error| EngineError::InvalidFilter(error.to_string()))
 }
 
 fn filter_args(value: Option<&YamlValue>) -> Vec<String> {
@@ -1540,8 +1574,8 @@ mod tests {
     use url::Url;
 
     use super::{
-        RenderContext, apply_filters, info_hash_from_magnet, normalize_contains_selector,
-        normalized_result, render_search_inputs, render_template,
+        RenderContext, apply_filters, complete_result_fields, info_hash_from_magnet,
+        normalize_contains_selector, normalized_result, render_search_inputs, render_template,
     };
 
     #[test]
@@ -1551,6 +1585,25 @@ mod tests {
         let rendered = render_template("{{ .Keywords }}|{{ .Query.Keywords }}", &context)
             .expect("both Cardigann keyword forms should render");
         assert_eq!(rendered, "one piece|one piece");
+    }
+
+    #[test]
+    fn exposes_empty_values_for_unresolved_result_fields() {
+        let fields: YamlValue = serde_yaml::from_str(
+            "title_primary:\n  optional: true\ntitle:\n  text: '{{ or (.Result.title_primary) (.Result.title_default) }}'\ntitle_default:\n  selector: a\n",
+        )
+        .expect("field fixture should parse");
+        let fields = fields.as_mapping().expect("fields should be a mapping");
+        let resolved = BTreeMap::from([("title_default".to_owned(), "Example release".to_owned())]);
+        let render_result = complete_result_fields(fields, &resolved);
+        let context = RenderContext::new(BTreeMap::new(), BTreeMap::new())
+            .for_search("example", render_result);
+        let rendered = render_template(
+            "{{ or (.Result.title_primary) (.Result.title_default) }}",
+            &context,
+        )
+        .expect("missing optional fields should render as empty strings");
+        assert_eq!(rendered, "Example release");
     }
 
     #[test]
@@ -1630,6 +1683,17 @@ mod tests {
         assert_eq!(
             apply_filters(" test-release ".to_owned(), &filters).unwrap(),
             "test release"
+        );
+    }
+
+    #[test]
+    fn applies_cardigann_lookaround_filters() {
+        let filters: YamlValue =
+            serde_yaml::from_str("- name: re_replace\n  args: ['foo(?!bar)', 'match']\n")
+                .expect("filter fixture should parse");
+        assert_eq!(
+            apply_filters("foo baz foobar".to_owned(), &filters).unwrap(),
+            "match baz foobar"
         );
     }
 
