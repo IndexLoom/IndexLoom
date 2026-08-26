@@ -142,12 +142,12 @@ async fn upsert_proxy(
         enabled: request.enabled,
         username,
     };
-    Ok(Json(
-        state
-            .store
-            .upsert_proxy(&input, password_update, &state.vault)
-            .await?,
-    ))
+    let proxy = state
+        .store
+        .upsert_proxy(&input, password_update, &state.vault)
+        .await?;
+    state.executor_cache.clear().await;
+    Ok(Json(proxy))
 }
 
 async fn delete_proxy(
@@ -156,6 +156,7 @@ async fn delete_proxy(
 ) -> Result<StatusCode, ApiError> {
     validate_identifier(&id)?;
     state.store.delete_proxy(&id).await?;
+    state.executor_cache.clear().await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -189,7 +190,9 @@ async fn upsert_group(
         priority: request.priority,
         proxy_id: request.proxy_id,
     };
-    Ok(Json(state.store.upsert_group(&input).await?))
+    let group = state.store.upsert_group(&input).await?;
+    state.executor_cache.clear().await;
+    Ok(Json(group))
 }
 
 async fn delete_group(
@@ -198,6 +201,7 @@ async fn delete_group(
 ) -> Result<StatusCode, ApiError> {
     validate_identifier(&id)?;
     state.store.delete_group(&id).await?;
+    state.executor_cache.clear().await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -216,6 +220,7 @@ async fn save_routing(
         .store
         .set_global_proxy_id(request.global_proxy_id.as_deref())
         .await?;
+    state.executor_cache.clear().await;
     Ok(Json(RoutingView {
         global_proxy_id: request.global_proxy_id,
     }))
@@ -259,6 +264,7 @@ async fn save_indexer_organization(
             &tags,
         )
         .await?;
+    state.executor_cache.invalidate(&id).await;
     Ok(Json(indexer_view(
         state.store.get_indexer(&id, &state.vault).await?,
     )?))

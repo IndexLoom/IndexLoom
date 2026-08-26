@@ -67,6 +67,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-stream"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+dependencies = [
+ "async-stream-impl",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "async-stream-impl"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1204,7 +1226,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1214,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-definitions"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1224,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "gtmpl",
  "indexloom-core",
@@ -1237,13 +1259,14 @@ dependencies = [
  "serde_yaml_ng",
  "thiserror 2.0.20",
  "time",
+ "tokio",
  "url",
  "uuid",
 ]
 
 [[package]]
 name = "indexloom-importers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "indexloom-definitions",
  "thiserror 2.0.20",
@@ -1251,9 +1274,10 @@ dependencies = [
 
 [[package]]
 name = "indexloom-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "axum",
  "flate2",
  "indexloom-core",
@@ -1280,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "indexloom-storage"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",

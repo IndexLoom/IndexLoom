@@ -39,6 +39,8 @@ pub struct AppState {
     vault: SecretVault,
     admin_token: AdminToken,
     test_jobs: execution::TestJobRegistry,
+    executor_cache: execution::ExecutorCache,
+    search_permits: Arc<tokio::sync::Semaphore>,
 }
 
 impl AppState {
@@ -50,7 +52,14 @@ impl AppState {
             vault,
             admin_token,
             test_jobs: execution::TestJobRegistry::default(),
+            executor_cache: execution::ExecutorCache::default(),
+            search_permits: execution::search_permits(),
         }
+    }
+
+    /// Drops cached authenticated indexer runtimes after a catalog refresh.
+    pub async fn clear_execution_runtimes(&self) {
+        self.executor_cache.clear().await;
     }
 }
 
@@ -260,6 +269,7 @@ async fn save_indexer_configuration(
             &state.vault,
         )
         .await?;
+    state.executor_cache.invalidate(&id).await;
 
     let refreshed = state.store.get_indexer(&id, &state.vault).await?;
     Ok(Json(indexer_view(refreshed)?))
@@ -296,7 +306,9 @@ async fn upsert_flaresolverr(
         enabled: request.enabled,
         timeout_seconds: request.timeout_seconds,
     };
-    Ok(Json(state.store.upsert_flaresolverr(&input).await?))
+    let connector = state.store.upsert_flaresolverr(&input).await?;
+    state.executor_cache.clear().await;
+    Ok(Json(connector))
 }
 
 async fn delete_flaresolverr(
@@ -305,6 +317,7 @@ async fn delete_flaresolverr(
 ) -> Result<StatusCode, ApiError> {
     validate_identifier(&id)?;
     state.store.delete_flaresolverr(&id).await?;
+    state.executor_cache.clear().await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -497,6 +510,16 @@ impl ApiError {
             status: StatusCode::NOT_FOUND,
             body: ErrorBody {
                 code: "NOT_FOUND",
+                message,
+            },
+        }
+    }
+
+    const fn too_many_requests(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            body: ErrorBody {
+                code: "TOO_MANY_REQUESTS",
                 message,
             },
         }

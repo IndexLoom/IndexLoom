@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -6,11 +6,12 @@ import {
   type Indexer,
   type IndexerGroup,
   type IndexerSelection,
+  type SearchIndexerResults,
   type SearchResponse,
   fetchGroups,
   fetchHealth,
   fetchIndexers,
-  searchIndexers,
+  searchIndexersStream,
 } from "../lib/api";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 
@@ -51,6 +52,11 @@ function AuthenticatedSearch({
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [response, setResponse] = useState<SearchResponse | null>(null);
+  const [searchProgress, setSearchProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
+  const searchAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -77,6 +83,13 @@ function AuthenticatedSearch({
     return () => controller.abort();
   }, [onUnauthorized, token]);
 
+  useEffect(
+    () => () => {
+      searchAbort.current?.abort();
+    },
+    [],
+  );
+
   const enabledIndexers = useMemo(
     () =>
       workspace.kind === "ready"
@@ -100,24 +113,68 @@ function AuthenticatedSearch({
       setNotice("Enter a search query first.");
       return;
     }
+    searchAbort.current?.abort();
+    const controller = new AbortController();
+    const submittedQuery = query.trim();
+    searchAbort.current = controller;
     setSearching(true);
     setNotice(null);
+    setSearchProgress(null);
+    const indexers = new Map<string, SearchIndexerResults>();
+    let resultCount = 0;
     try {
-      const result = await searchIndexers(token, query.trim(), selection);
-      setResponse(result);
-      setNotice(
-        result.resultCount === 0
-          ? "The selected indexers returned no results. Expand each indexer to inspect errors."
-          : null,
+      await searchIndexersStream(
+        token,
+        submittedQuery,
+        selection,
+        (event) => {
+          if (event.type === "started") {
+            setResponse({ query: event.query, indexers: [], resultCount: 0 });
+            setSearchProgress({ completed: 0, total: event.total });
+            return;
+          }
+          if (event.type === "indexer") {
+            indexers.set(event.indexer.indexerInstanceId, event.indexer);
+            const ordered = Array.from(indexers.values()).sort(compareIndexers);
+            resultCount = ordered.reduce(
+              (total, indexer) => total + indexer.results.length,
+              0,
+            );
+            setResponse({
+              query: submittedQuery,
+              indexers: ordered,
+              resultCount,
+            });
+            setSearchProgress((current) => ({
+              completed: (current?.completed ?? 0) + 1,
+              total: current?.total ?? ordered.length,
+            }));
+            return;
+          }
+          setSearchProgress({
+            completed: event.completed,
+            total: event.total,
+          });
+          setNotice(
+            event.resultCount === 0
+              ? "The selected indexers returned no results. Expand each indexer to inspect errors."
+              : null,
+          );
+        },
+        controller.signal,
       );
     } catch (error) {
+      if (controller.signal.aborted) return;
       if (error instanceof ApiError && error.status === 401) {
         onUnauthorized();
         return;
       }
       setNotice(error instanceof Error ? error.message : "search failed");
     } finally {
-      setSearching(false);
+      if (searchAbort.current === controller) {
+        searchAbort.current = null;
+        setSearching(false);
+      }
     }
   }
 
@@ -236,7 +293,12 @@ function AuthenticatedSearch({
       <section className="data-section" aria-labelledby="results-heading">
         <div className="section-heading">
           <h2 id="results-heading">Results by indexer</h2>
-          <span className="muted">{response?.resultCount ?? 0} items</span>
+          <span className="muted">
+            {response?.resultCount ?? 0} items
+            {searchProgress
+              ? ` · ${searchProgress.completed}/${searchProgress.total} indexers`
+              : ""}
+          </span>
         </div>
         {response ? (
           <div className="result-groups">
@@ -342,6 +404,17 @@ function AuthenticatedSearch({
         )}
       </section>
     </section>
+  );
+}
+
+function compareIndexers(
+  left: SearchIndexerResults,
+  right: SearchIndexerResults,
+): number {
+  return (
+    left.indexerName.localeCompare(right.indexerName, undefined, {
+      sensitivity: "base",
+    }) || left.indexerInstanceId.localeCompare(right.indexerInstanceId)
   );
 }
 

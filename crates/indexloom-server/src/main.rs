@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
     let catalog_interval = env_or("INDEXLOOM_CATALOG_SYNC_SECONDS", "21600")
         .parse::<u64>()
         .context("INDEXLOOM_CATALOG_SYNC_SECONDS must be an integer")?;
+    let state = AppState::new(store.clone(), vault, admin_token);
     if catalog_interval != 0 {
         if catalog_interval < 300 {
             anyhow::bail!("INDEXLOOM_CATALOG_SYNC_SECONDS must be 0 or at least 300");
@@ -69,6 +70,7 @@ async fn main() -> Result<()> {
             store.clone(),
             catalog_source,
             Duration::from_secs(catalog_interval),
+            state.clone(),
         ));
     }
     let listener = TcpListener::bind(bind)
@@ -76,13 +78,10 @@ async fn main() -> Result<()> {
         .with_context(|| format!("failed to bind {bind}"))?;
 
     tracing::info!(%bind, "IndexLoom is ready");
-    axum::serve(
-        listener,
-        router(AppState::new(store, vault, admin_token), web_root),
-    )
-    .with_graceful_shutdown(shutdown_signal())
-    .await
-    .context("IndexLoom HTTP server failed")?;
+    axum::serve(listener, router(state, web_root))
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .context("IndexLoom HTTP server failed")?;
 
     Ok(())
 }
@@ -111,13 +110,19 @@ async fn synchronize_catalog_or_retain(store: &Store, source: &CatalogSource) ->
     }
 }
 
-async fn catalog_sync_loop(store: Store, source: CatalogSource, interval: Duration) {
+async fn catalog_sync_loop(
+    store: Store,
+    source: CatalogSource,
+    interval: Duration,
+    state: AppState,
+) {
     let mut ticker = tokio::time::interval(interval);
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        if let Err(error) = synchronize(&store, &source).await {
-            tracing::warn!(%error, "scheduled catalog synchronization failed");
+        match synchronize(&store, &source).await {
+            Ok(_) => state.clear_execution_runtimes().await,
+            Err(error) => tracing::warn!(%error, "scheduled catalog synchronization failed"),
         }
     }
 }

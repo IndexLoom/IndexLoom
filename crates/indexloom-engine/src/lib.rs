@@ -1,8 +1,18 @@
 //! Sandboxed direct HTTP and `FlareSolverr` execution primitives.
 
-use std::time::Duration;
+use std::{
+    collections::BTreeSet,
+    error::Error as StdError,
+    io,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    time::Duration,
+};
 
-use reqwest::{Client, Method, RequestBuilder, header};
+use reqwest::{
+    Client, Method, RequestBuilder,
+    dns::{Addrs, Name, Resolve, Resolving},
+    header,
+};
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -15,6 +25,128 @@ pub use cardigann::{
 };
 
 const MAX_FLARESOLVERR_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+
+/// DNS resolver used only by direct tracker connections.
+///
+/// Resolution and address classification happen inside reqwest's connection
+/// path, so the exact addresses returned here are the addresses the connector
+/// may use. This avoids a validation-to-use DNS lookup gap. A mixed answer is
+/// rejected in full rather than silently discarding its private alternatives.
+#[derive(Clone, Debug, Default)]
+struct PublicDnsResolver;
+
+impl Resolve for PublicDnsResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let hostname = name.as_str().to_owned();
+        Box::pin(async move {
+            let resolved = tokio::net::lookup_host((hostname.as_str(), 0))
+                .await
+                .map_err(boxed_dns_error)?;
+            let addresses = resolved.collect::<BTreeSet<_>>();
+            if addresses.is_empty() {
+                return Err(boxed_dns_error(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    "DNS returned no addresses",
+                )));
+            }
+            if addresses.iter().any(|address| !is_public_ip(address.ip())) {
+                return Err(boxed_dns_error(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "DNS returned a non-public address",
+                )));
+            }
+            Ok(Box::new(addresses.into_iter()) as Addrs)
+        })
+    }
+}
+
+fn boxed_dns_error(error: io::Error) -> Box<dyn StdError + Send + Sync> {
+    Box::new(error)
+}
+
+/// Rejects URL IP literals that would bypass DNS resolution.
+fn validate_public_url_literal(url: &Url) -> Result<(), EngineError> {
+    let public = match url.host() {
+        Some(url::Host::Ipv4(address)) => is_public_ipv4(address),
+        Some(url::Host::Ipv6(address)) => is_public_ipv6(address),
+        Some(url::Host::Domain(_)) => true,
+        None => false,
+    };
+    if public {
+        Ok(())
+    } else {
+        Err(EngineError::OutboundAddressRejected)
+    }
+}
+
+fn is_public_ip(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_public_ipv4(address),
+        IpAddr::V6(address) => is_public_ipv6(address),
+    }
+}
+
+fn is_public_ipv4(address: Ipv4Addr) -> bool {
+    let [a, b, c, _] = address.octets();
+    if address == Ipv4Addr::new(168, 63, 129, 16) || address == Ipv4Addr::new(147, 75, 207, 207) {
+        return false;
+    }
+    !matches!(
+        (a, b, c),
+        (0 | 10 | 127 | 224..=255, _, _)
+            | (100, 64..=127, _)
+            | (169, 254, _)
+            | (172, 16..=31, _)
+            | (192, 0 | 168, _)
+            | (192, 88, 99)
+            | (198, 18..=19, _)
+            | (198, 51, 100)
+            | (203, 0, 113)
+    )
+}
+
+fn is_public_ipv6(address: Ipv6Addr) -> bool {
+    if let Some(mapped) = address.to_ipv4_mapped() {
+        return is_public_ipv4(mapped);
+    }
+    let segments = address.segments();
+
+    // Well-known NAT64 embeds an IPv4 destination in the low 32 bits.
+    if segments[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
+        return is_public_ipv4(embedded_ipv4(address));
+    }
+    if segments[0] == 0x2001 && segments[1] == 0x0db8 {
+        return false;
+    }
+
+    // Fail closed on IANA-reserved global-unicast space. These ranges are the
+    // currently allocated RIR blocks from the IPv6 Global Unicast registry;
+    // 2001::/23 and deprecated 6to4 remain excluded as special-purpose space.
+    match segments[0] {
+        0x2001 => matches!(
+            segments[1],
+            0x0200..=0x0fff
+                | 0x1200..=0x3fff
+                | 0x4000..=0x4dff
+                | 0x5000..=0x5fff
+                | 0x8000..=0xbfff
+        ),
+        0x2003 => segments[1] <= 0x3fff,
+        0x2400..=0x241f
+        | 0x2600..=0x260f
+        | 0x2630..=0x263f
+        | 0x2800..=0x280f
+        | 0x2a00..=0x2a1f
+        | 0x2c00..=0x2c0f => true,
+        0x2610 | 0x2620 => segments[1] <= 0x01ff,
+        _ => false,
+    }
+}
+
+fn embedded_ipv4(address: Ipv6Addr) -> Ipv4Addr {
+    let octets = address.octets();
+    Ipv4Addr::new(octets[12], octets[13], octets[14], octets[15])
+}
 
 /// Shared HTTP execution engine.
 #[derive(Clone, Debug)]
@@ -46,7 +178,10 @@ impl SearchEngine {
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
-            .cookie_store(true);
+            .cookie_store(true)
+            // Environment proxy variables must not silently replace the
+            // explicit direct/proxy routing decision made by IndexLoom.
+            .no_proxy();
         if let Some(route) = proxy {
             let mut configured = reqwest::Proxy::all(&route.url)?;
             if let Some(username) = route.username.as_deref() {
@@ -54,6 +189,11 @@ impl SearchEngine {
                     configured.basic_auth(username, route.password.as_deref().unwrap_or(""));
             }
             builder = builder.proxy(configured);
+        } else {
+            // HTTP/SOCKS remote-DNS proxies and FlareSolverr are explicit
+            // administrator-controlled egress boundaries. Only a direct
+            // connection can be authoritatively constrained by local DNS.
+            builder = builder.dns_resolver(PublicDnsResolver);
         }
         let client = builder.build()?;
         Ok(Self { client })
@@ -171,6 +311,7 @@ impl FlareSolverrClient {
         let client = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(max_timeout + Duration::from_secs(5))
+            .no_proxy()
             .build()?;
         Ok(Self {
             client,
@@ -415,6 +556,9 @@ pub enum EngineError {
     /// A definition tried to leave its declared tracker origins.
     #[error("outbound URL was rejected by the definition origin policy: {0}")]
     OutboundUrlRejected(String),
+    /// A direct request resolved to a non-public network address.
+    #[error("outbound URL was rejected by the public network address policy")]
+    OutboundAddressRejected,
 }
 
 #[cfg(test)]
@@ -422,7 +566,14 @@ mod tests {
     use reqwest::{Method, header};
     use url::Url;
 
-    use super::{DirectRequestProfile, FlareSolverrClient, SearchEngine};
+    use std::{net::IpAddr, str::FromStr};
+
+    use reqwest::dns::{Name, Resolve};
+
+    use super::{
+        DirectRequestProfile, FlareSolverrClient, PublicDnsResolver, SearchEngine, is_public_ip,
+        validate_public_url_literal,
+    };
 
     #[test]
     fn extracts_text_from_matching_nodes() {
@@ -476,5 +627,93 @@ mod tests {
         assert!(FlareSolverrClient::new(endpoint, std::time::Duration::from_secs(60)).is_ok());
         let invalid = Url::parse("http://flaresolverr:8191/").expect("URL should parse");
         assert!(FlareSolverrClient::new(invalid, std::time::Duration::from_secs(60)).is_err());
+    }
+
+    #[test]
+    fn classifies_public_and_forbidden_network_addresses() {
+        for address in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "93.184.216.34",
+            "2606:4700:4700::1111",
+            "2001:4860:4860::8888",
+            "64:ff9b::0808:0808",
+        ] {
+            assert!(
+                is_public_ip(IpAddr::from_str(address).unwrap()),
+                "{address} should be public"
+            );
+        }
+        for address in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "100.100.100.200",
+            "127.0.0.1",
+            "169.254.169.254",
+            "168.63.129.16",
+            "147.75.207.207",
+            "172.16.0.1",
+            "192.168.1.1",
+            "198.18.0.1",
+            "224.0.0.1",
+            "::",
+            "::1",
+            "::ffff:127.0.0.1",
+            "64:ff9b::7f00:0001",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+            "2001:100::1",
+            "2002:7f00:1::1",
+            "2d00::1",
+            "ff02::1",
+        ] {
+            assert!(
+                !is_public_ip(IpAddr::from_str(address).unwrap()),
+                "{address} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_forbidden_ip_literals_before_transport() {
+        assert!(validate_public_url_literal(&Url::parse("http://127.0.0.1/").unwrap()).is_err());
+        assert!(
+            validate_public_url_literal(&Url::parse("http://[::ffff:127.0.0.1]/").unwrap())
+                .is_err()
+        );
+        assert!(validate_public_url_literal(&Url::parse("https://1.1.1.1/").unwrap()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn resolver_rejects_localhost_answers() {
+        let name = Name::from_str("localhost").expect("localhost should be a DNS name");
+        let Err(error) = PublicDnsResolver.resolve(name).await else {
+            panic!("localhost must not resolve through the public resolver");
+        };
+        assert!(error.to_string().contains("non-public"));
+    }
+
+    #[tokio::test]
+    async fn direct_http_transport_cannot_connect_to_localhost() {
+        let engine = SearchEngine::new().expect("engine should initialize");
+        let error = engine
+            .client()
+            .get("http://localhost/")
+            .send()
+            .await
+            .expect_err("the direct transport must reject localhost DNS answers");
+        let mut messages = vec![error.to_string()];
+        let mut source = std::error::Error::source(&error);
+        while let Some(error) = source {
+            messages.push(error.to_string());
+            source = error.source();
+        }
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.contains("non-public")),
+            "the resolver rejection must remain visible in the error chain: {messages:?}"
+        );
     }
 }

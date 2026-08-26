@@ -41,15 +41,29 @@ concurrency. Newly discovered indexers remain disabled until an administrator
 opts in.
 
 Management endpoints require an explicit bearer token and return `no-store`.
-Direct tracker HTTP has no shared cookie jar. `FlareSolverr` is configured as a
-named administrator-controlled connector and selected per indexer; the target
-URL must still pass the engine's outbound policy before solver execution.
+Direct tracker HTTP has no cross-instance cookie jar. Its connector-level DNS
+resolver rejects non-public and mixed answers before returning the exact
+addresses reqwest may connect to; IP literals and every redirect are checked as
+well. Per-instance runtimes have bounded count and idle lifetime and are replaced whenever
+their configuration fingerprint changes.
+
+`FlareSolverr` is configured as a named administrator-controlled connector and
+selected per indexer; the target URL must still pass the declared-origin policy
+before solver execution. Target address confinement is delegated to the
+connector for FlareSolverr and to the proxy for remote-DNS HTTP/SOCKS routes.
 
 Outbound routes are named HTTP, SOCKS4a or SOCKS5h records. Passwords use a
 separate authenticated-encryption context from tracker credentials. Resolution
 is deterministic: an indexer override wins, otherwise the enabled member group
 with the highest priority wins, otherwise the global route is used. Equal group
 priorities are broken by stable group ID ordering.
+
+Search has a compatibility JSON response and a POST NDJSON stream. The stream
+emits one indexer batch as each concurrent worker finishes, carries the bearer
+token in the normal request header, and aborts outstanding `JoinSet` tasks when
+the client disconnects. Search concurrency is global to the process rather
+than multiplied per incoming search request. Test-job progress is retained for
+24 hours with a 256-completed-job cap and an eight-active-job admission limit.
 
 ## Cardigann compatibility stage
 

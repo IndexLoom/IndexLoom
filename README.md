@@ -133,12 +133,15 @@ duplicate-grab prevention without treating a UI row UUID as persistent state.
 
 ## Current execution scope
 
-The first Cardigann layer supports bounded concurrent tests and searches,
-HTML/XML and JSON rows, common templates and filters, cookie and form
-authentication, isolated cookie stores, redirect and response-size limits,
-per-instance user agents, proxy routing and optional FlareSolverr. Unsupported
-definition behavior fails per indexer instead of hiding successful results
-from other indexers.
+The first Cardigann layer supports globally bounded concurrent tests and
+searches, progressive POST/NDJSON search results, HTML/XML and JSON rows,
+common templates and filters, entry-capped cookie/form sessions isolated by instance with idle expiry,
+redirect and response-size limits, per-instance user agents, proxy routing and
+optional FlareSolverr. Direct HTTP also enforces public-address DNS resolution
+inside the connector to resist rebinding. Remote-DNS proxy and FlareSolverr
+routes deliberately delegate address policy to their administrator-controlled
+egress service. Unsupported definition behavior fails per indexer instead of
+hiding successful results from other indexers.
 
 See the [API guide](docs/API.md), [architecture notes](docs/architecture/README.md)
 and [roadmap](docs/ROADMAP.md) for current limits and planned Torznab/RSS work.
@@ -178,7 +181,7 @@ source metadata.
 
 ## Versioning and license
 
-IndexLoom follows Semantic Versioning. Application tags such as `v0.1.0`, REST
+IndexLoom follows Semantic Versioning. Application tags such as `v0.2.0`, REST
 API versions and definition schema versions evolve independently.
 
 The application is licensed under

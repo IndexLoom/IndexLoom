@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    time::Instant,
+    sync::LazyLock,
+    time::{Duration, Instant},
 };
 
 use gtmpl::{Context, FuncError, Template, Value as TemplateValue};
@@ -18,10 +19,16 @@ use uuid::Uuid;
 
 use crate::{
     BrowserCookie, DirectRequestProfile, EngineError, FlareSolverrClient, ProxyRoute, SearchEngine,
+    validate_public_url_literal,
 };
 
 const MAX_DIRECT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
+const AUTH_SESSION_TTL: Duration = Duration::from_mins(15);
+static HYPHENATED_CONFIG_REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\.Config\.([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+)")
+        .expect("static Cardigann config-reference regex must compile")
+});
 
 /// Fully resolved, execution-only configuration for one indexer instance.
 pub struct IndexerExecutionConfig {
@@ -84,6 +91,7 @@ pub struct CardigannExecutor {
     flaresolverr: Option<FlareSolverrClient>,
     base_url: Url,
     allowed_origins: Vec<Origin>,
+    auth_state: tokio::sync::Mutex<AuthSessionState>,
 }
 
 impl CardigannExecutor {
@@ -101,13 +109,18 @@ impl CardigannExecutor {
                 .first()
                 .ok_or(EngineError::MissingBaseUrl)?,
         )?;
+        validate_public_url_literal(&base_url)?;
         let allowed_origins = config
             .definition
             .spec
             .base_urls
             .iter()
             .chain(config.definition.spec.legacy_urls.iter())
-            .map(|value| Url::parse(value).map(|url| Origin::from_url(&url)))
+            .map(|value| {
+                let url = Url::parse(value)?;
+                validate_public_url_literal(&url)?;
+                Ok::<Origin, EngineError>(Origin::from_url(&url))
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let engine = SearchEngine::with_proxy(config.proxy.as_ref())?;
         let cookie_header = config
@@ -148,6 +161,7 @@ impl CardigannExecutor {
             flaresolverr: config.flaresolverr,
             base_url,
             allowed_origins,
+            auth_state: tokio::sync::Mutex::new(AuthSessionState::default()),
         })
     }
 
@@ -259,6 +273,19 @@ impl CardigannExecutor {
         else {
             return Ok(());
         };
+        let mut state = self.auth_state.lock().await;
+        if state
+            .last_success
+            .is_some_and(|authenticated| authenticated.elapsed() < AUTH_SESSION_TTL)
+        {
+            return Ok(());
+        }
+        self.authenticate(authentication).await?;
+        state.last_success = Some(Instant::now());
+        Ok(())
+    }
+
+    async fn authenticate(&self, authentication: &Mapping) -> Result<(), EngineError> {
         let configured_cookie = self.profile.cookie_header.is_some();
         if authentication.contains_key(key("captcha")) && !configured_cookie {
             return Err(EngineError::UnsupportedAuthentication(
@@ -413,7 +440,7 @@ impl CardigannExecutor {
             .get(key("allowEmptyInputs"))
             .and_then(YamlValue::as_bool)
             .unwrap_or(false);
-        let inputs = render_inputs(search.get(key("inputs")), render, allow_empty)?;
+        let inputs = render_search_inputs(search, path, render, allow_empty)?;
         let raw_query = search
             .get(key("inputs"))
             .and_then(mapping)
@@ -542,6 +569,7 @@ impl CardigannExecutor {
     }
 
     fn ensure_allowed(&self, target: &Url) -> Result<(), EngineError> {
+        validate_public_url_literal(target)?;
         let origin = Origin::from_url(target);
         if self.allowed_origins.contains(&origin) {
             Ok(())
@@ -566,6 +594,11 @@ struct ExecutionResponse {
     body: String,
     final_url: Url,
     response_type: String,
+}
+
+#[derive(Debug, Default)]
+struct AuthSessionState {
+    last_success: Option<Instant>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -650,8 +683,12 @@ fn render_template(source: &str, context: &TemplateValue) -> Result<String, Engi
     let mut template = Template::default();
     template.add_func("join", template_join);
     template.add_func("re_replace", template_regex_replace);
+    let source = HYPHENATED_CONFIG_REFERENCE
+        .replace_all(source, |capture: &regex::Captures<'_>| {
+            format!(r#"(index .Config "{}")"#, &capture[1])
+        });
     template
-        .parse(source)
+        .parse(source.as_ref())
         .map_err(|error| EngineError::Template(error.to_string()))?;
     template
         .render(&Context::from(context.clone()))
@@ -734,6 +771,21 @@ fn render_inputs(
                 }
         })
         .collect()
+}
+
+fn render_search_inputs(
+    search: &Mapping,
+    path: &Mapping,
+    context: &TemplateValue,
+    allow_empty: bool,
+) -> Result<Vec<(String, String)>, EngineError> {
+    let mut inputs = render_inputs(path.get(key("inputs")), context, allow_empty)?;
+    inputs.extend(render_inputs(
+        search.get(key("inputs")),
+        context,
+        allow_empty,
+    )?);
+    Ok(inputs)
 }
 
 fn render_headers(
@@ -1476,7 +1528,7 @@ mod tests {
 
     use super::{
         apply_filters, info_hash_from_magnet, normalize_contains_selector, normalized_result,
-        render_template,
+        render_search_inputs, render_template,
     };
 
     #[test]
@@ -1505,6 +1557,47 @@ mod tests {
         )
         .expect("template should render");
         assert_eq!(rendered, "search/movie");
+    }
+
+    #[test]
+    fn renders_hyphenated_cardigann_configuration_names() {
+        let context = TemplateValue::Object(std::collections::HashMap::from([(
+            "Config".to_owned(),
+            TemplateValue::Object(std::collections::HashMap::from([(
+                "filter-id".to_owned(),
+                TemplateValue::String("trusted".to_owned()),
+            )])),
+        )]));
+        let rendered = render_template("{{ .Config.filter-id }}", &context)
+            .expect("hyphenated config names should use the map index function");
+        assert_eq!(rendered, "trusted");
+    }
+
+    #[test]
+    fn combines_path_and_search_level_inputs() {
+        let search: YamlValue = serde_yaml::from_str(
+            "paths:\n  - path: /\n    inputs:\n      q: '{{ .Keywords }}'\ninputs:\n  f: 0\n",
+        )
+        .expect("search fixture should parse");
+        let search = search.as_mapping().expect("search should be a mapping");
+        let path = search["paths"]
+            .as_sequence()
+            .and_then(|paths| paths.first())
+            .and_then(YamlValue::as_mapping)
+            .expect("path should be a mapping");
+        let context = TemplateValue::Object(std::collections::HashMap::from([(
+            "Keywords".to_owned(),
+            TemplateValue::String("one piece".to_owned()),
+        )]));
+        let inputs = render_search_inputs(search, path, &context, false)
+            .expect("both input scopes should render");
+        assert_eq!(
+            inputs,
+            [
+                ("q".to_owned(), "one piece".to_owned()),
+                ("f".to_owned(), "0".to_owned())
+            ]
+        );
     }
 
     #[test]

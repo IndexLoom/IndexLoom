@@ -53,6 +53,24 @@ all enabled indexers and ignores the two ID arrays.
 - `POST /search` accepts `query`, `selection`, and `limitPerIndexer` (1-200).
   Its `indexers` array always groups results and errors by indexer so one failed
   tracker does not hide successful results from the others.
+- `POST /search/stream` accepts the same JSON and returns
+  `application/x-ndjson`. It emits `started`, one `indexer` event per completed
+  worker, and a terminal `finished` event. Use streaming `fetch`, not native
+  `EventSource`, so the administrator token remains in the Authorization
+  header rather than a URL.
+
+Example stream:
+
+```jsonl
+{"type":"started","query":"example","total":2}
+{"type":"indexer","indexer":{"indexerInstanceId":"example-main","definitionId":"example","indexerName":"Example","responseTimeMs":280,"results":[],"error":null}}
+{"type":"finished","query":"example","completed":2,"total":2,"resultCount":0}
+```
+
+Completed indexer-test jobs remain available for at most 24 hours and the most
+recent 256 completed records are retained in memory. At most eight bulk test
+jobs may run concurrently; their individual requests share one global
+16-request budget.
 
 Search response identity is explicit. `indexerInstanceId` is the configured
 SQLite instance, while `definitionId` is its catalog definition. The UUID in

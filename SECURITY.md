@@ -29,10 +29,26 @@ Secrets are read once during startup, so rotating a mounted file requires a
 controlled application restart. Errors never include the secret value or its
 configured filesystem path.
 
-Direct HTTP requests do not share a cookie jar. Each request receives only the
-credentials selected for that indexer. A configured `FlareSolverr` endpoint is
-an administrator-controlled outbound trust boundary and should be reachable
-only over a trusted local or private network.
+Direct HTTP clients are isolated by configured indexer instance. Declared URL
+origins are enforced on the initial request and every redirect; IP literals are
+rejected unless publicly routable. Direct hostname resolution runs inside the
+reqwest connector, rejects mixed public/private answers, and returns only the
+validated addresses that may be used for the connection. Environment proxy
+variables are disabled so they cannot bypass the selected route.
+
+An active instance runtime and its cookie jar are capped by entry count and are
+evicted after 30 minutes without use.
+Successful form/cookie authentication is reused for at most 15 minutes and is
+serialized per instance. The runtime fingerprint covers definition content,
+credentials, user agent, effective proxy and FlareSolverr configuration, so a
+changed value creates a new isolated runtime for subsequent requests.
+
+A configured HTTP/SOCKS proxy or `FlareSolverr` endpoint is an
+administrator-controlled outbound trust boundary. HTTP proxies, SOCKS4a,
+SOCKS5h and the FlareSolverr browser perform target DNS outside IndexLoom, so
+local network-address confinement cannot be claimed for those routes. Enforce
+equivalent public-only egress policy at the trusted proxy/connector and keep it
+on a controlled network.
 
 Outbound proxy passwords are encrypted independently from tracker credentials
 and are never returned by the API. SOCKS routes use remote DNS resolution to

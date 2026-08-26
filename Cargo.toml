@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98"
 license = "AGPL-3.0-or-later"
@@ -20,6 +20,7 @@ authors = ["IndexLoom contributors"]
 
 [workspace.dependencies]
 anyhow = "1.0.104"
+async-stream = "0.3.6"
 async-trait = "0.1.92"
 axum = { version = "0.8.9", features = ["json", "macros"] }
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
@@ -39,7 +40,7 @@ subtle = "2.6.1"
 tar = "0.4.44"
 thiserror = "2.0.20"
 time = { version = "0.3.55", features = ["formatting", "serde"] }
-tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.0", features = ["fs", "request-id", "trace"] }
 tracing = "0.1.44"

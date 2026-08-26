@@ -167,6 +167,17 @@ export type SearchResponse = {
   resultCount: number;
 };
 
+export type SearchStreamEvent =
+  | { type: "started"; query: string; total: number }
+  | { type: "indexer"; indexer: SearchIndexerResults }
+  | {
+      type: "finished";
+      query: string;
+      completed: number;
+      total: number;
+      resultCount: number;
+    };
+
 export type FlareSolverrInstance = {
   id: string;
   name: string;
@@ -383,6 +394,74 @@ export function searchIndexers(
     body: JSON.stringify({ query, selection, limitPerIndexer }),
     method: "POST",
   });
+}
+
+export async function searchIndexersStream(
+  token: string,
+  query: string,
+  selection: IndexerSelection,
+  onEvent: (event: SearchStreamEvent) => void,
+  signal?: AbortSignal,
+  limitPerIndexer = 50,
+): Promise<void> {
+  const response = await fetch("/api/v1/search/stream", {
+    body: JSON.stringify({ query, selection, limitPerIndexer }),
+    cache: "no-store",
+    headers: {
+      Accept: "application/x-ndjson",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+    signal,
+  });
+  if (!response.ok) {
+    throw await responseError(response);
+  }
+  if (!response.body) {
+    throw new ApiError(response.status, "search stream has no response body");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let finished = false;
+  for (;;) {
+    const chunk = await reader.read();
+    buffered += decoder.decode(chunk.value, { stream: !chunk.done });
+    let newline = buffered.indexOf("\n");
+    while (newline >= 0) {
+      const line = buffered.slice(0, newline).trim();
+      buffered = buffered.slice(newline + 1);
+      if (line) {
+        const event = parseSearchStreamEvent(line);
+        finished ||= event.type === "finished";
+        onEvent(event);
+      }
+      newline = buffered.indexOf("\n");
+    }
+    if (chunk.done) break;
+  }
+  if (buffered.trim()) {
+    const event = parseSearchStreamEvent(buffered.trim());
+    finished ||= event.type === "finished";
+    onEvent(event);
+  }
+  if (!finished) {
+    throw new ApiError(502, "search stream ended before its final summary");
+  }
+}
+
+function parseSearchStreamEvent(line: string): SearchStreamEvent {
+  const event = JSON.parse(line) as Partial<SearchStreamEvent>;
+  if (
+    event.type !== "started" &&
+    event.type !== "indexer" &&
+    event.type !== "finished"
+  ) {
+    throw new ApiError(502, "search stream returned an unknown event");
+  }
+  return event as SearchStreamEvent;
 }
 
 export async function removeFlareSolverr(

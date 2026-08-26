@@ -29,7 +29,7 @@ LABEL org.opencontainers.image.title="IndexLoom" \
       org.opencontainers.image.description="Self-hosted indexer manager and federated search engine" \
       org.opencontainers.image.source="https://github.com/IndexLoom/IndexLoom" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later" \
-      org.opencontainers.image.version="0.1.0"
+      org.opencontainers.image.version="0.2.0"
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates curl libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/* \
