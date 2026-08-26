@@ -186,6 +186,7 @@ pub struct ConfigurationField {
     /// Whether the value is encrypted and never returned by the API.
     pub secret: bool,
     /// Optional scalar default from the source definition.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_value: Option<ConfigurationValue>,
     /// Allowed values for select controls.
     pub options: Vec<ConfigurationOption>,
@@ -563,6 +564,7 @@ spec:
       - name: username
         type: text
         label: Username
+        default: guest
       - name: password
         type: password
         label: Password
@@ -585,5 +587,10 @@ spec:
         assert!(!schema.fields[0].secret);
         assert!(schema.fields[1].secret);
         assert!(schema.fields[2].secret);
+        let with_default = serde_json::to_value(&schema.fields[0]).expect("field should serialize");
+        let without_default =
+            serde_json::to_value(&schema.fields[1]).expect("field should serialize");
+        assert_eq!(with_default["defaultValue"], "guest");
+        assert!(without_default.get("defaultValue").is_none());
     }
 }

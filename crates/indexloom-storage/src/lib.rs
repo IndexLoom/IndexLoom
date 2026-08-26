@@ -59,13 +59,13 @@ impl SecretVault {
     /// Returns [`StorageError`] when the value is not valid Base64 or is not
     /// exactly 32 bytes.
     pub fn from_base64(encoded: &str) -> Result<Self, StorageError> {
-        let decoded = BASE64_STANDARD
-            .decode(encoded.trim())
-            .map_err(|_| StorageError::InvalidMasterKey)?;
-        let key: [u8; MASTER_KEY_BYTES] = decoded
-            .try_into()
-            .map_err(|_| StorageError::InvalidMasterKey)?;
-        Ok(Self::from_key(key))
+        let mut key = [0_u8; MASTER_KEY_BYTES];
+        if let Ok(MASTER_KEY_BYTES) = BASE64_STANDARD.decode_slice(encoded, &mut key) {
+            Ok(Self::from_key(key))
+        } else {
+            key.zeroize();
+            Err(StorageError::InvalidMasterKey)
+        }
     }
 
     /// Generates an ephemeral key for tests and one-shot tooling.
@@ -720,11 +720,12 @@ pub enum StorageError {
 mod tests {
     use std::collections::BTreeMap;
 
+    use base64::Engine as _;
     use serde_json::json;
 
     use super::{
-        FlareSolverrInput, IndexerGroupInput, OutboundProxyInput, ProxyKind, ProxyPasswordUpdate,
-        SecretVault, Store,
+        BASE64_STANDARD, FlareSolverrInput, IndexerGroupInput, MASTER_KEY_BYTES,
+        OutboundProxyInput, ProxyKind, ProxyPasswordUpdate, SecretVault, Store,
     };
 
     const DEFINITION: &str = r#"
@@ -951,5 +952,12 @@ spec:
     #[test]
     fn rejects_invalid_master_key_lengths() {
         assert!(SecretVault::from_base64("c2hvcnQ=").is_err());
+    }
+
+    #[test]
+    fn rejects_master_keys_with_unprocessed_whitespace() {
+        let encoded = BASE64_STANDARD.encode([42_u8; MASTER_KEY_BYTES]);
+        assert!(SecretVault::from_base64(&format!(" {encoded}")).is_err());
+        assert!(SecretVault::from_base64(&format!("{encoded}\n")).is_err());
     }
 }

@@ -11,10 +11,10 @@ repository.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 flate2.workspace = true
-indexloom-definitions = { path = "../indexloom-definitions" }
-indexloom-core = { path = "../indexloom-core" }
-indexloom-engine = { path = "../indexloom-engine" }
-indexloom-storage = { path = "../indexloom-storage" }
+indexloom-definitions = { path = "../indexloom-definitions", version = "0.1.0" }
+indexloom-core = { path = "../indexloom-core", version = "0.1.0" }
+indexloom-engine = { path = "../indexloom-engine", version = "0.1.0" }
+indexloom-storage = { path = "../indexloom-storage", version = "0.1.0" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -20,6 +20,15 @@ only the names of configured secret fields, never their values. The master key
 must be supplied as standard Base64 for exactly 32 bytes and kept outside the
 database and source tree.
 
+For production, prefer `INDEXLOOM_ADMIN_TOKEN_FILE` and
+`INDEXLOOM_MASTER_KEY_FILE` with Docker or Kubernetes secret mounts over direct
+environment values. A direct variable and its `_FILE` counterpart are mutually
+exclusive. The loader follows platform-managed symlinks, requires a regular
+UTF-8 file no larger than 64 KiB and removes only one trailing LF or CRLF.
+Secrets are read once during startup, so rotating a mounted file requires a
+controlled application restart. Errors never include the secret value or its
+configured filesystem path.
+
 Direct HTTP requests do not share a cookie jar. Each request receives only the
 credentials selected for that indexer. A configured `FlareSolverr` endpoint is
 an administrator-controlled outbound trust boundary and should be reachable

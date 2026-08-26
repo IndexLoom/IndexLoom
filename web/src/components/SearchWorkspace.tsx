@@ -241,9 +241,22 @@ function AuthenticatedSearch({
         {response ? (
           <div className="result-groups">
             {response.indexers.map((indexer) => (
-              <details className="result-indexer" key={indexer.indexerId} open>
+              <details
+                className="result-indexer"
+                key={indexer.indexerInstanceId}
+                open
+              >
                 <summary>
-                  <span>{indexer.indexerName}</span>
+                  <span>
+                    {indexer.indexerName}
+                    {indexer.definitionId ? (
+                      <small className="result-definition">
+                        {indexer.indexerInstanceId === indexer.definitionId
+                          ? indexer.definitionId
+                          : `${indexer.indexerInstanceId} · ${indexer.definitionId}`}
+                      </small>
+                    ) : null}
+                  </span>
                   <span className="muted">
                     {indexer.error
                       ? "error"
@@ -263,24 +276,53 @@ function AuthenticatedSearch({
                           <th>Age</th>
                           <th>Size</th>
                           <th>Seeders</th>
+                          <th>Links</th>
                         </tr>
                       </thead>
                       <tbody>
                         {indexer.results.map((result) => (
                           <tr key={result.id}>
                             <td>
-                              <a
-                                href={result.link}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                {result.title}
-                              </a>
+                              {result.detailsUrl ? (
+                                <a
+                                  href={result.detailsUrl}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                >
+                                  {result.title}
+                                </a>
+                              ) : (
+                                result.title
+                              )}
+                              {result.infoHash ? (
+                                <small className="result-identity">
+                                  {result.infoHash}
+                                </small>
+                              ) : null}
                             </td>
                             <td>{result.category ?? "—"}</td>
                             <td>{formatDate(result.publishedAt)}</td>
                             <td>{formatBytes(result.size)}</td>
                             <td>{result.seeders ?? "—"}</td>
+                            <td>
+                              <span className="result-actions">
+                                {result.downloadUrl ? (
+                                  <a
+                                    href={result.downloadUrl}
+                                    rel="noreferrer"
+                                    target="_blank"
+                                  >
+                                    Download
+                                  </a>
+                                ) : null}
+                                {result.magnetUrl ? (
+                                  <a href={result.magnetUrl}>Magnet</a>
+                                ) : null}
+                                {!result.downloadUrl && !result.magnetUrl
+                                  ? "—"
+                                  : null}
+                              </span>
+                            </td>
                           </tr>
                         ))}
                       </tbody>

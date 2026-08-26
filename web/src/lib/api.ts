@@ -136,10 +136,15 @@ export type IndexerTestJob = {
 
 export type SearchResult = {
   id: string;
-  indexerId: string;
+  indexerInstanceId: string;
+  definitionId: string;
+  sourceId: string | null;
+  sourceGuid: string | null;
+  infoHash: string | null;
   title: string;
-  link: string;
-  details: string | null;
+  detailsUrl: string | null;
+  downloadUrl: string | null;
+  magnetUrl: string | null;
   category: string | null;
   size: number | null;
   seeders: number | null;
@@ -148,7 +153,8 @@ export type SearchResult = {
 };
 
 export type SearchIndexerResults = {
-  indexerId: string;
+  indexerInstanceId: string;
+  definitionId: string | null;
   indexerName: string;
   responseTimeMs: number;
   results: SearchResult[];

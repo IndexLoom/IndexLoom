@@ -54,4 +54,28 @@ all enabled indexers and ignores the two ID arrays.
   Its `indexers` array always groups results and errors by indexer so one failed
   tracker does not hide successful results from the others.
 
+Search response identity is explicit. `indexerInstanceId` is the configured
+SQLite instance, while `definitionId` is its catalog definition. The UUID in
+`id` is unique only within the returned search data; consumers that persist or
+deduplicate results should prefer tracker-native `sourceId`, `sourceGuid` and
+`infoHash` when present.
+
+```json
+{
+  "id": "019d0000-0000-7000-8000-000000000000",
+  "indexerInstanceId": "rutracker-through-proxy",
+  "definitionId": "rutracker",
+  "sourceId": "1234567",
+  "sourceGuid": null,
+  "infoHash": "0123456789abcdef0123456789abcdef01234567",
+  "title": "Example release",
+  "detailsUrl": "https://tracker.example/torrent/1234567",
+  "downloadUrl": "https://tracker.example/download/1234567.torrent",
+  "magnetUrl": null
+}
+```
+
+`detailsUrl`, `downloadUrl` and `magnetUrl` are intentionally independent.
+Callers must not assume the details page is a downloadable torrent resource.
+
 Request and response objects are not stable before the first tagged release.

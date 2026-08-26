@@ -36,3 +36,6 @@ history, metrics, and API stabilization remain before `0.2.x` is complete.
 - PostgreSQL backend based on demonstrated demand.
 - Definition schema promotion only after real catalog experience.
 - Signed releases, SBOMs, provenance attestations, and upgrade documentation.
+- Generate TypeScript API contracts from the Rust/OpenAPI source of truth.
+- Advisory dependency audits for Rust and pnpm plus container vulnerability
+  scanning, tuned separately from blocking license and source-policy checks.

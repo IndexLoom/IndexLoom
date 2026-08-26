@@ -21,16 +21,26 @@ pub struct SearchQuery {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
-    /// Stable result identifier within one search run.
+    /// Ephemeral identifier for this result in one search response.
     pub id: Uuid,
-    /// Definition identifier that produced this result.
-    pub indexer_id: String,
+    /// Configured indexer instance that produced this result.
+    pub indexer_instance_id: String,
+    /// Catalog definition used by the configured instance.
+    pub definition_id: String,
+    /// Optional tracker-native release identifier.
+    pub source_id: Option<String>,
+    /// Optional tracker-native globally unique identifier.
+    pub source_guid: Option<String>,
+    /// Optional normalized `BitTorrent` info hash.
+    pub info_hash: Option<String>,
     /// Human-readable release title.
     pub title: String,
-    /// Download or details URL.
-    pub link: String,
-    /// Optional tracker details page when `link` is a direct download.
-    pub details: Option<String>,
+    /// Optional tracker details page.
+    pub details_url: Option<String>,
+    /// Optional direct `.torrent` or download endpoint.
+    pub download_url: Option<String>,
+    /// Optional magnet URI.
+    pub magnet_url: Option<String>,
     /// Normalized or tracker-native category label.
     pub category: Option<String>,
     /// Optional size in bytes.
@@ -41,4 +51,39 @@ pub struct SearchResult {
     pub leechers: Option<u32>,
     /// Optional publication time.
     pub published_at: Option<OffsetDateTime>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+    use uuid::Uuid;
+
+    use super::SearchResult;
+
+    #[test]
+    fn search_result_matches_the_frontend_contract_fixture() {
+        let result = SearchResult {
+            id: Uuid::parse_str("019d0000-0000-7000-8000-000000000000").unwrap(),
+            indexer_instance_id: "rutracker-through-proxy".to_owned(),
+            definition_id: "rutracker".to_owned(),
+            source_id: Some("1234567".to_owned()),
+            source_guid: None,
+            info_hash: Some("0123456789abcdef0123456789abcdef01234567".to_owned()),
+            title: "Example release".to_owned(),
+            details_url: Some("https://tracker.example/torrent/1234567".to_owned()),
+            download_url: Some("https://tracker.example/download/1234567.torrent".to_owned()),
+            magnet_url: None,
+            category: None,
+            size: Some(1_234_567),
+            seeders: Some(42),
+            leechers: Some(3),
+            published_at: None,
+        };
+        let rust_json = serde_json::to_value(result).expect("result should serialize");
+        let frontend_fixture: Value = serde_json::from_str(include_str!(
+            "../../../web/src/lib/search-result.contract.json"
+        ))
+        .expect("frontend contract fixture should parse");
+        assert_eq!(rust_json, frontend_fixture);
+    }
 }

@@ -90,7 +90,8 @@ enum TestJobStatus {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchIndexerView {
-    indexer_id: String,
+    indexer_instance_id: String,
+    definition_id: Option<String>,
     indexer_name: String,
     response_time_ms: u64,
     results: Vec<indexloom_core::SearchResult>,
@@ -212,7 +213,7 @@ async fn run_test_job(state: AppState, job_id: String, indexer_ids: Vec<String>)
 
 async fn test_one(state: AppState, indexer_id: String) -> IndexerTestOutcome {
     match build_executor(&state, &indexer_id).await {
-        Ok((executor, display_name)) => {
+        Ok((executor, display_name, _definition_id)) => {
             let mut outcome = executor.test().await;
             outcome.indexer_id = indexer_id;
             outcome.indexer_name = display_name;
@@ -280,7 +281,8 @@ async fn search(
         match result {
             Ok(result) => indexers.push(result),
             Err(error) => indexers.push(SearchIndexerView {
-                indexer_id: "worker".to_owned(),
+                indexer_instance_id: "worker".to_owned(),
+                definition_id: None,
                 indexer_name: "Worker".to_owned(),
                 response_time_ms: 0,
                 results: Vec::new(),
@@ -292,7 +294,7 @@ async fn search(
         left.indexer_name
             .to_lowercase()
             .cmp(&right.indexer_name.to_lowercase())
-            .then_with(|| left.indexer_id.cmp(&right.indexer_id))
+            .then_with(|| left.indexer_instance_id.cmp(&right.indexer_instance_id))
     });
     let result_count = indexers.iter().map(|indexer| indexer.results.len()).sum();
     Ok(Json(SearchResponse {
@@ -309,25 +311,24 @@ async fn search_one(
     limit: usize,
 ) -> SearchIndexerView {
     match build_executor(state, indexer_id).await {
-        Ok((executor, display_name)) => match executor.search(query, limit).await {
+        Ok((executor, display_name, definition_id)) => match executor.search(query, limit).await {
             Ok(IndexerSearchBatch {
+                indexer_instance_id,
+                definition_id,
                 response_time_ms,
-                mut results,
+                results,
                 ..
-            }) => {
-                for result in &mut results {
-                    indexer_id.clone_into(&mut result.indexer_id);
-                }
-                SearchIndexerView {
-                    indexer_id: indexer_id.to_owned(),
-                    indexer_name: display_name,
-                    response_time_ms,
-                    results,
-                    error: None,
-                }
-            }
+            }) => SearchIndexerView {
+                indexer_instance_id,
+                definition_id: Some(definition_id),
+                indexer_name: display_name,
+                response_time_ms,
+                results,
+                error: None,
+            },
             Err(error) => SearchIndexerView {
-                indexer_id: indexer_id.to_owned(),
+                indexer_instance_id: indexer_id.to_owned(),
+                definition_id: Some(definition_id),
                 indexer_name: display_name,
                 response_time_ms: 0,
                 results: Vec::new(),
@@ -335,7 +336,8 @@ async fn search_one(
             },
         },
         Err(message) => SearchIndexerView {
-            indexer_id: indexer_id.to_owned(),
+            indexer_instance_id: indexer_id.to_owned(),
+            definition_id: None,
             indexer_name: "Unavailable indexer".to_owned(),
             response_time_ms: 0,
             results: Vec::new(),
@@ -347,7 +349,7 @@ async fn search_one(
 async fn build_executor(
     state: &AppState,
     indexer_id: &str,
-) -> Result<(CardigannExecutor, String), String> {
+) -> Result<(CardigannExecutor, String, String), String> {
     let record = state
         .store
         .get_indexer(indexer_id, &state.vault)
@@ -396,7 +398,9 @@ async fn build_executor(
     } else {
         None
     };
+    let definition_id = definition.metadata.id.clone();
     CardigannExecutor::new(IndexerExecutionConfig {
+        indexer_instance_id: indexer_id.to_owned(),
         definition,
         values: resolved.values,
         secrets: resolved.secrets,
@@ -404,7 +408,7 @@ async fn build_executor(
         proxy,
         flaresolverr,
     })
-    .map(|executor| (executor, record.display_name))
+    .map(|executor| (executor, record.display_name, definition_id))
     .map_err(|error| error.to_string())
 }
 

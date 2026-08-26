@@ -307,6 +307,28 @@ button {
   color: var(--accent);
 }
 
+.result-definition,
+.result-identity {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.result-identity {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+}
+
 .result-indexer[open] > summary {
   border-bottom: 1px solid var(--border);
 }
@@ -400,6 +422,10 @@ th:first-child {
 
 .results-frame th:first-child {
   width: 42%;
+}
+
+.results-frame th:last-child {
+  width: 12%;
 }
 
 .empty-row td {

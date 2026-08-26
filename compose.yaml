@@ -16,8 +16,8 @@ services:
       INDEXLOOM_BIND: 0.0.0.0:8080
       INDEXLOOM_DATABASE_URL: sqlite:///data/indexloom.db?mode=rwc
       INDEXLOOM_WEB_ROOT: /app/web
-      INDEXLOOM_ADMIN_TOKEN: ${INDEXLOOM_ADMIN_TOKEN:?set INDEXLOOM_ADMIN_TOKEN}
-      INDEXLOOM_MASTER_KEY: ${INDEXLOOM_MASTER_KEY:?set INDEXLOOM_MASTER_KEY}
+      INDEXLOOM_ADMIN_TOKEN_FILE: /run/secrets/indexloom_admin_token
+      INDEXLOOM_MASTER_KEY_FILE: /run/secrets/indexloom_master_key
       INDEXLOOM_CATALOG_DIR: ${INDEXLOOM_CATALOG_DIR:-}
       INDEXLOOM_CATALOG_ARCHIVE_URL: ${INDEXLOOM_CATALOG_ARCHIVE_URL:-https://github.com/IndexLoom/Indexers/archive/refs/heads/main.tar.gz}
       INDEXLOOM_CATALOG_SYNC_SECONDS: ${INDEXLOOM_CATALOG_SYNC_SECONDS:-21600}
@@ -26,6 +26,17 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - indexloom-data:/data
+    secrets:
+      - source: indexloom_admin_token
+        target: indexloom_admin_token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: indexloom_master_key
+        target: indexloom_master_key
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
     tmpfs:
       - /tmp:size=32m,mode=1777
     healthcheck:
@@ -43,3 +54,9 @@ services:
 
 volumes:
   indexloom-data:
+
+secrets:
+  indexloom_admin_token:
+    environment: INDEXLOOM_ADMIN_TOKEN
+  indexloom_master_key:
+    environment: INDEXLOOM_MASTER_KEY

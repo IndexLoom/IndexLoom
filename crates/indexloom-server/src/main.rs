@@ -1,6 +1,13 @@
-use std::{env, net::SocketAddr, path::PathBuf, time::Duration};
+use std::{
+    env,
+    fs::File,
+    io::Read,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use indexloom_server::{
     AdminToken, AppState,
     catalog::{CatalogSource, synchronize},
@@ -10,6 +17,8 @@ use indexloom_storage::{SecretVault, Store};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 use zeroize::Zeroize;
+
+const MAX_SECRET_FILE_BYTES: usize = 64 * 1024;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,13 +37,11 @@ async fn main() -> Result<()> {
         "sqlite:///data/indexloom.db?mode=rwc",
     );
     let web_root = PathBuf::from(env_or("INDEXLOOM_WEB_ROOT", "/app/web"));
-    let mut admin_token_value =
-        env::var("INDEXLOOM_ADMIN_TOKEN").context("INDEXLOOM_ADMIN_TOKEN is required")?;
+    let mut admin_token_value = load_required_secret("INDEXLOOM_ADMIN_TOKEN")?;
     let admin_token = AdminToken::new(&admin_token_value);
     admin_token_value.zeroize();
     let admin_token = admin_token.map_err(anyhow::Error::msg)?;
-    let mut master_key =
-        env::var("INDEXLOOM_MASTER_KEY").context("INDEXLOOM_MASTER_KEY is required")?;
+    let mut master_key = load_required_secret("INDEXLOOM_MASTER_KEY")?;
     let vault = SecretVault::from_base64(&master_key);
     master_key.zeroize();
     let vault = vault.context("INDEXLOOM_MASTER_KEY is invalid")?;
@@ -119,6 +126,86 @@ fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
 }
 
+fn load_required_secret(name: &str) -> Result<String> {
+    let file_name = format!("{name}_FILE");
+    let direct = env::var_os(name)
+        .map(|value| {
+            value
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("{name} must contain valid UTF-8"))
+        })
+        .transpose()?;
+    let file = env::var_os(&file_name).map(PathBuf::from);
+    load_secret_from_sources(name, direct, file.as_deref())
+}
+
+fn load_secret_from_sources(
+    name: &str,
+    direct: Option<String>,
+    file: Option<&Path>,
+) -> Result<String> {
+    let file_name = format!("{name}_FILE");
+    match (direct, file) {
+        (Some(mut value), Some(_)) => {
+            value.zeroize();
+            bail!("set exactly one of {name} or {file_name}, not both");
+        }
+        (None, None) => bail!("one of {name} or {file_name} is required"),
+        (Some(value), None) => {
+            if value.is_empty() {
+                bail!("{name} must not be empty");
+            }
+            Ok(value)
+        }
+        (None, Some(path)) => read_secret_file(name, &file_name, path),
+    }
+}
+
+fn read_secret_file(name: &str, file_name: &str, path: &Path) -> Result<String> {
+    if path.as_os_str().is_empty() {
+        bail!("{file_name} must not be empty");
+    }
+    let file = File::open(path).with_context(|| format!("could not open {file_name}"))?;
+    let metadata = file
+        .metadata()
+        .with_context(|| format!("could not inspect {file_name}"))?;
+    if !metadata.is_file() {
+        bail!("{file_name} must point to a regular file");
+    }
+    let max_file_bytes = u64::try_from(MAX_SECRET_FILE_BYTES).expect("64 KiB fits in u64");
+    if metadata.len() > max_file_bytes {
+        bail!("{file_name} exceeds the 64 KiB limit");
+    }
+
+    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
+    if let Err(error) = file.take(max_file_bytes + 1).read_to_end(&mut bytes) {
+        bytes.zeroize();
+        return Err(error).with_context(|| format!("could not read {file_name}"));
+    }
+    if bytes.len() > MAX_SECRET_FILE_BYTES {
+        bytes.zeroize();
+        bail!("{file_name} exceeds the 64 KiB limit");
+    }
+    let mut value = match String::from_utf8(bytes) {
+        Ok(value) => value,
+        Err(error) => {
+            let mut invalid = error.into_bytes();
+            invalid.zeroize();
+            bail!("{file_name} must contain valid UTF-8");
+        }
+    };
+    if value.ends_with("\r\n") {
+        value.truncate(value.len() - 2);
+    } else if value.ends_with('\n') {
+        value.truncate(value.len() - 1);
+    }
+    if value.is_empty() {
+        value.zeroize();
+        bail!("{name} must not be empty");
+    }
+    Ok(value)
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {
@@ -145,4 +232,132 @@ async fn shutdown_signal() {
     }
 
     tracing::info!("shutdown signal received");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, path::PathBuf};
+
+    use uuid::Uuid;
+    use zeroize::Zeroize;
+
+    use super::{MAX_SECRET_FILE_BYTES, load_secret_from_sources};
+
+    #[test]
+    fn loads_a_direct_secret_verbatim() {
+        let secret = load_secret_from_sources(
+            "INDEXLOOM_TEST_SECRET",
+            Some(" value with spaces ".to_owned()),
+            None,
+        )
+        .expect("direct secret should load");
+        assert_eq!(secret, " value with spaces ");
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_missing_sources() {
+        let file = temporary_path("ambiguous");
+        fs::write(&file, "file secret").unwrap();
+        let ambiguous = load_secret_from_sources(
+            "INDEXLOOM_TEST_SECRET",
+            Some("direct secret".to_owned()),
+            Some(&file),
+        )
+        .expect_err("two sources must fail");
+        let missing = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, None)
+            .expect_err("no source must fail");
+        assert!(ambiguous.to_string().contains("not both"));
+        assert!(missing.to_string().contains("is required"));
+        fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn rejects_empty_sources_and_hides_file_paths() {
+        let empty_direct =
+            load_secret_from_sources("INDEXLOOM_TEST_SECRET", Some(String::new()), None)
+                .expect_err("empty direct secret must fail");
+        let empty_path = PathBuf::new();
+        let empty_file = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&empty_path))
+            .expect_err("empty secret path must fail");
+        let missing = temporary_path("missing-sensitive-path");
+        let missing_error = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&missing))
+            .expect_err("missing secret file must fail");
+        assert!(empty_direct.to_string().contains("must not be empty"));
+        assert!(empty_file.to_string().contains("must not be empty"));
+        assert!(!format!("{missing_error:#}").contains("missing-sensitive-path"));
+    }
+
+    #[test]
+    fn strips_exactly_one_secret_file_line_ending() {
+        let file = temporary_path("line-ending");
+        fs::write(&file, "secret-value\r\n").unwrap();
+        let mut secret = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&file))
+            .expect("secret file should load");
+        assert_eq!(secret, "secret-value");
+        secret.zeroize();
+
+        fs::write(&file, "secret-value\n\n").unwrap();
+        let mut secret = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&file))
+            .expect("secret file should load");
+        assert_eq!(secret, "secret-value\n");
+        secret.zeroize();
+        fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn rejects_non_regular_and_oversized_secret_files() {
+        let directory = temporary_path("directory");
+        fs::create_dir(&directory).unwrap();
+        let non_regular = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&directory))
+            .expect_err("directory must fail");
+        assert!(non_regular.to_string().contains("regular file"));
+        fs::remove_dir(directory).unwrap();
+
+        let file = temporary_path("oversized");
+        fs::write(&file, vec![b'x'; MAX_SECRET_FILE_BYTES + 1]).unwrap();
+        let oversized = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&file))
+            .expect_err("oversized secret must fail");
+        assert!(oversized.to_string().contains("64 KiB"));
+        fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn accepts_the_exact_limit_and_rejects_invalid_utf8() {
+        let file = temporary_path("exact-limit");
+        fs::write(&file, vec![b'x'; MAX_SECRET_FILE_BYTES]).unwrap();
+        let mut secret = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&file))
+            .expect("exactly 64 KiB should be accepted");
+        assert_eq!(secret.len(), MAX_SECRET_FILE_BYTES);
+        secret.zeroize();
+
+        fs::write(&file, [0xff, 0xfe]).unwrap();
+        let invalid = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&file))
+            .expect_err("invalid UTF-8 must fail");
+        assert!(invalid.to_string().contains("valid UTF-8"));
+        fs::remove_file(file).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follows_a_platform_managed_secret_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let target = temporary_path("symlink-target");
+        let intermediate = temporary_path("symlink-intermediate");
+        let link = temporary_path("symlink");
+        fs::write(&target, "mounted-secret\n").unwrap();
+        symlink(&target, &intermediate).unwrap();
+        symlink(&intermediate, &link).unwrap();
+        let mut secret = load_secret_from_sources("INDEXLOOM_TEST_SECRET", None, Some(&link))
+            .expect("symlinked secret should load");
+        assert_eq!(secret, "mounted-secret");
+        secret.zeroize();
+        fs::remove_file(link).unwrap();
+        fs::remove_file(intermediate).unwrap();
+        fs::remove_file(target).unwrap();
+    }
+
+    fn temporary_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("indexloom-{label}-{}", Uuid::now_v7()))
+    }
 }

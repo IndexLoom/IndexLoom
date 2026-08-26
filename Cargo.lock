@@ -1207,6 +1207,7 @@ name = "indexloom-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "time",
  "uuid",
 ]
@@ -1216,6 +1217,7 @@ name = "indexloom-definitions"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "serde_yaml_ng",
  "thiserror 2.0.20",
 ]

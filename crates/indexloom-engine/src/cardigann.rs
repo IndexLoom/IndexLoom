@@ -25,6 +25,7 @@ const MAX_REDIRECTS: usize = 5;
 
 /// Fully resolved, execution-only configuration for one indexer instance.
 pub struct IndexerExecutionConfig {
+    pub indexer_instance_id: String,
     pub definition: IndexerDefinition,
     pub values: BTreeMap<String, JsonValue>,
     pub secrets: BTreeMap<String, String>,
@@ -37,6 +38,7 @@ impl std::fmt::Debug for IndexerExecutionConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("IndexerExecutionConfig")
+            .field("indexer_instance_id", &self.indexer_instance_id)
             .field("definition", &self.definition.metadata.id)
             .field("values", &self.values)
             .field("secret_names", &self.secrets.keys().collect::<Vec<_>>())
@@ -51,7 +53,8 @@ impl std::fmt::Debug for IndexerExecutionConfig {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexerSearchBatch {
-    pub indexer_id: String,
+    pub indexer_instance_id: String,
+    pub definition_id: String,
     pub indexer_name: String,
     pub response_time_ms: u64,
     pub results: Vec<SearchResult>,
@@ -72,6 +75,7 @@ pub struct IndexerTestOutcome {
 /// store so private tracker sessions can never bleed into another indexer.
 #[derive(Debug)]
 pub struct CardigannExecutor {
+    indexer_instance_id: String,
     definition: IndexerDefinition,
     context: RenderContext,
     engine: SearchEngine,
@@ -132,6 +136,7 @@ impl CardigannExecutor {
         }
         let context = RenderContext::new(values, config.secrets);
         Ok(Self {
+            indexer_instance_id: config.indexer_instance_id,
             definition: config.definition,
             context,
             engine,
@@ -151,7 +156,7 @@ impl CardigannExecutor {
         let started = Instant::now();
         let result = self.test_inner().await;
         IndexerTestOutcome {
-            indexer_id: self.definition.metadata.id.clone(),
+            indexer_id: self.indexer_instance_id.clone(),
             indexer_name: self.definition.metadata.name.clone(),
             success: result.is_ok(),
             response_time_ms: elapsed_millis(started),
@@ -191,6 +196,7 @@ impl CardigannExecutor {
         let response = self.execute_search_path(search, path, &render).await?;
         let mut results = match response.response_type.as_str() {
             "json" => parse_json_results(
+                &self.indexer_instance_id,
                 &self.definition,
                 search,
                 &response.body,
@@ -199,6 +205,7 @@ impl CardigannExecutor {
                 &response.final_url,
             )?,
             "html" | "xml" => parse_html_results(
+                &self.indexer_instance_id,
                 &self.definition,
                 search,
                 &response.body,
@@ -212,7 +219,8 @@ impl CardigannExecutor {
         };
         results.truncate(limit.clamp(1, 500));
         Ok(IndexerSearchBatch {
-            indexer_id: self.definition.metadata.id.clone(),
+            indexer_instance_id: self.indexer_instance_id.clone(),
+            definition_id: self.definition.metadata.id.clone(),
             indexer_name: self.definition.metadata.name.clone(),
             response_time_ms: elapsed_millis(started),
             results,
@@ -772,6 +780,7 @@ fn append_query(url: &mut Url, inputs: &[(String, String)], raw_query: Option<&s
 }
 
 fn parse_html_results(
+    indexer_instance_id: &str,
     definition: &IndexerDefinition,
     search: &Mapping,
     body: &str,
@@ -805,7 +814,15 @@ fn parse_html_results(
                 .all(|needle| element_text(*row).contains(needle))
         })
         .filter_map(|row| {
-            match extract_html_row(definition, search, row, context, keywords, final_url) {
+            match extract_html_row(
+                indexer_instance_id,
+                definition,
+                search,
+                row,
+                context,
+                keywords,
+                final_url,
+            ) {
                 Ok(Some(result)) => Some(Ok(result)),
                 Ok(None) => None,
                 Err(error) => Some(Err(error)),
@@ -815,6 +832,7 @@ fn parse_html_results(
 }
 
 fn extract_html_row(
+    indexer_instance_id: &str,
     definition: &IndexerDefinition,
     search: &Mapping,
     row: ElementRef<'_>,
@@ -861,7 +879,12 @@ fn extract_html_row(
             break;
         }
     }
-    Ok(normalized_result(definition, &result, final_url))
+    Ok(normalized_result(
+        indexer_instance_id,
+        definition,
+        &result,
+        final_url,
+    ))
 }
 
 fn extract_html_field(
@@ -921,6 +944,7 @@ fn extract_html_field(
 }
 
 fn parse_json_results(
+    indexer_instance_id: &str,
     definition: &IndexerDefinition,
     search: &Mapping,
     body: &str,
@@ -951,7 +975,15 @@ fn parse_json_results(
                 .as_deref()
                 .and_then(|path| json_path(row, path))
                 .unwrap_or(row);
-            match extract_json_row(definition, search, row, context, keywords, final_url) {
+            match extract_json_row(
+                indexer_instance_id,
+                definition,
+                search,
+                row,
+                context,
+                keywords,
+                final_url,
+            ) {
                 Ok(Some(result)) => Some(Ok(result)),
                 Ok(None) => None,
                 Err(error) => Some(Err(error)),
@@ -969,6 +1001,7 @@ fn rows_mapping_attribute(search: &Mapping) -> Option<String> {
 }
 
 fn extract_json_row(
+    indexer_instance_id: &str,
     definition: &IndexerDefinition,
     search: &Mapping,
     row: &JsonValue,
@@ -1021,10 +1054,16 @@ fn extract_json_row(
             break;
         }
     }
-    Ok(normalized_result(definition, &result, final_url))
+    Ok(normalized_result(
+        indexer_instance_id,
+        definition,
+        &result,
+        final_url,
+    ))
 }
 
 fn normalized_result(
+    indexer_instance_id: &str,
     definition: &IndexerDefinition,
     values: &BTreeMap<String, String>,
     base: &Url,
@@ -1033,25 +1072,41 @@ fn normalized_result(
         .get("title")
         .filter(|value| !value.is_empty())
         .cloned()?;
-    let link = values
-        .get("download")
-        .or_else(|| values.get("magnet"))
-        .or_else(|| values.get("details"))
-        .cloned()
-        .unwrap_or_default();
-    if link.is_empty() {
+    let details_url =
+        result_value(values, &["details"]).and_then(|value| normalize_http_link(base, value));
+    let explicit_magnet = result_value(values, &["magnet"]).and_then(normalize_magnet);
+    let raw_download = result_value(values, &["download"]);
+    let magnet_url = explicit_magnet.or_else(|| raw_download.and_then(normalize_magnet));
+    let download_url = raw_download.and_then(|value| normalize_http_link(base, value));
+    if details_url.is_none() && download_url.is_none() && magnet_url.is_none() {
         return None;
     }
-    let link = normalize_link(base, &link);
-    let details = values
-        .get("details")
-        .map(|value| normalize_link(base, value));
+    let info_hash = result_value(values, &["infohash", "info_hash"])
+        .and_then(normalize_info_hash)
+        .or_else(|| magnet_url.as_deref().and_then(info_hash_from_magnet));
     Some(SearchResult {
         id: Uuid::now_v7(),
-        indexer_id: definition.metadata.id.clone(),
+        indexer_instance_id: indexer_instance_id.to_owned(),
+        definition_id: definition.metadata.id.clone(),
+        source_id: result_value(
+            values,
+            &[
+                "sourceid",
+                "source_id",
+                "torrentid",
+                "torrent_id",
+                "id",
+                "_id",
+            ],
+        )
+        .map(ToOwned::to_owned),
+        source_guid: result_value(values, &["sourceguid", "source_guid", "guid"])
+            .map(ToOwned::to_owned),
+        info_hash,
         title,
-        link,
-        details,
+        details_url,
+        download_url,
+        magnet_url,
         category: values.get("category").cloned(),
         size: values.get("size").and_then(|value| parse_size(value)),
         seeders: values.get("seeders").and_then(|value| parse_u32(value)),
@@ -1060,12 +1115,66 @@ fn normalized_result(
     })
 }
 
-fn normalize_link(base: &Url, value: &str) -> String {
-    if value.starts_with("magnet:") {
-        return value.to_owned();
+fn result_value<'a>(values: &'a BTreeMap<String, String>, keys: &[&str]) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| values.get(*key))
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn normalize_magnet(value: &str) -> Option<String> {
+    let value = value.trim();
+    let url = Url::parse(value).ok()?;
+    if !url.scheme().eq_ignore_ascii_case("magnet") {
+        return None;
     }
-    base.join(value)
-        .map_or_else(|_| value.to_owned(), |url| url.to_string())
+    let has_exact_topic = url.query_pairs().any(|(name, value)| {
+        name.eq_ignore_ascii_case("xt")
+            && (value
+                .get(..9)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("urn:btih:"))
+                || value
+                    .get(..9)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("urn:btmh:")))
+    });
+    has_exact_topic.then(|| value.to_owned())
+}
+
+fn info_hash_from_magnet(value: &str) -> Option<String> {
+    let url = Url::parse(value).ok()?;
+    url.query_pairs()
+        .find(|(name, value)| {
+            name.eq_ignore_ascii_case("xt")
+                && value
+                    .get(..9)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("urn:btih:"))
+        })
+        .and_then(|(_, value)| normalize_info_hash(&value[9..]))
+}
+
+fn normalize_info_hash(value: &str) -> Option<String> {
+    let value = value.trim();
+    let value = value
+        .get(..9)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("urn:btih:"))
+        .map_or(value, |_| &value[9..]);
+    if value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Some(value.to_ascii_lowercase());
+    }
+    if value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphabetic() || matches!(byte, b'2'..=b'7'))
+    {
+        return Some(value.to_ascii_uppercase());
+    }
+    None
+}
+
+fn normalize_http_link(base: &Url, value: &str) -> Option<String> {
+    let url = base.join(value).ok()?;
+    matches!(url.scheme(), "http" | "https").then(|| url.to_string())
 }
 
 fn json_path<'a>(mut value: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
@@ -1361,9 +1470,14 @@ mod tests {
     use std::collections::BTreeMap;
 
     use gtmpl::Value as TemplateValue;
+    use indexloom_definitions::IndexerDefinition;
     use serde_yaml::Value as YamlValue;
+    use url::Url;
 
-    use super::{apply_filters, normalize_contains_selector, render_template};
+    use super::{
+        apply_filters, info_hash_from_magnet, normalize_contains_selector, normalized_result,
+        render_template,
+    };
 
     #[test]
     fn renders_cardigann_conditionals() {
@@ -1409,5 +1523,151 @@ mod tests {
         let (selector, needles) = normalize_contains_selector("a.item:contains(\"verified\")");
         assert_eq!(selector, "a.item");
         assert_eq!(needles, ["verified"]);
+    }
+
+    #[test]
+    fn normalizes_instance_identity_and_release_links() {
+        let values = BTreeMap::from([
+            ("title".to_owned(), "Example release".to_owned()),
+            ("details".to_owned(), "/torrent/42".to_owned()),
+            ("download".to_owned(), "/download/42.torrent".to_owned()),
+            ("id".to_owned(), "42".to_owned()),
+            ("guid".to_owned(), "tracker-guid-42".to_owned()),
+            (
+                "infohash".to_owned(),
+                "0123456789ABCDEF0123456789ABCDEF01234567".to_owned(),
+            ),
+        ]);
+        let result = normalized_result(
+            "example-through-proxy",
+            &definition(),
+            &values,
+            &Url::parse("https://example.invalid/base/").unwrap(),
+        )
+        .expect("result should normalize");
+
+        assert_eq!(result.indexer_instance_id, "example-through-proxy");
+        assert_eq!(result.definition_id, "example");
+        assert_eq!(result.source_id.as_deref(), Some("42"));
+        assert_eq!(result.source_guid.as_deref(), Some("tracker-guid-42"));
+        assert_eq!(
+            result.info_hash.as_deref(),
+            Some("0123456789abcdef0123456789abcdef01234567")
+        );
+        assert_eq!(
+            result.details_url.as_deref(),
+            Some("https://example.invalid/torrent/42")
+        );
+        assert_eq!(
+            result.download_url.as_deref(),
+            Some("https://example.invalid/download/42.torrent")
+        );
+        assert!(result.magnet_url.is_none());
+    }
+
+    #[test]
+    fn recognizes_a_magnet_in_the_download_field() {
+        let magnet = "magnet:?xt=urn%3Abtih%3AABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        let values = BTreeMap::from([
+            ("title".to_owned(), "Magnet release".to_owned()),
+            ("download".to_owned(), magnet.to_owned()),
+        ]);
+        let result = normalized_result(
+            "example-direct",
+            &definition(),
+            &values,
+            &Url::parse("https://example.invalid/").unwrap(),
+        )
+        .expect("result should normalize");
+
+        assert!(result.download_url.is_none());
+        assert_eq!(result.magnet_url.as_deref(), Some(magnet));
+        assert_eq!(
+            result.info_hash.as_deref(),
+            Some("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+        );
+        assert_eq!(
+            info_hash_from_magnet(magnet).as_deref(),
+            Some("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_links_and_uses_a_valid_magnet_fallback() {
+        let fallback = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567";
+        let values = BTreeMap::from([
+            ("title".to_owned(), "Safe result".to_owned()),
+            ("details".to_owned(), "javascript:alert(1)".to_owned()),
+            (
+                "magnet".to_owned(),
+                "https://example.invalid/not-a-magnet".to_owned(),
+            ),
+            ("download".to_owned(), fallback.to_owned()),
+        ]);
+        let result = normalized_result(
+            "example-direct",
+            &definition(),
+            &values,
+            &Url::parse("https://example.invalid/").unwrap(),
+        )
+        .expect("valid fallback magnet should retain the result");
+        assert!(result.details_url.is_none());
+        assert!(result.download_url.is_none());
+        assert_eq!(result.magnet_url.as_deref(), Some(fallback));
+
+        let only_unsafe = BTreeMap::from([
+            ("title".to_owned(), "Unsafe result".to_owned()),
+            ("details".to_owned(), "data:text/html,unsafe".to_owned()),
+            ("download".to_owned(), "file:///etc/passwd".to_owned()),
+            (
+                "magnet".to_owned(),
+                "magnet:?dn=missing-exact-topic".to_owned(),
+            ),
+        ]);
+        assert!(
+            normalized_result(
+                "example-direct",
+                &definition(),
+                &only_unsafe,
+                &Url::parse("https://example.invalid/").unwrap(),
+            )
+            .is_none()
+        );
+    }
+
+    fn definition() -> IndexerDefinition {
+        serde_yaml::from_str(
+            r#"
+apiVersion: indexloom.io/v1alpha1
+kind: Indexer
+metadata:
+  id: example
+  name: Example
+  description: Example definition
+  language: en-US
+provenance:
+  generatedBy: indexloom-importer/v1
+  source:
+    project: jackett
+    repository: https://github.com/Jackett/Jackett
+    revision: "0000000000000000000000000000000000000000"
+    path: src/Jackett.Common/Definitions/example.yml
+    sourceId: example
+    license: GPL-2.0-only
+    fileSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    contentSha256: "1111111111111111111111111111111111111111111111111111111111111111"
+spec:
+  protocol: torrent
+  privacy: public
+  baseUrls: [https://example.invalid/]
+  implementation:
+    engine: cardigann
+    encoding: UTF-8
+    capabilities: {}
+    settings: []
+    search: { paths: [{ path: /search }], rows: { selector: .result }, fields: {} }
+"#,
+        )
+        .expect("test definition should deserialize")
     }
 }

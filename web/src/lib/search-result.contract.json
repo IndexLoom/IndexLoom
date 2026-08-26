@@ -1,0 +1,17 @@
+{
+  "id": "019d0000-0000-7000-8000-000000000000",
+  "indexerInstanceId": "rutracker-through-proxy",
+  "definitionId": "rutracker",
+  "sourceId": "1234567",
+  "sourceGuid": null,
+  "infoHash": "0123456789abcdef0123456789abcdef01234567",
+  "title": "Example release",
+  "detailsUrl": "https://tracker.example/torrent/1234567",
+  "downloadUrl": "https://tracker.example/download/1234567.torrent",
+  "magnetUrl": null,
+  "category": null,
+  "size": 1234567,
+  "seeders": 42,
+  "leechers": 3,
+  "publishedAt": null
+}
