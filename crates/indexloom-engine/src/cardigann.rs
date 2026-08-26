@@ -638,9 +638,14 @@ impl RenderContext {
     }
 
     fn for_search(&self, keywords: &str, result: BTreeMap<String, String>) -> TemplateValue {
-        let query = HashMap::from([
+        let mut query = HashMap::from([
+            ("Album".to_owned(), TemplateValue::String(String::new())),
+            ("Artist".to_owned(), TemplateValue::String(String::new())),
+            ("Author".to_owned(), TemplateValue::String(String::new())),
+            ("DoubanID".to_owned(), TemplateValue::String(String::new())),
             ("Season".to_owned(), TemplateValue::String(String::new())),
             ("Ep".to_owned(), TemplateValue::String(String::new())),
+            ("Genre".to_owned(), TemplateValue::String(String::new())),
             ("IMDBID".to_owned(), TemplateValue::String(String::new())),
             (
                 "IMDBIDShort".to_owned(),
@@ -648,7 +653,15 @@ impl RenderContext {
             ),
             ("TMDBID".to_owned(), TemplateValue::String(String::new())),
             ("TVDBID".to_owned(), TemplateValue::String(String::new())),
+            ("Title".to_owned(), TemplateValue::String(String::new())),
+            ("Type".to_owned(), TemplateValue::String(String::new())),
+            ("Year".to_owned(), TemplateValue::String(String::new())),
+            ("id".to_owned(), TemplateValue::String(String::new())),
         ]);
+        query.insert(
+            "Keywords".to_owned(),
+            TemplateValue::String(keywords.to_owned()),
+        );
         let result = result
             .into_iter()
             .map(|(key, value)| (key, TemplateValue::String(value)))
@@ -1527,9 +1540,18 @@ mod tests {
     use url::Url;
 
     use super::{
-        apply_filters, info_hash_from_magnet, normalize_contains_selector, normalized_result,
-        render_search_inputs, render_template,
+        RenderContext, apply_filters, info_hash_from_magnet, normalize_contains_selector,
+        normalized_result, render_search_inputs, render_template,
     };
+
+    #[test]
+    fn exposes_keywords_in_root_and_cardigann_query_contexts() {
+        let context = RenderContext::new(BTreeMap::new(), BTreeMap::new())
+            .for_search("one piece", BTreeMap::new());
+        let rendered = render_template("{{ .Keywords }}|{{ .Query.Keywords }}", &context)
+            .expect("both Cardigann keyword forms should render");
+        assert_eq!(rendered, "one piece|one piece");
+    }
 
     #[test]
     fn renders_cardigann_conditionals() {
