@@ -117,7 +117,7 @@ fn decode_release_records(
     expected_count: usize,
 ) -> Result<Vec<CatalogDefinitionInput>, CatalogError> {
     let mut decoded = Vec::new();
-    GzDecoder::new(compressed.as_slice())
+    GzDecoder::new(compressed)
         .take(MAX_EXTRACTED_BYTES as u64 + 1)
         .read_to_end(&mut decoded)
         .map_err(|error| CatalogError::Release(format!("unable to decode release: {error}")))?;
