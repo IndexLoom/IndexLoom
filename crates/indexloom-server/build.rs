@@ -2,8 +2,9 @@
 //! Headless and default Docker builds do not require Node, pnpm or web assets.
 
 use std::{
-    env, fs,
+    env,
     fmt::Write as _,
+    fs,
     path::{Path, PathBuf},
 };
 
