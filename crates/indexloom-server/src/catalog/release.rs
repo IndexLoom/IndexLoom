@@ -180,7 +180,6 @@ fn decode_release_records(
     Ok(definitions)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::{RELEASE_ASSET, RELEASE_FORMAT, ReleaseDefinition, ReleaseManifest};
