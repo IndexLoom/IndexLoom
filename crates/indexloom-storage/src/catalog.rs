@@ -53,8 +53,8 @@ impl Store {
         fingerprint: &str,
     ) -> Result<(), StorageError> {
         sqlx::query(
-            "INSERT INTO catalog_release_state (source_url, manifest_sha256, updated_at) \\
-             VALUES (?, ?, ?) ON CONFLICT(source_url) DO UPDATE SET \\
+            "INSERT INTO catalog_release_state (source_url, manifest_sha256, updated_at) \
+             VALUES (?, ?, ?) ON CONFLICT(source_url) DO UPDATE SET \
              manifest_sha256 = excluded.manifest_sha256, updated_at = excluded.updated_at",
         )
         .bind(source_url)
