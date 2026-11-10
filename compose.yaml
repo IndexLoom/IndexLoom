@@ -19,7 +19,7 @@ services:
       INDEXLOOM_ADMIN_TOKEN_FILE: /run/secrets/indexloom_admin_token
       INDEXLOOM_MASTER_KEY_FILE: /run/secrets/indexloom_master_key
       INDEXLOOM_CATALOG_DIR: ${INDEXLOOM_CATALOG_DIR:-}
-      INDEXLOOM_CATALOG_ARCHIVE_URL: ${INDEXLOOM_CATALOG_ARCHIVE_URL:-https://github.com/IndexLoom/Indexers/archive/refs/heads/main.tar.gz}
+      INDEXLOOM_CATALOG_SOURCE_URL: ${INDEXLOOM_CATALOG_SOURCE_URL:-https://github.com/IndexLoom/Indexers/releases/latest/download/manifest.json}
       INDEXLOOM_CATALOG_SYNC_SECONDS: ${INDEXLOOM_CATALOG_SYNC_SECONDS:-21600}
       RUST_LOG: indexloom=info,tower_http=info
     ports:

@@ -17,6 +17,8 @@ pub struct CatalogDefinitionInput {
 pub struct CatalogSyncReport {
     pub definitions: usize,
     pub new_indexers: usize,
+    /// Whether the stored definitions changed during this call.
+    pub updated: bool,
 }
 
 impl Store {
@@ -30,6 +32,37 @@ impl Store {
             .fetch_one(&self.pool)
             .await
             .map_err(StorageError::from)
+    }
+
+    /// Returns the previously verified release manifest digest for a source.
+    pub async fn catalog_release_fingerprint(
+        &self,
+        source_url: &str,
+    ) -> Result<Option<String>, StorageError> {
+        sqlx::query_scalar("SELECT manifest_sha256 FROM catalog_release_state WHERE source_url = ?")
+            .bind(source_url)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)
+    }
+
+    /// Records an accepted, fully imported release snapshot.
+    pub async fn record_catalog_release_fingerprint(
+        &self,
+        source_url: &str,
+        fingerprint: &str,
+    ) -> Result<(), StorageError> {
+        sqlx::query(
+            "INSERT INTO catalog_release_state (source_url, manifest_sha256, updated_at) \\
+             VALUES (?, ?, ?) ON CONFLICT(source_url) DO UPDATE SET \\
+             manifest_sha256 = excluded.manifest_sha256, updated_at = excluded.updated_at",
+        )
+        .bind(source_url)
+        .bind(fingerprint)
+        .bind(now()?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Atomically synchronizes verified definitions and creates missing disabled instances.
@@ -86,6 +119,7 @@ impl Store {
         Ok(CatalogSyncReport {
             definitions: definitions.len(),
             new_indexers,
+            updated: true,
         })
     }
 }

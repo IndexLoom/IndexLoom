@@ -1,5 +1,7 @@
 //! Verified synchronization from the separately versioned Indexers catalog.
 
+mod release;
+
 use std::{
     collections::BTreeMap,
     fs,
@@ -25,6 +27,8 @@ const MAX_CATALOG_FILE_BYTES: u64 = 2 * 1024 * 1024;
 pub enum CatalogSource {
     Directory(PathBuf),
     Archive(Url),
+    /// A separately published release manifest with a verified database export.
+    Release(Url),
 }
 
 impl CatalogSource {
@@ -41,7 +45,11 @@ impl CatalogSource {
         if url.scheme() != "https" || url.host_str().is_none() {
             return Err(CatalogError::UnsafeArchiveUrl);
         }
-        Ok(Self::Archive(url))
+        if url.path().ends_with("/manifest.json") {
+            Ok(Self::Release(url))
+        } else {
+            Ok(Self::Archive(url))
+        }
     }
 }
 
@@ -62,6 +70,7 @@ pub async fn synchronize(
                 .await
                 .map_err(CatalogError::Worker)??
         }
+        CatalogSource::Release(url) => return release::synchronize(store, url).await,
         CatalogSource::Archive(url) => {
             let bytes = download_archive(url).await?;
             tokio::task::spawn_blocking(move || read_archive(&bytes))
@@ -271,6 +280,8 @@ pub enum CatalogError {
     UnsafeArchiveUrl,
     #[error("catalog HTTP request failed: {0}")]
     Http(reqwest::Error),
+    #[error("Indexers release validation failed: {0}")]
+    Release(String),
     #[error("catalog archive exceeds 64 MiB")]
     ArchiveTooLarge,
     #[error("catalog extracted data exceeds 96 MiB")]

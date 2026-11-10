@@ -51,10 +51,12 @@ async fn main() -> Result<()> {
         .context("failed to initialize IndexLoom storage")?;
     let catalog_source = CatalogSource::from_values(
         env::var("INDEXLOOM_CATALOG_DIR").ok(),
-        &env_or(
-            "INDEXLOOM_CATALOG_ARCHIVE_URL",
-            "https://github.com/IndexLoom/Indexers/archive/refs/heads/main.tar.gz",
-        ),
+        &env::var("INDEXLOOM_CATALOG_SOURCE_URL")
+            .or_else(|_| env::var("INDEXLOOM_CATALOG_ARCHIVE_URL"))
+            .unwrap_or_else(|_| {
+                "https://github.com/IndexLoom/Indexers/releases/latest/download/manifest.json"
+                    .to_owned()
+            }),
     )
     .context("INDEXLOOM catalog source is invalid")?;
     synchronize_catalog_or_retain(&store, &catalog_source).await?;
@@ -121,7 +123,8 @@ async fn catalog_sync_loop(
     loop {
         ticker.tick().await;
         match synchronize(&store, &source).await {
-            Ok(_) => state.clear_execution_runtimes().await,
+            Ok(report) if report.updated => state.clear_execution_runtimes().await,
+            Ok(_) => {},
             Err(error) => tracing::warn!(%error, "scheduled catalog synchronization failed"),
         }
     }

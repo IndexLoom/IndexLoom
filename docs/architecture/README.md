@@ -33,7 +33,7 @@ names, while an execution-only storage model performs decryption.
 
 ## Trust boundaries
 
-Definitions and remote HTML are untrusted input. Catalog archives have bounded
+Definitions and remote HTML are untrusted input. Catalog archives and release exports have bounded
 download/extraction sizes and every manifest entry is verified before an
 atomic SQLite update. The executor restricts requests and redirects to declared
 tracker origins, bounds response bodies, applies timeouts, and uses bounded

@@ -90,7 +90,7 @@ are supported.
 | `INDEXLOOM_ADMIN_TOKEN` / `_FILE` | required | Independent API administrator credential |
 | `INDEXLOOM_MASTER_KEY` / `_FILE` | required | Standard Base64 encoding of exactly 32 bytes |
 | `INDEXLOOM_CATALOG_DIR` | empty | Optional local Indexers checkout |
-| `INDEXLOOM_CATALOG_ARCHIVE_URL` | Indexers `main` archive | Remote catalog source |
+| `INDEXLOOM_CATALOG_SOURCE_URL` | Latest Indexers release manifest | Release source URL (legacy archives also supported) |
 | `INDEXLOOM_CATALOG_SYNC_SECONDS` | `21600` | Refresh period; `0` disables periodic refresh |
 | `RUST_LOG` | `indexloom=info,tower_http=info` | Runtime log filter |
 
@@ -101,7 +101,7 @@ encrypted tracker credentials unrecoverable.
 
 Definitions live in the separate
 [`IndexLoom/Indexers`](https://github.com/IndexLoom/Indexers) repository. On
-startup IndexLoom downloads or reads the configured catalog, verifies its
+startup IndexLoom downloads the latest release manifest (or reads an optional local legacy checkout), verifies its
 manifest, source metadata, schema, IDs and SHA-256 digests, then updates SQLite
 in one transaction. Existing instance configuration is retained; imported
 definitions never become active automatically.
