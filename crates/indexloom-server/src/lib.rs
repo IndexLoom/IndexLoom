@@ -20,7 +20,17 @@ use indexloom_storage::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use subtle::ConstantTimeEq;
+#[cfg(not(any(feature = "embedded-web", feature = "headless")))]
 use tower_http::services::ServeDir;
+
+#[cfg(all(feature = "embedded-web", feature = "headless"))]
+compile_error!("embedded-web and headless are mutually exclusive");
+
+#[cfg(feature = "embedded-web")]
+mod embedded_web {
+    include!(concat!(env!("OUT_DIR"), "/embedded_assets.rs"));
+}
+
 use url::Url;
 
 pub mod catalog;
@@ -105,7 +115,6 @@ impl fmt::Debug for AdminToken {
 
 /// Builds the public health route, authenticated management API, and frontend.
 pub fn router(state: AppState, web_root: PathBuf) -> Router {
-    let web = ServeDir::new(web_root).append_index_html_on_directories(true);
     let protected = Router::new()
         .route("/api/v1/indexers", get(list_indexers))
         .route(
@@ -122,11 +131,46 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         .layer(DefaultBodyLimit::max(MAX_CONFIGURATION_BODY))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
 
-    Router::new()
+    let api = Router::new()
         .route("/api/v1/health", get(health))
-        .merge(protected)
-        .fallback_service(web)
-        .with_state(state)
+        .merge(protected);
+
+    #[cfg(feature = "headless")]
+    {
+        let _ = web_root;
+        api.with_state(state)
+    }
+    #[cfg(feature = "embedded-web")]
+    {
+        let _ = web_root;
+        api.fallback(serve_embedded_web).with_state(state)
+    }
+    #[cfg(not(any(feature = "headless", feature = "embedded-web")))]
+    {
+        let web = ServeDir::new(web_root).append_index_html_on_directories(true);
+        api.fallback_service(web).with_state(state)
+    }
+}
+
+#[cfg(feature = "embedded-web")]
+async fn serve_embedded_web(uri: axum::http::Uri) -> Response {
+    let path = uri.path();
+    let asset = embedded_web::embedded_asset(path).or_else(|| {
+        if path.rsplit('/').next().unwrap_or("").contains('.') {
+            None
+        } else {
+            embedded_web::embedded_asset("/index.html")
+        }
+    });
+    match asset {
+        Some((bytes, mime)) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, mime)],
+            bytes,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 #[derive(Debug, Serialize)]

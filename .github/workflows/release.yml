@@ -1,0 +1,152 @@
+name: Cross-platform application release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "migrations/**"
+      - "web/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: indexloom-application-release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(awk '/^\[workspace.package\]/{seen=1;next} /^\[/{if(seen)exit} seen && /^version =/{gsub(/"/,"",$3);print $3;exit}' Cargo.toml)
+          test -n "$VERSION"
+          echo "tag=v${VERSION}-dev.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.23.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+      - run: pnpm typecheck && pnpm build
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  binaries:
+    needs: [version, web]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, label: linux-x86_64, exe: indexloom-server }
+          - { runner: ubuntu-24.04-arm, label: linux-aarch64, exe: indexloom-server }
+          - { runner: windows-2025, label: windows-x86_64, exe: indexloom-server.exe }
+          - { runner: macos-15, label: macos-aarch64, exe: indexloom-server }
+          - { runner: macos-15-intel, label: macos-x86_64, exe: indexloom-server }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+      - name: Build web-enabled and headless Rust binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cargo build --locked --release -p indexloom-server --features embedded-web
+          cp "target/release/${{ matrix.exe }}" "release/indexloom-web-${{ matrix.label }}${{ matrix.exe == 'indexloom-server.exe' && '.exe' || '' }}"
+          cargo build --locked --release -p indexloom-server --features headless
+          cp "target/release/${{ matrix.exe }}" "release/indexloom-headless-${{ matrix.label }}${{ matrix.exe == 'indexloom-server.exe' && '.exe' || '' }}"
+          cp LICENSE release/LICENSE
+          mkdir -p artifacts
+          if [[ "${{ matrix.label }}" == windows-* ]]; then
+            (cd release && 7z a "../artifacts/indexloom-${{ matrix.label }}.zip" . >/dev/null)
+          else
+            tar -czf "artifacts/indexloom-${{ matrix.label }}.tar.gz" -C release .
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: application-${{ matrix.label }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 3
+
+  docker:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/indexloom/indexloom:${{ needs.version.outputs.tag }}
+            ghcr.io/indexloom/indexloom:edge
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish:
+    needs: [version, binaries, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: application-*
+          path: dist
+          merge-multiple: true
+      - name: Verify packages and publish pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 5
+          (cd dist && sha256sum * > SHA256SUMS)
+          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --prerelease \
+            --title "IndexLoom $TAG" \
+            --notes "Self-hosted IndexLoom pre-release: Rust web-enabled and headless binaries for Linux, Windows, and macOS. Docker multi-arch: ghcr.io/indexloom/indexloom:$TAG. Indexer catalog updates independently from IndexLoom/Indexers releases."

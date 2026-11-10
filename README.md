@@ -146,6 +146,21 @@ hiding successful results from other indexers.
 See the [API guide](docs/API.md), [architecture notes](docs/architecture/README.md)
 and [roadmap](docs/ROADMAP.md) for current limits and planned Torznab/RSS work.
 
+## Binary releases
+
+Application releases are built automatically for Windows x86_64, Linux x86_64
+and ARM64, macOS Intel and Apple Silicon. Each platform archive includes two
+separate Rust executables: `indexloom-web` embeds the compiled React UI and
+serves it locally, while `indexloom-headless` exposes only the HTTP API.
+No Jackett, Prowlarr or Node.js runtime is required. The browser UI is not a
+native desktop window.
+
+Container images are published for amd64 and arm64 to
+`ghcr.io/indexloom/indexloom:edge` and a versioned pre-release tag.
+The standalone binaries and Docker images require the same
+`INDEXLOOM_ADMIN_TOKEN`, `INDEXLOOM_MASTER_KEY`, and writable SQLite
+database configuration. Release downloads live in GitHub Releases.
+
 ## Development
 
 ```bash

@@ -7,6 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+embedded-web = []
+headless = []
+
 [dependencies]
 anyhow.workspace = true
 async-stream.workspace = true
