@@ -57,7 +57,9 @@ pub(super) async fn synchronize(
         || manifest.definition_count == 0
         || manifest.definition_count > MAX_RELEASE_DEFINITIONS
     {
-        return Err(CatalogError::Release("unsupported release format or definition count".into()));
+        return Err(CatalogError::Release(
+            "unsupported release format or definition count".into(),
+        ));
     }
     if store
         .catalog_release_fingerprint(manifest_url.as_str())
@@ -66,7 +68,10 @@ pub(super) async fn synchronize(
         .as_deref()
         == Some(fingerprint.as_str())
     {
-        let retained = store.definition_count().await.map_err(CatalogError::Storage)?;
+        let retained = store
+            .definition_count()
+            .await
+            .map_err(CatalogError::Storage)?;
         if retained > 0 {
             return Ok(CatalogSyncReport {
                 definitions: retained as usize,
@@ -79,13 +84,16 @@ pub(super) async fn synchronize(
     let asset = manifest.assets.get(RELEASE_ASSET).ok_or_else(|| {
         CatalogError::Release("release manifest is missing indexers.jsonl.gz".into())
     })?;
-    let asset_url = manifest_url.join(RELEASE_ASSET)
+    let asset_url = manifest_url
+        .join(RELEASE_ASSET)
         .map_err(|error| CatalogError::Release(format!("invalid release asset URL: {error}")))?;
     let compressed = download_archive(&asset_url).await?;
     if compressed.len() != asset.bytes
         || format!("{:x}", Sha256::digest(&compressed)) != asset.sha256
     {
-        return Err(CatalogError::Release("release asset checksum mismatch".into()));
+        return Err(CatalogError::Release(
+            "release asset checksum mismatch".into(),
+        ));
     }
     let mut decoded = Vec::new();
     GzDecoder::new(compressed.as_slice())
@@ -93,7 +101,9 @@ pub(super) async fn synchronize(
         .read_to_end(&mut decoded)
         .map_err(|error| CatalogError::Release(format!("unable to decode release: {error}")))?;
     if decoded.len() > MAX_EXTRACTED_BYTES {
-        return Err(CatalogError::Release("decompressed release exceeds size limit".into()));
+        return Err(CatalogError::Release(
+            "decompressed release exceeds size limit".into(),
+        ));
     }
     let records = String::from_utf8(decoded)
         .map_err(|_| CatalogError::Release("JSONL is not UTF-8".into()))?;
@@ -106,15 +116,24 @@ pub(super) async fn synchronize(
         let entry: ReleaseDefinition = serde_json::from_str(line)
             .map_err(|error| CatalogError::Release(format!("invalid release record: {error}")))?;
         if !seen.insert(entry.id.clone()) {
-            return Err(CatalogError::Release(format!("duplicate definition ID: {}", entry.id)));
+            return Err(CatalogError::Release(format!(
+                "duplicate definition ID: {}",
+                entry.id
+            )));
         }
         let digest = format!("{:x}", Sha256::digest(entry.definition_yaml.as_bytes()));
         if digest != entry.definition_sha256 {
-            return Err(CatalogError::Release(format!("definition checksum mismatch: {}", entry.id)));
+            return Err(CatalogError::Release(format!(
+                "definition checksum mismatch: {}",
+                entry.id
+            )));
         }
         let definition = parse_yaml(&entry.definition_yaml).map_err(CatalogError::Definition)?;
         if definition.metadata.id != entry.id {
-            return Err(CatalogError::Release(format!("definition ID mismatch: {}", entry.id)));
+            return Err(CatalogError::Release(format!(
+                "definition ID mismatch: {}",
+                entry.id
+            )));
         }
         let source = match definition.provenance.source.project {
             SourceProject::Jackett => "jackett",
@@ -133,12 +152,16 @@ pub(super) async fn synchronize(
     if definitions.len() != manifest.definition_count {
         return Err(CatalogError::Release(format!(
             "release count mismatch: expected {}, received {}",
-            manifest.definition_count, definitions.len()
+            manifest.definition_count,
+            definitions.len()
         )));
     }
     // Persist only a completely verified snapshot. Existing settings, secrets
     // and enabled flags are preserved by the catalog storage implementation.
-    let report = store.sync_catalog(&definitions).await.map_err(CatalogError::Storage)?;
+    let report = store
+        .sync_catalog(&definitions)
+        .await
+        .map_err(CatalogError::Storage)?;
     store
         .record_catalog_release_fingerprint(manifest_url.as_str(), &fingerprint)
         .await
@@ -148,7 +171,7 @@ pub(super) async fn synchronize(
 
 #[cfg(test)]
 mod tests {
-    use super::{ReleaseDefinition, ReleaseManifest, RELEASE_ASSET, RELEASE_FORMAT};
+    use super::{RELEASE_ASSET, RELEASE_FORMAT, ReleaseDefinition, ReleaseManifest};
 
     #[test]
     fn understands_database_export_contract() {

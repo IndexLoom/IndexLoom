@@ -124,7 +124,7 @@ async fn catalog_sync_loop(
         ticker.tick().await;
         match synchronize(&store, &source).await {
             Ok(report) if report.updated => state.clear_execution_runtimes().await,
-            Ok(_) => {},
+            Ok(_) => {}
             Err(error) => tracing::warn!(%error, "scheduled catalog synchronization failed"),
         }
     }
