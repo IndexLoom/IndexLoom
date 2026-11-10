@@ -74,7 +74,9 @@ pub(super) async fn synchronize(
             .map_err(CatalogError::Storage)?;
         if retained > 0 {
             return Ok(CatalogSyncReport {
-                definitions: retained as usize,
+                definitions: usize::try_from(retained).map_err(|_| {
+                    CatalogError::Release("stored definition count is out of range".into())
+                })?,
                 new_indexers: 0,
                 updated: false,
             });
@@ -95,6 +97,25 @@ pub(super) async fn synchronize(
             "release asset checksum mismatch".into(),
         ));
     }
+    let definitions = decode_release_records(&compressed, manifest.definition_count)?;
+    // Persist only a completely verified snapshot. Existing settings, secrets
+    // and enabled flags are preserved by the catalog storage implementation.
+    let report = store
+        .sync_catalog(&definitions)
+        .await
+        .map_err(CatalogError::Storage)?;
+    store
+        .record_catalog_release_fingerprint(manifest_url.as_str(), &fingerprint)
+        .await
+        .map_err(CatalogError::Storage)?;
+    Ok(report)
+}
+
+/// Decode and validate the complete export before mutating the application's SQLite.
+fn decode_release_records(
+    compressed: &[u8],
+    expected_count: usize,
+) -> Result<Vec<CatalogDefinitionInput>, CatalogError> {
     let mut decoded = Vec::new();
     GzDecoder::new(compressed.as_slice())
         .take(MAX_EXTRACTED_BYTES as u64 + 1)
@@ -108,7 +129,7 @@ pub(super) async fn synchronize(
     let records = String::from_utf8(decoded)
         .map_err(|_| CatalogError::Release("JSONL is not UTF-8".into()))?;
     let mut seen = BTreeSet::new();
-    let mut definitions = Vec::with_capacity(manifest.definition_count);
+    let mut definitions = Vec::with_capacity(expected_count);
     for line in records.lines() {
         if line.trim().is_empty() {
             return Err(CatalogError::Release("empty JSONL record".into()));
@@ -149,25 +170,16 @@ pub(super) async fn synchronize(
             content_sha256: digest,
         });
     }
-    if definitions.len() != manifest.definition_count {
+    if definitions.len() != expected_count {
         return Err(CatalogError::Release(format!(
             "release count mismatch: expected {}, received {}",
-            manifest.definition_count,
+            expected_count,
             definitions.len()
         )));
     }
-    // Persist only a completely verified snapshot. Existing settings, secrets
-    // and enabled flags are preserved by the catalog storage implementation.
-    let report = store
-        .sync_catalog(&definitions)
-        .await
-        .map_err(CatalogError::Storage)?;
-    store
-        .record_catalog_release_fingerprint(manifest_url.as_str(), &fingerprint)
-        .await
-        .map_err(CatalogError::Storage)?;
-    Ok(report)
+    Ok(definitions)
 }
+
 
 #[cfg(test)]
 mod tests {
