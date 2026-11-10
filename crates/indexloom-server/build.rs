@@ -3,6 +3,7 @@
 
 use std::{
     env, fs,
+    fmt::Write as _,
     path::{Path, PathBuf},
 };
 
@@ -13,9 +14,10 @@ fn main() {
     }
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("crate directory"))
         .join("../../web/dist");
-    if !root.join("index.html").is_file() {
-        panic!("embedded-web requires web/dist; build the frontend with pnpm build first");
-    }
+    assert!(
+        root.join("index.html").is_file(),
+        "embedded-web requires web/dist; build the frontend with pnpm build first"
+    );
     println!("cargo:rerun-if-changed={}", root.display());
     let mut paths = Vec::new();
     collect_files(&root, &root, &mut paths);
@@ -43,10 +45,12 @@ fn main() {
             "txt" => "text/plain; charset=utf-8",
             _ => "application/octet-stream",
         };
-        generated.push_str(&format!(
-            "        {route:?} => Some((&include_bytes!({path:?})[..], {mime:?})),\n",
+        writeln!(
+            &mut generated,
+            "        {route:?} => Some((&include_bytes!({path:?})[..], {mime:?})),",
             path = absolute.to_string_lossy(),
-        ));
+        )
+        .expect("write asset descriptor");
     }
     generated.push_str("        _ => None,\n    }\n}\n");
     let dest = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR")).join("embedded_assets.rs");
