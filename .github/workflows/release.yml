@@ -98,6 +98,35 @@ jobs:
           else
             tar -czf "artifacts/indexloom-${{ matrix.label }}.tar.gz" -C release .
           fi
+      - name: Smoke-test first startup and released catalog
+        if: matrix.label == 'linux-x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export INDEXLOOM_ADMIN_TOKEN="$(openssl rand -hex 32)"
+          export INDEXLOOM_MASTER_KEY="$(openssl rand -base64 32)"
+          export INDEXLOOM_DATABASE_URL="sqlite://$RUNNER_TEMP/indexloom-smoke.db?mode=rwc"
+          export INDEXLOOM_BIND="127.0.0.1:18080"
+          export INDEXLOOM_CATALOG_SYNC_SECONDS=0
+          ./release/indexloom-web-linux-x86_64 > "$RUNNER_TEMP/indexloom-smoke.log" 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          READY=false
+          for attempt in $(seq 1 40); do
+            if curl --silent --fail http://127.0.0.1:18080/api/v1/health >/dev/null; then
+              READY=true
+              break
+            fi
+            if ! kill -0 "$PID" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if [[ "$READY" != "true" ]]; then
+            cat "$RUNNER_TEMP/indexloom-smoke.log"
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $INDEXLOOM_ADMIN_TOKEN" \
+            http://127.0.0.1:18080/api/v1/indexers | jq -e 'length >= 550'
       - uses: actions/upload-artifact@v4
         with:
           name: application-${{ matrix.label }}
