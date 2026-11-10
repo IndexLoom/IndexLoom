@@ -187,8 +187,8 @@ pre-stable hardening task.
 
 - **IndexLoom/IndexLoom** — original application, API, UI, database migrations
   and execution engine.
-- **IndexLoom/Indexers** — reproducible catalog conversion, provenance,
-  schemas, validation and generated YAML definitions.
+- **IndexLoom/Indexers** — reproducible catalog import, provenance,
+  schemas, validation and independently released SQLite databases.
 
 Jackett and Prowlarr source code is not vendored into either released
 application artifact. Converted definitions retain their upstream license and

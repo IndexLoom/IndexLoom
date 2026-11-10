@@ -65,6 +65,20 @@ the client disconnects. Search concurrency is global to the process rather
 than multiplied per incoming search request. Test-job progress is retained for
 24 hours with a 256-completed-job cap and an eight-active-job admission limit.
 
+## Independent catalog database and distributable binaries
+
+Indexers source definitions are imported in GitHub Actions, not loaded from
+YAML in the application repository. The release publishes a full SQLite
+database (including every upstream Jackett/Prowlarr variant) and compressed
+JSONL/TSV exports. IndexLoom fetches the latest release manifest, checks for
+an unchanged fingerprint and verifies the gzip transport export before a
+transactional import. A failed update retains the last verified snapshot.
+
+The Rust server supports either externally served frontend files (Docker),
+a standalone browser UI embedded into the executable at compile time, or a
+headless REST-only executable. Both binary variants use the same storage,
+authentication and search implementation.
+
 ## Cardigann compatibility stage
 
 The current interpreter is intentionally an executable compatibility layer,

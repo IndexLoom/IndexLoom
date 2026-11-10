@@ -25,6 +25,17 @@ resistance and bounded per-instance runtime/session reuse. Compatibility
 coverage, normalized category maps, persisted search history, metrics, and API
 stabilization remain before `0.2.x` is complete.
 
+## Catalog distribution and packaging (`0.3.x`)
+
+- Implemented: SQLite-first, independently published Indexers releases.
+- Implemented: source-variant preservation across Jackett and Prowlarr.
+- Implemented: release manifest comparison and verified runtime ingestion.
+- Implemented: cross-platform web-enabled/headless Rust build workflows and
+  multiarch Docker publishing.
+- Pending: test real-world Cardigann behavior beyond static YAML validation,
+  improve variant merging and category/genre/tag normalization, add a signed
+  release/provenance chain and robust upgrade/rollback UX.
+
 ## Application integrations (`0.3.x`)
 
 - Torznab-compatible API surface.

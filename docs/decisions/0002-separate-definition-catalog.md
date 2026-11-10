@@ -11,7 +11,7 @@ and a smaller review surface than application code.
 
 ## Decision
 
-Maintain the generated and community-authored IndexLoom YAML catalog in
+Maintain the separately published IndexLoom definition catalog in
 `IndexLoom/Indexers`. Keep the canonical Rust model and execution engine in
 `IndexLoom/IndexLoom`. Both repositories use the pre-stable
 `indexloom.io/v1alpha1` contract and validate against matching JSON Schema
@@ -33,5 +33,5 @@ definitions, but those importers are not the catalog update mechanism.
 - Provenance and license review are part of definition contribution review.
 - Generated definitions remain governed by their compatible source license;
   repository-authored tooling remains AGPL-3.0-or-later.
-- The application must verify catalog signatures/checksums before automatic
-  updates are introduced.
+- The application must verify release manifests, file hashes and
+  definition records before synchronization; independent signing remains future work.
