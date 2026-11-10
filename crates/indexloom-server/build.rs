@@ -49,8 +49,7 @@ fn main() {
         ));
     }
     generated.push_str("        _ => None,\n    }\n}\n");
-    let dest = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR"))
-        .join("embedded_assets.rs");
+    let dest = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR")).join("embedded_assets.rs");
     fs::write(dest, generated).expect("write static asset table");
 }
 

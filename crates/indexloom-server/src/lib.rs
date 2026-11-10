@@ -163,12 +163,9 @@ async fn serve_embedded_web(uri: axum::http::Uri) -> Response {
         }
     });
     match asset {
-        Some((bytes, mime)) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, mime)],
-            bytes,
-        )
-            .into_response(),
+        Some((bytes, mime)) => {
+            (StatusCode::OK, [(header::CONTENT_TYPE, mime)], bytes).into_response()
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

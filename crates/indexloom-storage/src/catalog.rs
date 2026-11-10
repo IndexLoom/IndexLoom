@@ -35,6 +35,10 @@ impl Store {
     }
 
     /// Returns the previously verified release manifest digest for a source.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error if querying SQLite fails.
     pub async fn catalog_release_fingerprint(
         &self,
         source_url: &str,
@@ -47,6 +51,10 @@ impl Store {
     }
 
     /// Records an accepted, fully imported release snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error if persisting the digest fails.
     pub async fn record_catalog_release_fingerprint(
         &self,
         source_url: &str,
