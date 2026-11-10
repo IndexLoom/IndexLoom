@@ -19,7 +19,7 @@ permissions:
 
 concurrency:
   group: indexloom-application-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   version:
@@ -158,7 +158,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   publish:
-    needs: [version, binaries, docker]
+    needs: [version, binaries]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
