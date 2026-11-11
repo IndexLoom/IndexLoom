@@ -183,6 +183,22 @@ struct MailTemplateInput {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MailEventInput { enabled: bool }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AddUserInput {
+    username: String,
+    email: String,
+    password: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DisabledInput { disabled: bool }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TestMailInput { to: String }
+
 pub fn public_routes() -> Router<AppState> {
     Router::new()
         .route("/api/v1/auth/config", get(public_config))
@@ -205,6 +221,9 @@ pub fn private_routes() -> Router<AppState> {
         .route("/api/v1/auth/mail/templates/{kind}", put(save_template))
         .route("/api/v1/auth/mail/events/{kind}", put(save_event))
         .route("/api/v1/auth/mail/test", post(test_email))
+        .route("/api/v1/auth/users", get(list_users).post(add_user))
+        .route("/api/v1/auth/users/{id}/disabled", put(disable_user))
+        .route("/api/v1/auth/users/{id}/verify-email", post(send_user_verification))
 }
 
 pub fn digest(token: &str) -> String {
@@ -583,18 +602,89 @@ async fn save_event(
 }
 
 async fn test_email(
-    State(state): State<AppState>, headers: HeaderMap,
+    State(state): State<AppState>, Json(request): Json<TestMailInput>,
 ) -> Result<StatusCode, ApiError> {
-    let Some(sender) = state.mail_sender.as_ref() else {
-        return Err(ApiError::not_found("SMTP is disabled"));
-    };
-    let user = user_for_bearer(&state, &headers).await?;
+    let sender = state.mail_sender.as_ref().ok_or_else(|| ApiError::not_found("SMTP is disabled"))?;
+    let email = normalize_email(&request.to)?;
     let vars = mail::MailVariables {
-        username: &user.username, email: &user.email,
+        username: "Administrator", email: &email,
         action_url: "", event: "test",
     };
-    sender.send(&state.store, "test", &user.email, vars).await
+    sender.send(&state.store, "test", &email, vars).await
         .map_err(|error| { tracing::warn!(%error, "email test failed"); ApiError::internal("email delivery failed") })?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// All accounts currently have administrator permissions; account creation is never public.
+async fn list_users(State(state): State<AppState>) -> Result<Json<Vec<AuthUserView>>, ApiError> {
+    Ok(Json(state.store.list_auth_users().await?))
+}
+
+async fn add_user(
+    State(state): State<AppState>, Json(request): Json<AddUserInput>,
+) -> Result<Json<AuthUserView>, ApiError> {
+    if !state.auth_settings.mode.local() {
+        return Err(ApiError::bad_request("local accounts are disabled"));
+    }
+    let username = normalize_username(&request.username)?;
+    let email = normalize_email(&request.email)?;
+    validate_password(&request.password)?;
+    if state.store.auth_user_by_login(&username).await?.is_some()
+        || state.store.auth_user_by_login(&email).await?.is_some() {
+        return Err(ApiError::conflict("username or email is already registered"));
+    }
+    let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
+    let id = Uuid::now_v7().to_string();
+    let verified = !state.auth_settings.require_email_verification;
+    state.store.add_local_user(&id, &username, &email, &hash, verified).await
+        .map_err(|error| {
+            tracing::warn!(%error, "user creation rejected");
+            ApiError::conflict("username or email is already registered")
+        })?;
+    let user = state.store.auth_user_by_id(&id).await?.ok_or_else(ApiError::unauthorized)?;
+    if !verified {
+        send_verification_for_user(&state, &user).await?;
+    }
+    Ok(Json(user.view()))
+}
+
+async fn disable_user(
+    State(state): State<AppState>, Path(id): Path<String>,
+    Json(request): Json<DisabledInput>,
+) -> Result<Json<AuthUserView>, ApiError> {
+    if !state.store.set_user_disabled(&id, request.disabled).await? {
+        return Err(ApiError::bad_request("cannot disable last active administrator or unknown account"));
+    }
+    let user = state.store.auth_user_by_id(&id).await?
+        .ok_or_else(ApiError::unauthorized)?;
+    Ok(Json(user.view()))
+}
+
+async fn send_verification_for_user(
+    state: &AppState, user: &AuthUser,
+) -> Result<(), ApiError> {
+    if user.email_verified { return Ok(()); }
+    let sender = state.mail_sender.as_ref().ok_or_else(|| ApiError::bad_request("SMTP is disabled"))?;
+    let token = new_token()?;
+    state.store.create_one_time_token(&digest(&token), &user.id, "verify-email", VERIFY_SECONDS).await?;
+    let link = sender.action_url("verify-email", &token);
+    let vars = mail::MailVariables {
+        username: &user.username, email: &user.email,
+        action_url: &link, event: "verify-email",
+    };
+    sender.send(&state.store, "verify-email", &user.email, vars).await
+        .map_err(|error| {
+            tracing::warn!(%error, "account verification email failed");
+            ApiError::internal("email delivery failed")
+        })
+}
+
+async fn send_user_verification(
+    State(state): State<AppState>, Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let user = state.store.auth_user_by_id(&id).await?
+        .ok_or_else(|| ApiError::not_found("account does not exist"))?;
+    send_verification_for_user(&state, &user).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
