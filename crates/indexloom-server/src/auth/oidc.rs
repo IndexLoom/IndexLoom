@@ -107,7 +107,10 @@ impl OidcSettings {
             .ok()
             .map(|email| email.trim().to_ascii_lowercase())
             .filter(|email| !email.is_empty());
-        if owner_email.as_ref().is_some_and(|email| !allowed_emails.contains(email)) {
+        if owner_email
+            .as_ref()
+            .is_some_and(|email| !allowed_emails.contains(email))
+        {
             bail!("INDEXLOOM_OIDC_OWNER_EMAIL must be in INDEXLOOM_OIDC_ALLOWED_EMAILS");
         }
         Ok(Some(Self {
