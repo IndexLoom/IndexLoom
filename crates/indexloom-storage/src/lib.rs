@@ -203,6 +203,8 @@ pub struct IndexerConfigurationRecord {
     pub display_name: String,
     /// Whether searches may use this instance.
     pub enabled: bool,
+    /// Whether the referenced definition still exists in the current catalog.
+    pub catalog_available: bool,
     /// Optional per-indexer browser `User-Agent` override.
     pub user_agent: Option<String>,
     /// Optional `FlareSolverr` connector ID.
@@ -292,6 +294,7 @@ struct IndexerRow {
     definition_id: String,
     display_name: String,
     enabled: bool,
+    catalog_available: bool,
     configuration_json: String,
     user_agent: Option<String>,
     flaresolverr_instance_id: Option<String>,
@@ -349,7 +352,7 @@ impl Store {
         let rows = sqlx::query_as::<_, IndexerRow>(
             "SELECT i.id, i.definition_id, i.display_name, i.enabled, \
                     i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, \
-                    d.content_yaml, s.nonce, s.ciphertext \
+                    d.catalog_available, d.content_yaml, s.nonce, s.ciphertext \
              FROM indexers i \
              JOIN indexer_definitions d ON d.id = i.definition_id \
              LEFT JOIN indexer_secrets s ON s.indexer_id = i.id \
@@ -541,7 +544,8 @@ impl Store {
              ON CONFLICT(id) DO UPDATE SET \
                  source = excluded.source, source_revision = excluded.source_revision, \
                  schema_version = excluded.schema_version, content_yaml = excluded.content_yaml, \
-                 content_sha256 = excluded.content_sha256, imported_at = excluded.imported_at",
+                 content_sha256 = excluded.content_sha256, imported_at = excluded.imported_at, \
+                 catalog_available = 1, catalog_generation = NULL",
         )
         .bind(id)
         .bind(source)
@@ -589,7 +593,7 @@ impl Store {
         sqlx::query_as::<_, IndexerRow>(
             "SELECT i.id, i.definition_id, i.display_name, i.enabled, \
                     i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, \
-                    d.content_yaml, s.nonce, s.ciphertext \
+                    d.catalog_available, d.content_yaml, s.nonce, s.ciphertext \
              FROM indexers i \
              JOIN indexer_definitions d ON d.id = i.definition_id \
              LEFT JOIN indexer_secrets s ON s.indexer_id = i.id \
@@ -615,6 +619,7 @@ impl IndexerRow {
             definition_id: self.definition_id,
             display_name: self.display_name,
             enabled: self.enabled,
+            catalog_available: self.catalog_available,
             user_agent: self.user_agent,
             flaresolverr_instance_id: self.flaresolverr_instance_id,
             proxy_id: self.proxy_id,

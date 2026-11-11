@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 use super::{StorageError, Store, now};
 
 /// One validated catalog definition ready for transactional synchronization.
@@ -84,20 +86,28 @@ impl Store {
         definitions: &[CatalogDefinitionInput],
     ) -> Result<CatalogSyncReport, StorageError> {
         let mut transaction = self.pool.begin().await?;
+        if definitions.is_empty() {
+            return Err(StorageError::InvalidData(
+                "refusing to replace the catalog with an empty snapshot".to_owned(),
+            ));
+        }
         let timestamp = now()?;
+        let generation = Uuid::now_v7().to_string();
         let mut new_indexers = 0_usize;
         for definition in definitions {
             sqlx::query(
                 "INSERT INTO indexer_definitions \
                      (id, source, source_revision, schema_version, content_yaml, \
-                      content_sha256, imported_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?) \
+                      content_sha256, imported_at, catalog_generation, catalog_available) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) \
                  ON CONFLICT(id) DO UPDATE SET source = excluded.source, \
                      source_revision = excluded.source_revision, \
                      schema_version = excluded.schema_version, \
                      content_yaml = excluded.content_yaml, \
                      content_sha256 = excluded.content_sha256, \
-                     imported_at = excluded.imported_at",
+                     imported_at = CASE WHEN indexer_definitions.content_sha256 != excluded.content_sha256 \
+                         THEN excluded.imported_at ELSE indexer_definitions.imported_at END, \
+                     catalog_generation = excluded.catalog_generation, catalog_available = 1",
             )
             .bind(&definition.id)
             .bind(&definition.source)
@@ -106,6 +116,7 @@ impl Store {
             .bind(&definition.content_yaml)
             .bind(&definition.content_sha256)
             .bind(&timestamp)
+            .bind(&generation)
             .execute(&mut *transaction)
             .await?;
 
@@ -123,6 +134,16 @@ impl Store {
             .await?;
             new_indexers += usize::try_from(inserted.rows_affected()).unwrap_or(0);
         }
+        // Keep retired definitions and all associated user state, but prevent
+        // searches from using a definition removed from the verified catalog.
+        sqlx::query(
+            "UPDATE indexer_definitions SET catalog_available = 0 \
+             WHERE catalog_generation IS NOT NULL \
+               AND catalog_generation != ? AND catalog_available = 1",
+        )
+        .bind(&generation)
+        .execute(&mut *transaction)
+        .await?;
         transaction.commit().await?;
         Ok(CatalogSyncReport {
             definitions: definitions.len(),

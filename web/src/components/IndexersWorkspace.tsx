@@ -1112,7 +1112,7 @@ function IndexerTestPanel({
               <legend>Indexers</legend>
               <div className="test-indexer-list">
                 {indexers
-                  .filter((indexer) => indexer.enabled)
+                  .filter((indexer) => indexer.enabled && indexer.catalogAvailable)
                   .map((indexer) => (
                     <label className="checkbox-field" key={indexer.id}>
                       <input
@@ -1305,10 +1305,16 @@ function IndexerConfigurationPanel({
                   </span>
                   <span
                     className={
-                      indexer.enabled ? "status-pill healthy" : "status-pill"
+                      indexer.catalogAvailable && indexer.enabled
+                        ? "status-pill healthy"
+                        : "status-pill"
                     }
                   >
-                    {indexer.enabled ? "enabled" : "disabled"}
+                    {!indexer.catalogAvailable
+                      ? "unavailable"
+                      : indexer.enabled
+                        ? "enabled"
+                        : "disabled"}
                   </span>
                 </span>
               </button>
@@ -1736,8 +1742,18 @@ function IndexerEditor({
             <span className={`privacy-pill ${indexer.privacy}`}>
               {indexer.privacy}
             </span>
-            <span className={enabled ? "status-pill healthy" : "status-pill"}>
-              {enabled ? "enabled" : "disabled"}
+            <span
+              className={
+                indexer.catalogAvailable && enabled
+                  ? "status-pill healthy"
+                  : "status-pill"
+              }
+            >
+              {!indexer.catalogAvailable
+                ? "unavailable (retired from catalog)"
+                : enabled
+                  ? "enabled"
+                  : "disabled"}
             </span>
           </div>
           <button

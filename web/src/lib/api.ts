@@ -25,6 +25,7 @@ export type Indexer = {
   definitionId: string;
   displayName: string;
   enabled: boolean;
+  catalogAvailable: boolean;
   privacy: "public" | "semi-private" | "private";
   userAgent: string | null;
   flaresolverrInstanceId: string | null;

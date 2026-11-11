@@ -52,3 +52,11 @@ stabilization remain before `0.2.x` is complete.
 - Generate TypeScript API contracts from the Rust/OpenAPI source of truth.
 - Advisory dependency audits for Rust and pnpm plus container vulnerability
   scanning, tuned separately from blocking license and source-policy checks.
+
+## Snapshot retirement semantics
+
+Catalog synchronization preserves retired definitions, all saved credentials, tags,
+proxies and enabled preferences. A separate `catalogAvailable` state marks whether
+an indexer exists in the current release. Retired instances are automatically excluded
+from search and test selection, and resume with their previous settings if the ID
+reappears. Empty catalog snapshots are rejected.
