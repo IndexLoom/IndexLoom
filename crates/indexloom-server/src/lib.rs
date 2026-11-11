@@ -759,6 +759,107 @@ spec:
     }
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn local_bootstrap_requires_operator_secret_and_sessions_are_revoked() {
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Local;
+        let app = router(state, PathBuf::from("missing-web-root"));
+
+        let unauthorized = app.clone().oneshot(
+            Request::builder()
+                .uri("/api/v1/indexers")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let payload = r#"{"username":"alice","email":"alice@example.org","password":"very-long-secret-password"}"#;
+        let rejected = app.clone().oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/bootstrap")
+                .header(header::AUTHORIZATION, "Bearer invalid")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+        let created = app.clone().oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/bootstrap")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(created.status(), StatusCode::OK);
+        let data: serde_json::Value = serde_json::from_slice(
+            &to_bytes(created.into_body(), 32_768).await.unwrap(),
+        ).unwrap();
+        let access_token = data["accessToken"].as_str().expect("session token is returned");
+        assert!(access_token.len() >= 40);
+        assert_eq!(data["user"]["username"], "alice");
+
+        let repeat = app.clone().oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/bootstrap")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(repeat.status(), StatusCode::CONFLICT);
+
+        let accessible = app.clone().oneshot(
+            Request::builder()
+                .uri("/api/v1/indexers")
+                .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(accessible.status(), StatusCode::OK);
+
+        let logged_out = app.clone().oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(logged_out.status(), StatusCode::NO_CONTENT);
+
+        let rejected_again = app.oneshot(
+            Request::builder()
+                .uri("/api/v1/indexers")
+                .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(rejected_again.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn disabled_mode_explicitly_removes_auth_from_management_api() {
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Disabled;
+        let response = router(state, PathBuf::from("missing-web-root"))
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn management_api_requires_bearer_token() {
         let response = router(test_state().await, PathBuf::from("missing-web-root"))
             .oneshot(
