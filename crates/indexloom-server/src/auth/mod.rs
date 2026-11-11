@@ -8,7 +8,7 @@
 mod mail;
 mod oidc;
 
-use std::{env, sync::Arc};
+use std::{env, io::Read, path::Path, sync::Arc};
 
 use argon2::Argon2;
 use axum::{
@@ -32,6 +32,39 @@ const SESSION_SECONDS: i64 = 12 * 3600;
 const REMEMBER_SESSION_SECONDS: i64 = 7 * 24 * 3600;
 const RESET_SECONDS: i64 = 30 * 60;
 const VERIFY_SECONDS: i64 = 24 * 3600;
+
+/// Reads an optional transport secret from exactly one environment or file source.
+/// Large or invalid secrets fail closed before entering SMTP/OIDC configuration.
+fn read_optional_secret(name: &str) -> anyhow::Result<Option<String>> {
+    let direct = env::var(name).ok().filter(|value| !value.is_empty());
+    let path = env::var(format!("{name}_FILE"))
+        .ok().filter(|value| !value.is_empty());
+    match (direct, path) {
+        (Some(_), Some(_)) => anyhow::bail!("set either {name} or {name}_FILE, not both"),
+        (Some(value), None) => Ok(Some(value)),
+        (None, None) => Ok(None),
+        (None, Some(file_path)) => {
+            let path = Path::new(&file_path);
+            let mut file = std::fs::File::open(path)?;
+            let metadata = file.metadata()?;
+            if !metadata.is_file() || metadata.len() > 64 * 1024 {
+                anyhow::bail!("{name}_FILE must be a regular file no larger than 64 KiB");
+            }
+            let mut data = Vec::new();
+            file.take(64 * 1024 + 1).read_to_end(&mut data)?;
+            if data.len() > 64 * 1024 {
+                anyhow::bail!("{name}_FILE exceeds the 64 KiB limit");
+            }
+            let secret = String::from_utf8(data)?;
+            let secret = secret.strip_suffix("\r\n")
+                .or_else(|| secret.strip_suffix('\n'))
+                .unwrap_or(&secret);
+            if secret.is_empty() { anyhow::bail!("{name}_FILE must not be empty"); }
+            Ok(Some(secret.to_owned()))
+        }
+    }
+}
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
