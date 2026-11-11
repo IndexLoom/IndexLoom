@@ -101,6 +101,52 @@ impl Store {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn add_local_user(
+        &self, id: &str, username: &str, email: &str,
+        password_hash: &str, email_verified: bool,
+    ) -> Result<(), StorageError> {
+        let now = epoch();
+        sqlx::query(
+            "INSERT INTO auth_users(id, username, email, password_hash, email_verified, created_at, updated_at) \\
+             VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).bind(id).bind(username).bind(email).bind(password_hash)
+            .bind(email_verified).bind(now).bind(now)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    pub async fn list_auth_users(&self) -> Result<Vec<AuthUserView>, StorageError> {
+        let users = sqlx::query_as::<_, AuthUser>(
+            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, \\
+             email_verified, disabled FROM auth_users ORDER BY username COLLATE NOCASE"
+        ).fetch_all(&self.pool).await?;
+        Ok(users.iter().map(AuthUser::view).collect())
+    }
+
+    /// Never disable the last active user; a disabled account loses all sessions.
+    pub async fn set_user_disabled(
+        &self, user_id: &str, disabled: bool,
+    ) -> Result<bool, StorageError> {
+        let mut transaction = self.pool.begin().await?;
+        let enabled: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_users WHERE disabled = 0")
+            .fetch_one(&mut *transaction).await?;
+        let target: Option<bool> = sqlx::query_scalar("SELECT disabled FROM auth_users WHERE id = ?")
+            .bind(user_id).fetch_optional(&mut *transaction).await?;
+        if target.is_none() || (disabled && target == Some(false) && enabled <= 1) {
+            transaction.rollback().await?;
+            return Ok(false);
+        }
+        sqlx::query("UPDATE auth_users SET disabled = ?, updated_at = ? WHERE id = ?")
+            .bind(disabled).bind(epoch()).bind(user_id)
+            .execute(&mut *transaction).await?;
+        if disabled {
+            sqlx::query("DELETE FROM auth_sessions WHERE user_id = ?")
+                .bind(user_id).execute(&mut *transaction).await?;
+        }
+        transaction.commit().await?;
+        Ok(true)
+    }
+
     pub async fn auth_user_by_login(&self, login: &str) -> Result<Option<AuthUser>, StorageError> {
         Ok(sqlx::query_as::<_, AuthUser>(
             "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled \
