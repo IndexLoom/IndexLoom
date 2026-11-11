@@ -865,6 +865,7 @@ mod tests {
             definition_id: "example".to_owned(),
             display_name: "Example".to_owned(),
             enabled: true,
+            catalog_available: true,
             user_agent: None,
             flaresolverr_instance_id: None,
             proxy_id: None,
