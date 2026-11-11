@@ -455,7 +455,7 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AccessLevel {
+enum AccessLevel {
     Viewer,
     Admin,
     Owner,
@@ -526,7 +526,7 @@ async fn access_level(state: &AppState, headers: &HeaderMap) -> Option<AccessLev
 ///
 /// # Errors
 /// Returns 401 when no valid credential is provided and 403 on insufficient role.
-pub async fn authorize_action(
+pub(super) async fn authorize_action(
     state: &AppState,
     headers: &HeaderMap,
     method: &Method,
