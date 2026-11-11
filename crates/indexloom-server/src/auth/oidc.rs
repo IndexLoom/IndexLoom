@@ -25,6 +25,7 @@ pub struct OidcSettings {
     client_secret: Option<String>,
     redirect_uri: String,
     allowed_emails: BTreeSet<String>,
+    owner_email: Option<String>,
 }
 
 impl std::fmt::Debug for OidcSettings {
@@ -34,6 +35,7 @@ impl std::fmt::Debug for OidcSettings {
             .field("client_id", &self.client_id)
             .field("secret", &"<redacted>")
             .field("allowlist_count", &self.allowed_emails.len())
+            .field("owner_email_configured", &self.owner_email.is_some())
             .finish()
     }
 }
@@ -99,7 +101,14 @@ impl OidcSettings {
             .filter(|email| !email.is_empty())
             .collect::<BTreeSet<_>>();
         if allowed_emails.is_empty() {
-            bail!("OIDC requires INDEXLOOM_OIDC_ALLOWED_EMAILS (no open administrator signup)");
+            bail!("OIDC requires INDEXLOOM_OIDC_ALLOWED_EMAILS (no open signup)");
+        }
+        let owner_email = env::var("INDEXLOOM_OIDC_OWNER_EMAIL")
+            .ok()
+            .map(|email| email.trim().to_ascii_lowercase())
+            .filter(|email| !email.is_empty());
+        if owner_email.as_ref().is_some_and(|email| !allowed_emails.contains(email)) {
+            bail!("INDEXLOOM_OIDC_OWNER_EMAIL must be in INDEXLOOM_OIDC_ALLOWED_EMAILS");
         }
         Ok(Some(Self {
             issuer,
@@ -107,7 +116,20 @@ impl OidcSettings {
             client_secret: super::read_optional_secret("INDEXLOOM_OIDC_CLIENT_SECRET")?,
             redirect_uri,
             allowed_emails,
+            owner_email,
         }))
+    }
+
+    /// Checks whether a verified OIDC identity was explicitly designated as an owner.
+    #[must_use]
+    pub fn is_owner_email(&self, email: &str) -> bool {
+        self.owner_email.as_deref() == Some(email)
+    }
+
+    /// Whether an OIDC owner is explicitly configured.
+    #[must_use]
+    pub fn has_owner_email(&self) -> bool {
+        self.owner_email.is_some()
     }
 
     fn http_client() -> Result<openidconnect::reqwest::Client> {
