@@ -191,7 +191,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       </div>
     </main>
   );
-  if (!context.token) return (
+  if (!context.token || new URLSearchParams(window.location.search).has("reset-password")) return (
     <Context.Provider value={context}>
       <AuthenticationGate
         config={config}
@@ -270,6 +270,9 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
         const url = new URL(window.location.href);
         url.searchParams.delete("reset-password");
         window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+        // The new password revokes server-side sessions; discard any stale
+        // session from an already signed-in browser before displaying login.
+        onLogin("", false);
         onNotice("Password updated. You can sign in.");
         setPanel("login");
       }
