@@ -1739,3 +1739,29 @@ a:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Read-only database status in Settings */
+.catalog-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.catalog-stats > div {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.catalog-stats dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.catalog-stats dd {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

@@ -1,3 +1,11 @@
+export type CatalogStatus = {
+  totalDefinitions: number;
+  availableDefinitions: number;
+  retiredDefinitions: number;
+  latestReleaseAppliedAt: string | null;
+  latestReleaseFingerprint: string | null;
+};
+
 export type Health = {
   status: "ok" | "degraded";
   version: string;
@@ -220,6 +228,15 @@ export async function fetchHealth(signal: AbortSignal): Promise<Health> {
     signal,
   });
   return readJson<Health>(response);
+}
+
+export function fetchCatalogStatus(
+  token: string,
+  signal?: AbortSignal,
+): Promise<CatalogStatus> {
+  return authenticatedJson<CatalogStatus>("/api/v1/catalog/status", token, {
+    signal,
+  });
 }
 
 export function fetchIndexers(
