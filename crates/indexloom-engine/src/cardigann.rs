@@ -11,7 +11,7 @@ use indexloom_definitions::{ConfigurationValue, IndexerDefinition};
 use regex::Regex;
 use reqwest::{Method, StatusCode, header::HeaderName};
 use scraper::{ElementRef, Html, Selector};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use serde_yaml::{Mapping, Value as YamlValue};
 use time::OffsetDateTime;
@@ -31,6 +31,20 @@ static HYPHENATED_CONFIG_REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\.Config\.([A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+)")
         .expect("static Cardigann config-reference regex must compile")
 });
+
+/// Structured search fields supported by Cardigann templates.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchParameters {
+    pub mode: Option<String>,
+    pub category: Option<String>,
+    pub genre: Option<String>,
+    pub year: Option<u16>,
+    pub season: Option<u16>,
+    pub episode: Option<u16>,
+    pub imdb_id: Option<String>,
+    pub tmdb_id: Option<String>,
+}
 
 /// Fully resolved, execution-only configuration for one indexer instance.
 pub struct IndexerExecutionConfig {
@@ -194,6 +208,21 @@ impl CardigannExecutor {
         term: &str,
         limit: usize,
     ) -> Result<IndexerSearchBatch, EngineError> {
+        self.search_with_parameters(term, limit, &SearchParameters::default())
+            .await
+    }
+
+    /// Searches using structured Cardigann fields when declared by the tracker.
+    ///
+    /// # Errors
+    ///
+    /// Returns an execution error when requests or extractor rules fail.
+    pub async fn search_with_parameters(
+        &self,
+        term: &str,
+        limit: usize,
+        parameters: &SearchParameters,
+    ) -> Result<IndexerSearchBatch, EngineError> {
         if term.trim().is_empty() {
             return Err(EngineError::EmptySearchTerm);
         }
@@ -207,7 +236,13 @@ impl CardigannExecutor {
             .map(|filters| apply_filters(term.to_owned(), filters))
             .transpose()?
             .unwrap_or_else(|| term.to_owned());
-        let render = self.context.for_search(&keywords, BTreeMap::new());
+        let categories = resolve_category_ids(&self.definition, parameters.category.as_deref());
+        let render = self.context.for_search_with_parameters(
+            &keywords,
+            BTreeMap::new(),
+            parameters,
+            &categories,
+        );
         // Cardigann can declare multiple search paths. Fall back only for
         // temporary transport/server errors; malformed templates, authentication
         // errors and policy violations are not made safe by trying another path.
@@ -666,6 +701,21 @@ impl RenderContext {
     }
 
     fn for_search(&self, keywords: &str, result: BTreeMap<String, String>) -> TemplateValue {
+        self.for_search_with_parameters(
+            keywords,
+            result,
+            &SearchParameters::default(),
+            &[],
+        )
+    }
+
+    fn for_search_with_parameters(
+        &self,
+        keywords: &str,
+        result: BTreeMap<String, String>,
+        parameters: &SearchParameters,
+        categories: &[String],
+    ) -> TemplateValue {
         let mut query = HashMap::from([
             ("Album".to_owned(), TemplateValue::String(String::new())),
             ("Artist".to_owned(), TemplateValue::String(String::new())),
@@ -690,6 +740,25 @@ impl RenderContext {
             "Keywords".to_owned(),
             TemplateValue::String(keywords.to_owned()),
         );
+        for (field, value) in [
+            ("Genre", parameters.genre.as_deref()),
+            ("IMDBID", parameters.imdb_id.as_deref()),
+            ("TMDBID", parameters.tmdb_id.as_deref()),
+            ("Type", parameters.mode.as_deref()),
+        ] {
+            if let Some(value) = value {
+                query.insert(field.to_owned(), TemplateValue::String(value.to_owned()));
+            }
+        }
+        for (field, value) in [
+            ("Year", parameters.year),
+            ("Season", parameters.season),
+            ("Ep", parameters.episode),
+        ] {
+            if let Some(value) = value {
+                query.insert(field.to_owned(), TemplateValue::String(value.to_string()));
+            }
+        }
         let result = result
             .into_iter()
             .map(|(key, value)| (key, TemplateValue::String(value)))
@@ -709,7 +778,15 @@ impl RenderContext {
             ),
             ("Query".to_owned(), TemplateValue::Object(query)),
             ("Result".to_owned(), TemplateValue::Object(result)),
-            ("Categories".to_owned(), TemplateValue::Array(Vec::new())),
+            (
+                "Categories".to_owned(),
+                TemplateValue::Array(
+                    categories
+                        .iter()
+                        .map(|value| TemplateValue::String(value.clone()))
+                        .collect(),
+                ),
+            ),
             ("True".to_owned(), TemplateValue::Bool(true)),
             ("False".to_owned(), TemplateValue::Bool(false)),
             ("Today".to_owned(), TemplateValue::String(String::new())),
@@ -767,6 +844,38 @@ fn template_regex_replace(arguments: &[TemplateValue]) -> Result<TemplateValue, 
         .try_replacen(&input, 0, arguments[2].to_string())
         .map_err(|error| FuncError::Generic(error.to_string()))?;
     Ok(TemplateValue::String(rendered.into_owned()))
+}
+
+fn resolve_category_ids(definition: &IndexerDefinition, requested: Option<&str>) -> Vec<String> {
+    let Some(requested) = requested else { return Vec::new() };
+    let Some(caps) = mapping(&definition.spec.implementation.capabilities) else {
+        return Vec::new();
+    };
+    if let Some(mappings) = caps.get(key("categorymappings")).and_then(YamlValue::as_sequence) {
+        let ids = mappings
+            .iter()
+            .filter_map(mapping)
+            .filter(|item| {
+                item.get(key("cat"))
+                    .and_then(scalar)
+                    .is_some_and(|category| {
+                        category == requested
+                            || category.starts_with(&format!("{requested}/"))
+                    })
+            })
+            .filter_map(|item| item.get(key("id")).and_then(scalar))
+            .collect::<Vec<_>>();
+        if !ids.is_empty() { return ids; }
+    }
+    let Some(categories) = caps.get(key("categories")).and_then(mapping) else {
+        return Vec::new();
+    };
+    categories
+        .iter()
+        .filter(|(name, _)| scalar(name).as_deref() == Some(requested))
+        .flat_map(|(_, ids)| ids.as_sequence().cloned().unwrap_or_default())
+        .filter_map(|value| scalar(&value))
+        .collect()
 }
 
 fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {
