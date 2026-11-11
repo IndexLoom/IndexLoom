@@ -184,7 +184,7 @@ impl OidcSettings {
             .context("OIDC provider omitted verified email")?
             .as_str()
             .to_ascii_lowercase();
-        if claims.email_verified().copied() != Some(true) {
+        if claims.email_verified() != Some(true) {
             bail!("OIDC email must be verified by the identity provider");
         }
         if !self.allowed_emails.contains(&email) {
