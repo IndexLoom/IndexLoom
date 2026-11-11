@@ -1,0 +1,68 @@
+name: Refresh Rust dependencies
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/refresh-rust-dependencies.yml"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: rust-dependency-refresh
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.0"
+      - uses: Swatinem/rust-cache@v2
+      - name: Update compatible dependency versions
+        run: cargo update
+      - name: Test the refreshed dependency lockfile
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo test --workspace --all-targets --locked
+      - name: Create or update review branch
+        id: branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Cargo.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BRANCH=automation/rust-dependency-refresh
+          git fetch origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add Cargo.lock
+          git commit -m "chore(deps): refresh compatible Rust dependency versions"
+          git push --force-with-lease origin "$BRANCH"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Open update PR (never auto-merge)
+        if: steps.branch.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH=automation/rust-dependency-refresh
+          if gh pr list --base main --head "$BRANCH" --json number --jq 'length' | grep -qx 0; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore(deps): refresh compatible Rust dependencies" \
+              --body "Automatically refreshed Cargo.lock within Cargo.toml version constraints. Formatting, Clippy and workspace tests passed. Review the GitHub security advisory check and dependency diff before merging. No changes are merged automatically."
+          fi
