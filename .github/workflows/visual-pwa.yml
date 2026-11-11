@@ -2,8 +2,12 @@ name: Responsive PWA browser smoke
 on:
   workflow_dispatch:
   push:
-    branches: [feature/auth-mail-pwa-20261112]
+    branches: [main, feature/auth-mail-pwa-20261112]
     paths: [.github/workflows/visual-pwa.yml]
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/visual-pwa.yml"
 permissions:
   contents: read
 jobs:
@@ -105,6 +109,74 @@ jobs:
             const response = await page.request.get('http://127.0.0.1:4173' + path);
             if (!response.ok()) throw new Error('Missing PWA asset: ' + path);
           }
+          // Exercise a real React login/logout flow without reaching external services.
+          const mobile = await browser.newContext({
+            viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true,
+          });
+          const loginPage = await mobile.newPage();
+          await loginPage.route('**/api/v1/auth/config', (route) => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({
+              mode: 'local', localEnabled: true, oidcEnabled: false,
+              mailEnabled: false, emailVerificationRequired: false,
+              bootstrapAvailable: false, oidcIssuer: null,
+            }),
+          }));
+          await loginPage.route('**/api/v1/auth/login', (route) => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({
+              accessToken: 'test-token-with-at-least-forty-characters-long',
+              expiresAt: 1900000000,
+              user: {
+                id: 'test-user', username: 'alice', email: 'alice@example.org',
+                emailVerified: true,
+              },
+            }),
+          }));
+          await loginPage.route('**/api/v1/auth/me', (route) => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({
+              method: 'session',
+              user: {
+                id: 'test-user', username: 'alice', email: 'alice@example.org',
+                emailVerified: true, hasPassword: true, hasOidc: false, disabled: false,
+              },
+            }),
+          }));
+          await loginPage.route('**/api/v1/auth/logout', (route) => route.fulfill({
+            status: 204, body: '',
+          }));
+          await loginPage.route('**/api/v1/health', (route) => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({status: 'ok', version: 'test', database: 'ok'}),
+          }));
+          await loginPage.route('**/api/v1/indexers', (route) => route.fulfill({
+            status: 200, contentType: 'application/json', body: '[]',
+          }));
+          await loginPage.goto('http://127.0.0.1:4173/', {waitUntil: 'networkidle'});
+          await loginPage.getByLabel('Username or email').fill('alice');
+          await loginPage.getByLabel('Password', {exact: true}).fill('correct-horse-battery');
+          await loginPage.screenshot({path:'/tmp/indexloom-screenshots/login-mobile.png'});
+          await loginPage.getByRole('button', {name:'Sign in', exact:true}).click();
+          await loginPage.locator('nav[aria-label="Primary navigation"]').waitFor();
+          await loginPage.getByRole('button', {name:'Sign out'}).click();
+          await loginPage.getByRole('heading', {name:'Welcome back'}).waitFor();
+          await mobile.close();
+
+          await page.evaluate(async () => {
+            if (!('serviceWorker' in navigator)) throw new Error('Service worker unsupported');
+            await navigator.serviceWorker.ready;
+            const names = await caches.keys();
+            for (const name of names) {
+              const cache = await caches.open(name);
+              for (const request of await cache.keys()) {
+                const url = new URL(request.url);
+                if (url.pathname.startsWith('/api/') || url.search.includes('access_token')) {
+                  throw new Error('Private response or token was cached: ' + url.pathname);
+                }
+              }
+            }
+          });
           await browser.close();
           JS
       - uses: actions/upload-artifact@v4
