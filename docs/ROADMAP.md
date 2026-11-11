@@ -60,3 +60,10 @@ proxies and enabled preferences. A separate `catalogAvailable` state marks wheth
 an indexer exists in the current release. Retired instances are automatically excluded
 from search and test selection, and resume with their previous settings if the ID
 reappears. Empty catalog snapshots are rejected.
+
+## Read-only catalog diagnostics
+
+The protected `GET /api/v1/catalog/status` endpoint and Settings page show
+available, retired, and total definitions, along with the last successfully
+applied release timestamp. The refresh control only reloads diagnostics; it
+does not bypass the configured background synchronization schedule.

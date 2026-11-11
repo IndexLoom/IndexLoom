@@ -24,7 +24,6 @@ pub struct CatalogSyncReport {
     pub updated: bool,
 }
 
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogStatus {
@@ -52,8 +51,10 @@ impl Store {
         )
         .fetch_optional(&self.pool)
         .await?;
-        let (latest_release_applied_at, latest_release_fingerprint) =
-            last.map_or((None, None), |(at, fingerprint)| (Some(at), Some(fingerprint)));
+        let (latest_release_applied_at, latest_release_fingerprint) = last
+            .map_or((None, None), |(at, fingerprint)| {
+                (Some(at), Some(fingerprint))
+            });
         Ok(CatalogStatus {
             total_definitions: total,
             available_definitions: available,

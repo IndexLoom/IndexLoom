@@ -16,8 +16,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::{
-    CatalogError, MAX_EXTRACTED_BYTES, MAX_RELEASE_MANIFEST_BYTES,
-    download_archive, download_with_limit,
+    CatalogError, MAX_EXTRACTED_BYTES, MAX_RELEASE_MANIFEST_BYTES, download_archive,
+    download_with_limit,
 };
 
 const RELEASE_FORMAT: &str = "indexloom-indexers/v1";

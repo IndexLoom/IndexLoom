@@ -775,9 +775,7 @@ fn zeroize_resolved_credentials(
 }
 
 fn validate_selection(selection: &IndexerSelection) -> Result<(), ApiError> {
-    if selection.indexer_ids.len() > MAX_SELECTION_IDENTIFIERS
-        || selection.group_ids.len() > 100
-    {
+    if selection.indexer_ids.len() > MAX_SELECTION_IDENTIFIERS || selection.group_ids.len() > 100 {
         return Err(ApiError::bad_request("indexer selection is too large"));
     }
     if !selection.all && selection.indexer_ids.is_empty() && selection.group_ids.is_empty() {

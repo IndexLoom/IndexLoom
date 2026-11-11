@@ -350,7 +350,9 @@ pub enum CatalogError {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{CatalogError, CatalogSource, safe_catalog_url, strip_archive_root, validate_catalog};
+    use super::{
+        CatalogError, CatalogSource, safe_catalog_url, strip_archive_root, validate_catalog,
+    };
 
     #[test]
     fn rejects_archive_traversal() {
