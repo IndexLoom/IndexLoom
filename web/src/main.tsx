@@ -1,3 +1,4 @@
+import { AppearanceProvider } from "./lib/ui-preferences";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -12,6 +13,6 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <AppearanceProvider><App /></AppearanceProvider>
   </StrictMode>,
 );
