@@ -1739,9 +1739,9 @@ mod tests {
     use url::Url;
 
     use super::{
-        RenderContext, all_search_paths, apply_filters, complete_result_fields,
-        info_hash_from_magnet, normalize_contains_selector, normalized_result,
-        render_search_inputs, render_template, retryable_search_error,
+        RenderContext, SearchParameters, all_search_paths, apply_filters,
+        complete_result_fields, info_hash_from_magnet, normalize_contains_selector,
+        normalized_result, render_search_inputs, render_template, retryable_search_error,
     };
 
     #[test]
@@ -1764,6 +1764,36 @@ mod tests {
         let broken: YamlValue = serde_yaml::from_str("paths:\n  - path: /valid\n  - invalid")
             .expect("valid YAML with invalid path shape");
         assert!(all_search_paths(broken.as_mapping().unwrap()).is_err());
+    }
+
+    #[test]
+    fn renders_structured_query_and_source_category_identifiers() {
+        let parameters = SearchParameters {
+            mode: Some("movie-search".to_owned()),
+            category: Some("Movies/HD".to_owned()),
+            genre: Some("Documentary".to_owned()),
+            year: Some(2026),
+            season: Some(2),
+            episode: Some(4),
+            imdb_id: Some("tt1234567".to_owned()),
+            tmdb_id: Some("12345".to_owned()),
+        };
+        let context = RenderContext::new(BTreeMap::new(), BTreeMap::new())
+            .for_search_with_parameters(
+                "example",
+                BTreeMap::new(),
+                &parameters,
+                &["0_0".to_owned(), "102".to_owned()],
+            );
+        let text = render_template(
+            "{{ .Query.Genre }}|{{ .Query.Year }}|{{ .Query.Season }}|{{ .Query.Ep }}|{{ .Query.Type }}|{{ .Query.IMDBID }}|{{ .Query.TMDBID }}|{{ index .Categories 0 }}",
+            &context,
+        )
+        .expect("structured search should be accessible to Cardigann templates");
+        assert_eq!(
+            text,
+            "Documentary|2026|2|4|movie-search|tt1234567|12345|0_0"
+        );
     }
 
     #[test]
