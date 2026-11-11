@@ -307,7 +307,7 @@ impl Store {
     /// Returns a storage error if the SQLite operation fails.
     pub async fn auth_user_by_login(&self, login: &str) -> Result<Option<AuthUser>, StorageError> {
         Ok(sqlx::query_as::<_, AuthUser>(
-            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled \
+            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled, role \
              FROM auth_users WHERE username = ? OR email = ? LIMIT 1"
         ).bind(login).bind(login).fetch_optional(&self.pool).await?)
     }
@@ -318,7 +318,7 @@ impl Store {
     /// Returns a storage error if the SQLite operation fails.
     pub async fn auth_user_by_id(&self, id: &str) -> Result<Option<AuthUser>, StorageError> {
         Ok(sqlx::query_as::<_, AuthUser>(
-            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled \
+            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled, role \
              FROM auth_users WHERE id = ? LIMIT 1"
         ).bind(id).fetch_optional(&self.pool).await?)
     }
@@ -333,7 +333,7 @@ impl Store {
         subject: &str,
     ) -> Result<Option<AuthUser>, StorageError> {
         Ok(sqlx::query_as::<_, AuthUser>(
-            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled \
+            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled, role \
              FROM auth_users WHERE oidc_issuer = ? AND oidc_subject = ? LIMIT 1"
         ).bind(issuer).bind(subject).fetch_optional(&self.pool).await?)
     }
