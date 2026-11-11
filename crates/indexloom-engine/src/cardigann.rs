@@ -543,9 +543,14 @@ impl CardigannExecutor {
             return Err(EngineError::ResponseTooLarge);
         }
         let final_url = response.url().clone();
-        let bytes = response.bytes().await?;
-        if bytes.len() > MAX_DIRECT_RESPONSE_BYTES {
-            return Err(EngineError::ResponseTooLarge);
+        // Content-Length is optional/untrusted: enforce the cap before allocating
+        // every streamed chunk, including chunked transfer-encoded responses.
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len().saturating_add(chunk.len()) > MAX_DIRECT_RESPONSE_BYTES {
+                return Err(EngineError::ResponseTooLarge);
+            }
+            bytes.extend_from_slice(&chunk);
         }
         let body = String::from_utf8_lossy(&bytes).into_owned();
         if !status.is_success() {
