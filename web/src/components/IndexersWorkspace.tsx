@@ -1190,24 +1190,38 @@ function IndexerConfigurationPanel({
 }) {
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<
-    "all" | "enabled" | "disabled"
+    "all" | "enabled" | "disabled" | "unavailable"
   >("all");
   const [limit, setLimit] = useState(60);
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [languageFilter, setLanguageFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [modeFilter, setModeFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const editorPanelRef = useRef<HTMLDivElement>(null);
   const deferredFilter = useDeferredValue(filter.trim().toLocaleLowerCase());
+  const languages = useMemo(() => [...new Set(indexers.map((item) => item.capabilities.language))].sort(), [indexers]);
+  const categories = useMemo(() => [...new Set(indexers.flatMap((item) => item.capabilities.categories))].sort(), [indexers]);
+  const modes = useMemo(() => [...new Set(indexers.flatMap((item) => item.capabilities.searchModes.map((mode) => mode.name)))].sort(), [indexers]);
   const filtered = useMemo(
     () =>
       indexers.filter((indexer) => {
+        const caps = indexer.capabilities;
         const haystack =
-          `${indexer.displayName} ${indexer.definitionId} ${indexer.tags.join(" ")}`.toLocaleLowerCase();
+          `${indexer.displayName} ${indexer.definitionId} ${indexer.tags.join(" ")} ${caps.description} ${caps.language} ${caps.source} ${caps.categories.join(" ")} ${caps.searchModes.map((mode) => mode.name).join(" ")}`.toLocaleLowerCase();
         const matchesState =
           statusFilter === "all" ||
-          (statusFilter === "enabled" && indexer.enabled) ||
-          (statusFilter === "disabled" && !indexer.enabled);
-        return matchesState && haystack.includes(deferredFilter);
+          (statusFilter === "enabled" && indexer.enabled && indexer.catalogAvailable) ||
+          (statusFilter === "disabled" && !indexer.enabled && indexer.catalogAvailable) ||
+          (statusFilter === "unavailable" && !indexer.catalogAvailable);
+        return matchesState
+          && haystack.includes(deferredFilter)
+          && (sourceFilter === "all" || caps.source === sourceFilter)
+          && (languageFilter === "all" || caps.language === languageFilter)
+          && (categoryFilter === "all" || caps.categories.includes(categoryFilter))
+          && (modeFilter === "all" || caps.searchModes.some((mode) => mode.name === modeFilter));
       }),
-    [deferredFilter, indexers, statusFilter],
+    [categoryFilter, deferredFilter, indexers, languageFilter, modeFilter, sourceFilter, statusFilter],
   );
   const visible = filtered.slice(0, limit);
   const selected = selectedId
@@ -1258,7 +1272,7 @@ function IndexerConfigurationPanel({
           <select
             onChange={(event) => {
               setStatusFilter(
-                event.target.value as "all" | "enabled" | "disabled",
+                event.target.value as "all" | "enabled" | "disabled" | "unavailable",
               );
               setLimit(60);
             }}
@@ -1267,6 +1281,36 @@ function IndexerConfigurationPanel({
             <option value="all">All indexers</option>
             <option value="enabled">Enabled</option>
             <option value="disabled">Disabled</option>
+            <option value="unavailable">Retired</option>
+          </select>
+        </label>
+        <label className="catalog-filter">
+          <span>Source</span>
+          <select value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setLimit(60); }}>
+            <option value="all">Both upstreams</option>
+            <option value="jackett">Jackett</option>
+            <option value="prowlarr-indexers">Prowlarr</option>
+          </select>
+        </label>
+        <label className="catalog-filter">
+          <span>Language</span>
+          <select value={languageFilter} onChange={(event) => { setLanguageFilter(event.target.value); setLimit(60); }}>
+            <option value="all">All languages</option>
+            {languages.map((language) => <option key={language} value={language}>{language}</option>)}
+          </select>
+        </label>
+        <label className="catalog-filter">
+          <span>Category</span>
+          <select value={categoryFilter} onChange={(event) => { setCategoryFilter(event.target.value); setLimit(60); }}>
+            <option value="all">All categories</option>
+            {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+        </label>
+        <label className="catalog-filter">
+          <span>Search mode</span>
+          <select value={modeFilter} onChange={(event) => { setModeFilter(event.target.value); setLimit(60); }}>
+            <option value="all">Any mode</option>
+            {modes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
           </select>
         </label>
       </div>
@@ -1297,7 +1341,7 @@ function IndexerConfigurationPanel({
               >
                 <span className="indexer-list-copy">
                   <strong>{indexer.displayName}</strong>
-                  <small>{indexer.definitionId}</small>
+                  <small>{indexer.definitionId} · {indexer.capabilities.language} · {indexer.capabilities.source === "jackett" ? "Jackett" : "Prowlarr"}</small>
                 </span>
                 <span className="indexer-list-meta">
                   <span className={`privacy-pill ${indexer.privacy}`}>
@@ -1766,6 +1810,7 @@ function IndexerEditor({
           </button>
         </div>
       </header>
+      <IndexerCapabilitiesPanel indexer={indexer} />
       {indexer.configurationSchema.flaresolverrRecommended ? (
         <p className="recommendation">
           This definition recommends FlareSolverr challenge handling.
@@ -2012,3 +2057,59 @@ function initialValues(indexer: Indexer): Record<string, ConfigurationValue> {
   }
   return values;
 }
+
+/** Only upstream-supplied categories/modes are shown; local tags stay separate. */
+function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
+  const caps = indexer.capabilities;
+  return (
+    <details className="capability-disclosure">
+      <summary>
+        <span>Definition details</span>
+        <span className="muted">
+          {caps.source === "jackett" ? "Jackett" : "Prowlarr"} · {caps.language}
+          {" · "}{caps.categoryMappings.length} mappings
+        </span>
+      </summary>
+      <div className="capability-details">
+        {caps.description ? <p>{caps.description}</p> : null}
+        <dl className="capability-facts">
+          <div><dt>Source</dt><dd>{caps.source}</dd></div>
+          <div><dt>Language</dt><dd>{caps.language}</dd></div>
+          <div><dt>Search paths</dt><dd>{caps.searchPaths}</dd></div>
+          <div><dt>Alternative URLs</dt><dd>{caps.alternateUrls}</dd></div>
+          <div><dt>Authentication</dt><dd>{caps.authentication ? "Defined" : "None declared"}</dd></div>
+          <div><dt>CAPTCHA</dt><dd>{caps.captcha ? "Declared" : "Not declared"}</dd></div>
+          <div><dt>Download handler</dt><dd>{caps.downloadHandler ? "Declared" : "None declared"}</dd></div>
+          <div><dt>Genre query</dt><dd>{caps.genreSearch ? "Available in definition" : "Not declared"}</dd></div>
+        </dl>
+        <h4>Search modes</h4>
+        {caps.searchModes.length ? (
+          <div className="capability-chip-list">
+            {caps.searchModes.map((mode) => (
+              <span className="capability-chip" key={mode.name} title={mode.parameters.join(", ")}>
+                {mode.name} <small>{mode.parameters.join(" · ")}</small>
+              </span>
+            ))}
+          </div>
+        ) : <p className="muted">No search modes declared.</p>}
+        <h4>Categories ({caps.categoryMappings.length})</h4>
+        {caps.categoryMappings.length ? (
+          <div className="capability-table">
+            <table>
+              <thead><tr><th>Tracker ID</th><th>Category</th><th>Description</th></tr></thead>
+              <tbody>{caps.categoryMappings.map((category, index) => (
+                <tr key={category.id + ":" + index}>
+                  <td><code>{category.id}</code></td>
+                  <td>{category.category}{category.default ? " (default)" : ""}</td>
+                  <td>{category.description ?? "—"}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        ) : <p className="muted">No explicit category mappings; some definitions use category maps instead.</p>}
+        <p className="muted">These are declared capabilities, not a guarantee that every feature is currently supported by IndexLoom's Cardigann executor.</p>
+      </div>
+    </details>
+  );
+}
+
