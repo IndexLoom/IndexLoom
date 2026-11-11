@@ -6,7 +6,8 @@ use std::env;
 use anyhow::{Context, Result, bail};
 use indexloom_storage::{Store, auth::MailTemplate};
 use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::{Mailbox, MultiPart},
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::{Mailbox, MultiPart},
     transport::smtp::authentication::Credentials,
 };
 
