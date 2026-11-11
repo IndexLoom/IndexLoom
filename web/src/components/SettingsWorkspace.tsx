@@ -166,7 +166,7 @@ export function SettingsWorkspace() {
             </label>
           </div>
           <OrderEditor
-            items={navigationPages.map((name) => ({ id: name, label: name[0].toUpperCase() + name.slice(1) }))}
+            items={navigationPages.map((name) => ({ id: name, label: name.charAt(0).toUpperCase() + name.slice(1) }))}
             onChange={(navigation) => set("navigation", navigation)}
             order={preferences.navigation}
           />
@@ -270,8 +270,8 @@ function OrderEditor({ items, order, hidden, onChange, onToggle }: {
               </label>
             ) : null}
             <span className="order-actions">
-              <button aria-label={"Move " + item.label + " up"} disabled={index === 0} onClick={() => onChange(move(order, id, order[index - 1]))} type="button">↑</button>
-              <button aria-label={"Move " + item.label + " down"} disabled={index === order.length - 1} onClick={() => onChange(move(order, id, order[index + 1]))} type="button">↓</button>
+              <button aria-label={"Move " + item.label + " up"} disabled={index === 0} onClick={() => onChange(move(order, id, order[index - 1] ?? id))} type="button">↑</button>
+              <button aria-label={"Move " + item.label + " down"} disabled={index === order.length - 1} onClick={() => onChange(move(order, id, order[index + 1] ?? id))} type="button">↓</button>
             </span>
           </div>
         );
