@@ -1,4 +1,6 @@
 import { AppearanceProvider } from "./lib/ui-preferences";
+import { AuthenticationProvider } from "./components/AdminSession";
+import { registerPwa } from "./lib/pwa";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -14,6 +16,10 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <AppearanceProvider><App /></AppearanceProvider>
+    <AppearanceProvider>
+      <AuthenticationProvider><App /></AuthenticationProvider>
+    </AppearanceProvider>
   </StrictMode>,
 );
+
+registerPwa();
