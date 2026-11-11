@@ -102,3 +102,14 @@ Next milestones: verified real-provider integration and security review,
 TOTP/WebAuthn/passkeys, recovery codes, per-indexer ACLs and extended audit logs,
 push notifications, extended mail events, and the already planned Torznab,
 RSS, tracker compatibility suite and persistent search history.
+
+## Authentication hardening beyond the first MFA rollout
+
+- [x] Local password login, verified OIDC and legacy/hybrid/disabled modes.
+- [x] Owner/admin/viewer roles and account security event history.
+- [x] Optional TOTP with HMAC-SHA256, backup codes, encrypted factors and replay protection.
+- [ ] End-to-end tests against an external OIDC provider and SMTP server.
+- [ ] HTTP-only SameSite session cookies and CSRF lifecycle for browser clients.
+- [ ] FIDO2/WebAuthn passkeys, hardware authenticators and mandatory provider-independent MFA policies.
+- [ ] Recovery workflows with supportable account-owner identity proof and secure audit exports.
+- [ ] Replace or remove vulnerable upstream RustSec dependencies when compatible audited releases are available.

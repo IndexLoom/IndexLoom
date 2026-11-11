@@ -66,6 +66,48 @@ Persisting a login token in the browser with "Remember me" uses localStorage:
 avoid using this on shared/untrusted devices; for Internet-facing multi-user
 deployments, cookie-based HTTP-only sessions are a planned hardening step.
 
+## Optional second factor for password login (TOTP)
+
+Local and hybrid accounts with a password may enable time-based two-factor
+authentication in **Settings → Security & users → Two-factor authentication**.
+
+1. Sign in with the local username/email and password.
+2. Re-enter the current password when beginning authenticator enrollment.
+3. Use the displayed Base32 key or `otpauth://` link in a compatible
+   authenticator application. IndexLoom uses **RFC 6238 SHA-256**, 6 digits,
+   with 30-second codes and a ±30-second clock tolerance.
+4. Confirm a valid current code to finish enrollment. The server then revokes
+   every existing account session, including the setup session.
+5. **Save the ten recovery codes** immediately. Each is 16 Base32 characters
+   and works only once. Their values are shown only on the confirmation
+   response, never available from the settings API afterward.
+
+Subsequent local logins return a five-minute, one-use challenge rather than
+an access token. Complete the second step with the authenticator code or a
+recovery code. Each challenge allows at most five failures; account-level
+failures are also rate-limited. A TOTP time-step cannot be accepted again
+after successful verification, including across simultaneous sessions.
+Only one outstanding password-verified challenge is kept per account.
+
+The TOTP secret is encrypted with the existing
+`INDEXLOOM_MASTER_KEY` using XChaCha20-Poly1305 and
+account-specific authenticated associated data. Recovery codes and challenge
+tokens are stored as SHA-256 hashes, not plaintext. Disabling a factor
+requires both the current password and a current authenticator or recovery
+code and revokes all sessions. The email-based password-reset flow does
+**not** disable TOTP.
+
+OIDC identity providers retain responsibility for their own MFA; the local
+TOTP factor protects *local password logins*, not external OIDC sessions or
+the legacy operator token. If an administrator needs mandatory MFA for
+every access method, disable the operator-token route after bootstrap and
+require MFA at the OIDC provider. A policy enforcing MFA across all auth
+modes, passkeys/WebAuthn and hardware security keys remain future work.
+
+If the master key is lost, encrypted TOTP secrets (as well as indexer
+credentials) cannot be recovered. Use the originally displayed backup codes
+or recover access through an appropriately secured operator procedure.
+
 ## OIDC
 
 The authorization code flow uses provider discovery over HTTPS, PKCE S256,
@@ -153,7 +195,7 @@ SMTP transport settings.
 - Token-only mode retains legacy behavior for old automation clients.
 - Owner/admin/viewer authorization and a bounded 100-event security log are
   implemented; fine-grained indexer ACLs and event filtering/export are not.
-  WebAuthn/passkeys, TOTP and recovery codes are not yet implemented.
+  WebAuthn/passkeys, hardware security keys and single-sign-on MFA enforcement are not yet implemented.
 - Request rate limits use login identity; distributed attackers can rotate
   identifiers. Protect public deployments with a reverse proxy/WAF and TLS.
 - Only static PWA resources are cached offline. Searching and changing accounts
@@ -164,7 +206,7 @@ SMTP transport settings.
 ## API endpoints
 
 Public: `GET /api/v1/auth/config`, `POST /api/v1/auth/bootstrap`,
-`/login`, `/oidc/start`, `/oidc/complete`, `/email/request-reset`,
+`/login`, `/oidc/start`, `/oidc/complete`, `/totp/complete`, `/email/request-reset`,
 `/email/reset`, `/email/verify`.
 
 Protected: `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`,
@@ -174,6 +216,8 @@ Protected: `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`,
 `PUT /api/v1/auth/users/{id}/role`,
 `GET /api/v1/auth/audit`,
 `POST /api/v1/auth/users/{id}/verify-email`,
+`GET /api/v1/auth/totp`, `POST /api/v1/auth/totp/start`,
+`POST /api/v1/auth/totp/confirm`, `POST /api/v1/auth/totp/disable`,
 `GET /api/v1/auth/mail`,
 `PUT /api/v1/auth/mail/templates/{kind}`,
 `PUT /api/v1/auth/mail/events/{kind}`,

@@ -36,6 +36,8 @@ explicit HTTP, SOCKS and FlareSolverr routing.
   mode is available only with a separate operator acknowledgement.
 - Enforce owner/admin/viewer API roles with least-privileged new accounts,
   database protection against losing the final owner, and a security event log.
+- Protect local password accounts with optional SHA-256 TOTP, short-lived
+  second-factor login challenges, encrypted enrollment and one-use recovery codes.
 - Optionally configure SMTP with per-event notification switches, editable
   plain-text/HTML templates, email verification and password reset links.
 - Install a responsive PWA on phones, tablets or laptops with a mobile bottom
