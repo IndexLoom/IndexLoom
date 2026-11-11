@@ -1,4 +1,7 @@
-//! OpenID Connect authorization code + PKCE with verified ID tokens.
+//! `OpenID` Connect authorization code + PKCE with verified ID tokens.
+
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_fields_in_debug)]
 //! No unsigned JWT parsing or trusted-forwarded-header shortcuts.
 
 use std::{collections::BTreeSet, env, time::Duration};
@@ -63,7 +66,7 @@ impl OidcSettings {
             || url.host_str().is_some_and(|host| {
                 host.parse::<std::net::IpAddr>().is_ok()
                     || host == "localhost"
-                    || host.ends_with(".local")
+                    || host.to_ascii_lowercase().ends_with(".local")
             })
             || !url.username().is_empty()
             || url.password().is_some()
@@ -79,14 +82,14 @@ impl OidcSettings {
         }
         let redirect_uri = env::var("INDEXLOOM_OIDC_REDIRECT_URI")
             .context("INDEXLOOM_OIDC_REDIRECT_URI is required")?;
-        let redirect_url =
+        let parsed_redirect =
             url::Url::parse(&redirect_uri).context("OIDC redirect URI is malformed")?;
-        if redirect_url.scheme() != "https"
-            && !matches!(redirect_url.host_str(), Some("localhost" | "127.0.0.1"))
+        if parsed_redirect.scheme() != "https"
+            && !matches!(parsed_redirect.host_str(), Some("localhost" | "127.0.0.1"))
         {
             bail!("OIDC redirect requires HTTPS outside localhost");
         }
-        if redirect_url.query().is_some() || redirect_url.fragment().is_some() {
+        if parsed_redirect.query().is_some() || parsed_redirect.fragment().is_some() {
             bail!("OIDC redirect must not include query or fragment");
         }
         let allowed_emails = env::var("INDEXLOOM_OIDC_ALLOWED_EMAILS")

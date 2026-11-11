@@ -1,6 +1,9 @@
 //! Explicitly optional STARTTLS/SMTPS outbound email with configurable templates.
 //! Only authenticated administrators can edit templates; no email content is cached.
 
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_fields_in_debug)]
+
 use std::env;
 
 use anyhow::{Context, Result, bail};
@@ -28,6 +31,7 @@ impl std::fmt::Debug for MailSender {
     }
 }
 
+#[derive(Debug)]
 pub struct MailVariables<'a> {
     pub username: &'a str,
     pub email: &'a str,

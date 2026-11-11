@@ -3,6 +3,7 @@
 
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::missing_errors_doc)]
+#![allow(clippy::struct_excessive_bools)]
 
 mod mail;
 mod oidc;
@@ -18,7 +19,6 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use indexloom_storage::{
-    Store,
     auth::{AuthUser, AuthUserView, MailEventSetting, MailTemplate},
 };
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-use super::{AdminToken, ApiError, AppState};
+use super::{ApiError, AppState};
 pub use mail::MailSender;
 pub use oidc::OidcSettings;
 
@@ -54,7 +54,7 @@ impl AuthMode {
             "oidc" => Ok(Self::Oidc),
             "hybrid" => Ok(Self::Hybrid),
             "disabled" => {
-                if env::var("INDEXLOOM_ALLOW_UNSAFE_NO_AUTH").as_deref() != Ok("true") {
+                if !matches!(env::var("INDEXLOOM_ALLOW_UNSAFE_NO_AUTH").as_deref(), Ok("true")) {
                     Err("disabled auth requires INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true".to_owned())
                 } else {
                     Ok(Self::Disabled)
