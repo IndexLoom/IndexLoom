@@ -199,7 +199,9 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         let current: Option<(String, bool)> =
             sqlx::query_as("SELECT role, disabled FROM auth_users WHERE id = ?")
-                .bind(id).fetch_optional(&mut *tx).await?;
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
         let Some((old_role, disabled)) = current else {
             tx.rollback().await?;
             return Ok(false);
@@ -207,14 +209,20 @@ impl Store {
         if old_role == "owner" && role != "owner" && !disabled {
             let active_owners: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM auth_users WHERE role = 'owner' AND disabled = 0",
-            ).fetch_one(&mut *tx).await?;
+            )
+            .fetch_one(&mut *tx)
+            .await?;
             if active_owners < 2 {
                 tx.rollback().await?;
                 return Ok(false);
             }
         }
         sqlx::query("UPDATE auth_users SET role = ?, updated_at = ? WHERE id = ?")
-            .bind(role).bind(epoch()).bind(id).execute(&mut *tx).await?;
+            .bind(role)
+            .bind(epoch())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(true)
     }
@@ -224,7 +232,10 @@ impl Store {
     /// # Errors
     /// Returns a storage error if SQLite cannot insert the event.
     pub async fn auth_audit(
-        &self, actor_id: Option<&str>, subject_id: Option<&str>, action: &str,
+        &self,
+        actor_id: Option<&str>,
+        subject_id: Option<&str>,
+        action: &str,
     ) -> Result<(), StorageError> {
         if !(3..=64).contains(&action.len()) {
             return Err(StorageError::InvalidData("invalid audit action".into()));
@@ -232,8 +243,13 @@ impl Store {
         sqlx::query(
             "INSERT INTO auth_audit_events(occurred_at, actor_id, subject_id, action)
              VALUES (?, ?, ?, ?)",
-        ).bind(epoch()).bind(actor_id).bind(subject_id).bind(action)
-            .execute(&self.pool).await?;
+        )
+        .bind(epoch())
+        .bind(actor_id)
+        .bind(subject_id)
+        .bind(action)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -245,7 +261,9 @@ impl Store {
         Ok(sqlx::query_as::<_, AuthAuditEvent>(
             "SELECT id, occurred_at, actor_id, subject_id, action
              FROM auth_audit_events ORDER BY id DESC LIMIT 100",
-        ).fetch_all(&self.pool).await?)
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     /// Lists public account fields without password or token secrets.
@@ -283,11 +301,17 @@ impl Store {
                 .await?;
         let active_owners: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM auth_users WHERE role = 'owner' AND disabled = 0",
-        ).fetch_one(&mut *transaction).await?;
+        )
+        .fetch_one(&mut *transaction)
+        .await?;
         if target.is_none()
-            || (disabled && target.as_ref().is_some_and(|(was_disabled, _)| !was_disabled)
-                && (enabled <= 1 || (active_owners <= 1
-                    && target.as_ref().is_some_and(|(_, role)| role == "owner"))))
+            || (disabled
+                && target
+                    .as_ref()
+                    .is_some_and(|(was_disabled, _)| !was_disabled)
+                && (enabled <= 1
+                    || (active_owners <= 1
+                        && target.as_ref().is_some_and(|(_, role)| role == "owner"))))
         {
             transaction.rollback().await?;
             return Ok(false);
@@ -771,29 +795,58 @@ mod tests {
     }
     #[tokio::test]
     async fn owner_admin_viewer_permissions_are_persistent_and_last_owner_is_safe() {
-        let store = Store::connect("sqlite::memory:").await.expect("migrate account roles");
-        assert!(store.bootstrap_admin(
-            "owner", "first", "first@example.org", "argon2", true,
-        ).await.unwrap());
+        let store = Store::connect("sqlite::memory:")
+            .await
+            .expect("migrate account roles");
+        assert!(
+            store
+                .bootstrap_admin("owner", "first", "first@example.org", "argon2", true,)
+                .await
+                .unwrap()
+        );
         let initial = store.auth_user_by_id("owner").await.unwrap().unwrap();
         assert_eq!(initial.role, "owner");
         assert!(!store.set_user_role("owner", "viewer").await.unwrap());
         assert!(!store.set_user_disabled("owner", true).await.unwrap());
 
-        store.add_local_user(
-            "reader", "reader", "reader@example.org", "argon2", true, "viewer",
-        ).await.unwrap();
-        assert_eq!(store.auth_user_by_id("reader").await.unwrap().unwrap().role, "viewer");
+        store
+            .add_local_user(
+                "reader",
+                "reader",
+                "reader@example.org",
+                "argon2",
+                true,
+                "viewer",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            store.auth_user_by_id("reader").await.unwrap().unwrap().role,
+            "viewer"
+        );
         assert!(store.set_user_role("reader", "admin").await.unwrap());
-        assert_eq!(store.auth_user_by_id("reader").await.unwrap().unwrap().role, "admin");
+        assert_eq!(
+            store.auth_user_by_id("reader").await.unwrap().unwrap().role,
+            "admin"
+        );
         assert!(store.set_user_role("reader", "owner").await.unwrap());
         assert!(store.set_user_role("owner", "viewer").await.unwrap());
         assert!(!store.set_user_disabled("reader", true).await.unwrap());
         assert!(store.set_user_role("owner", "owner").await.unwrap());
         assert!(store.set_user_disabled("reader", true).await.unwrap());
-        assert!(store.auth_user_by_id("reader").await.unwrap().unwrap().disabled);
+        assert!(
+            store
+                .auth_user_by_id("reader")
+                .await
+                .unwrap()
+                .unwrap()
+                .disabled
+        );
 
-        store.auth_audit(Some("owner"), Some("reader"), "role-changed").await.unwrap();
+        store
+            .auth_audit(Some("owner"), Some("reader"), "role-changed")
+            .await
+            .unwrap();
         let events = store.auth_audit_events().await.unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].action, "role-changed");
@@ -804,20 +857,43 @@ mod tests {
     #[tokio::test]
     async fn first_oidc_user_is_owner_but_subsequent_identities_are_viewers() {
         let store = Store::connect("sqlite::memory:").await.unwrap();
-        store.add_oidc_user(
-            "oidc-primary", "oidc-one", "one@example.org",
-            "https://issuer.example.org", "subject-1",
-        ).await.unwrap();
-        store.add_oidc_user(
-            "oidc-secondary", "oidc-two", "two@example.org",
-            "https://issuer.example.org", "subject-2",
-        ).await.unwrap();
+        store
+            .add_oidc_user(
+                "oidc-primary",
+                "oidc-one",
+                "one@example.org",
+                "https://issuer.example.org",
+                "subject-1",
+            )
+            .await
+            .unwrap();
+        store
+            .add_oidc_user(
+                "oidc-secondary",
+                "oidc-two",
+                "two@example.org",
+                "https://issuer.example.org",
+                "subject-2",
+            )
+            .await
+            .unwrap();
         assert_eq!(
-            store.auth_user_by_id("oidc-primary").await.unwrap().unwrap().role, "owner"
+            store
+                .auth_user_by_id("oidc-primary")
+                .await
+                .unwrap()
+                .unwrap()
+                .role,
+            "owner"
         );
         assert_eq!(
-            store.auth_user_by_id("oidc-secondary").await.unwrap().unwrap().role, "viewer"
+            store
+                .auth_user_by_id("oidc-secondary")
+                .await
+                .unwrap()
+                .unwrap()
+                .role,
+            "viewer"
         );
     }
-
 }

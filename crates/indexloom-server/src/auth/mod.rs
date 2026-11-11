@@ -18,7 +18,9 @@ use axum::{
     routing::{get, post, put},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use indexloom_storage::auth::{AuthAuditEvent, AuthUser, AuthUserView, MailEventSetting, MailTemplate};
+use indexloom_storage::auth::{
+    AuthAuditEvent, AuthUser, AuthUserView, MailEventSetting, MailTemplate,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
@@ -38,7 +40,8 @@ const VERIFY_SECONDS: i64 = 24 * 3600;
 fn read_optional_secret(name: &str) -> anyhow::Result<Option<String>> {
     let direct = env::var(name).ok().filter(|value| !value.is_empty());
     let path = env::var(format!("{name}_FILE"))
-        .ok().filter(|value| !value.is_empty());
+        .ok()
+        .filter(|value| !value.is_empty());
     match (direct, path) {
         (Some(_), Some(_)) => anyhow::bail!("set either {name} or {name}_FILE, not both"),
         (Some(value), None) => Ok(Some(value)),
@@ -56,15 +59,17 @@ fn read_optional_secret(name: &str) -> anyhow::Result<Option<String>> {
                 anyhow::bail!("{name}_FILE exceeds the 64 KiB limit");
             }
             let secret = String::from_utf8(data)?;
-            let secret = secret.strip_suffix("\r\n")
+            let secret = secret
+                .strip_suffix("\r\n")
                 .or_else(|| secret.strip_suffix('\n'))
                 .unwrap_or(&secret);
-            if secret.is_empty() { anyhow::bail!("{name}_FILE must not be empty"); }
+            if secret.is_empty() {
+                anyhow::bail!("{name}_FILE must not be empty");
+            }
             Ok(Some(secret.to_owned()))
         }
     }
 }
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -122,7 +127,11 @@ pub struct AuthSettings {
 impl AuthSettings {
     pub fn from_env(mail_enabled: bool) -> anyhow::Result<Self> {
         let mode = AuthMode::from_env().map_err(anyhow::Error::msg)?;
-        let oidc = if mode.oidc() { OidcSettings::from_env()? } else { None };
+        let oidc = if mode.oidc() {
+            OidcSettings::from_env()?
+        } else {
+            None
+        };
         if mode.oidc() && oidc.is_none() {
             anyhow::bail!("OIDC mode requires configured OIDC issuer, client and allowlist");
         }
@@ -250,11 +259,15 @@ struct AddUserInput {
     role: String,
 }
 
-fn viewer_role() -> String { "viewer".to_owned() }
+fn viewer_role() -> String {
+    "viewer".to_owned()
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RoleInput { role: String }
+struct RoleInput {
+    role: String,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -423,7 +436,10 @@ async fn issue_session(
 }
 
 async fn audit_action(
-    state: &AppState, actor_id: Option<&str>, subject_id: Option<&str>, action: &str,
+    state: &AppState,
+    actor_id: Option<&str>,
+    subject_id: Option<&str>,
+    action: &str,
 ) {
     if let Err(error) = state.store.auth_audit(actor_id, subject_id, action).await {
         tracing::warn!(%error, %action, "security audit entry was not recorded");
@@ -466,9 +482,9 @@ fn required_access(method: &Method, path: &str) -> AccessLevel {
         || path == "/api/v1/auth/logout"
         || path == "/api/v1/auth/password"
         || path == "/api/v1/auth/email/request-verification"
-        || *method == Method::GET || *method == Method::HEAD
-        || (*method == Method::POST
-            && matches!(path, "/api/v1/search" | "/api/v1/search/stream"))
+        || *method == Method::GET
+        || *method == Method::HEAD
+        || (*method == Method::POST && matches!(path, "/api/v1/search" | "/api/v1/search/stream"))
     {
         return AccessLevel::Viewer;
     }
@@ -480,7 +496,10 @@ async fn access_level(state: &AppState, headers: &HeaderMap) -> Option<AccessLev
         return Some(AccessLevel::Owner);
     }
     if state.auth_settings.mode.legacy_token()
-        && state.admin_token.as_ref().is_some_and(|token| token.authorizes(headers))
+        && state
+            .admin_token
+            .as_ref()
+            .is_some_and(|token| token.authorizes(headers))
     {
         return Some(AccessLevel::Owner);
     }
@@ -491,7 +510,12 @@ async fn access_level(state: &AppState, headers: &HeaderMap) -> Option<AccessLev
     if !(40..=128).contains(&token.len()) {
         return None;
     }
-    let user = state.store.auth_user_for_session(&digest(token)).await.ok().flatten()?;
+    let user = state
+        .store
+        .auth_user_for_session(&digest(token))
+        .await
+        .ok()
+        .flatten()?;
     if state.auth_settings.require_email_verification && !user.email_verified {
         return None;
     }
@@ -503,9 +527,14 @@ async fn access_level(state: &AppState, headers: &HeaderMap) -> Option<AccessLev
 /// # Errors
 /// Returns 401 when no valid credential is provided and 403 on insufficient role.
 pub async fn authorize_action(
-    state: &AppState, headers: &HeaderMap, method: &Method, path: &str,
+    state: &AppState,
+    headers: &HeaderMap,
+    method: &Method,
+    path: &str,
 ) -> Result<(), ApiError> {
-    let level = access_level(state, headers).await.ok_or_else(ApiError::unauthorized)?;
+    let level = access_level(state, headers)
+        .await
+        .ok_or_else(ApiError::unauthorized)?;
     if level < required_access(method, path) {
         return Err(ApiError::forbidden());
     }
@@ -682,7 +711,10 @@ async fn user_for_bearer(state: &AppState, headers: &HeaderMap) -> Result<AuthUs
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
-    let user_id = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
+    let user_id = user_for_bearer(&state, &headers)
+        .await
+        .ok()
+        .map(|user| user.id);
     if let Some(token) = bearer(&headers) {
         state.store.revoke_session(&digest(token)).await?;
     }
@@ -1062,7 +1094,10 @@ async fn add_user(
         .auth_user_by_id(&id)
         .await?
         .ok_or_else(ApiError::unauthorized)?;
-    let actor = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
+    let actor = user_for_bearer(&state, &headers)
+        .await
+        .ok()
+        .map(|user| user.id);
     audit_action(&state, actor.as_deref(), Some(&id), "account-created").await;
     if !verified {
         send_verification_for_user(&state, &user).await?;
@@ -1086,8 +1121,21 @@ async fn disable_user(
         .auth_user_by_id(&id)
         .await?
         .ok_or_else(ApiError::unauthorized)?;
-    let actor = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
-    audit_action(&state, actor.as_deref(), Some(&id), if request.disabled { "account-disabled" } else { "account-enabled" }).await;
+    let actor = user_for_bearer(&state, &headers)
+        .await
+        .ok()
+        .map(|user| user.id);
+    audit_action(
+        &state,
+        actor.as_deref(),
+        Some(&id),
+        if request.disabled {
+            "account-disabled"
+        } else {
+            "account-enabled"
+        },
+    )
+    .await;
     Ok(Json(user.view()))
 }
 
@@ -1101,11 +1149,19 @@ async fn change_user_role(
         return Err(ApiError::bad_request("unknown account role"));
     }
     if !state.store.set_user_role(&id, &input.role).await? {
-        return Err(ApiError::bad_request("cannot change the last active owner or unknown account"));
+        return Err(ApiError::bad_request(
+            "cannot change the last active owner or unknown account",
+        ));
     }
-    let actor = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
+    let actor = user_for_bearer(&state, &headers)
+        .await
+        .ok()
+        .map(|user| user.id);
     audit_action(&state, actor.as_deref(), Some(&id), "role-changed").await;
-    let user = state.store.auth_user_by_id(&id).await?
+    let user = state
+        .store
+        .auth_user_by_id(&id)
+        .await?
         .ok_or_else(ApiError::unauthorized)?;
     Ok(Json(user.view()))
 }
