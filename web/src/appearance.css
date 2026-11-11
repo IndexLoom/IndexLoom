@@ -290,3 +290,56 @@ html[data-hidden-indexers~="panel"] .settings-view[data-layout-kind="indexers"] 
   .appearance-footer { align-items: stretch; }
   .theme-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+
+/* Native Cardigann metadata and focused catalog filters. */
+.indexer-toolbar {
+  grid-template-columns: repeat(auto-fit,minmax(165px,1fr));
+  align-items: end;
+  gap: 12px;
+}
+.catalog-filter { min-width: 0; }
+.catalog-filter input,.catalog-filter select { width: 100%; }
+.indexer-list-copy small { color: var(--muted); line-height: 1.5; }
+.capability-disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface-raised);
+  margin: 10px 0 20px;
+  overflow: hidden;
+}
+.capability-disclosure > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 16px;
+  color: var(--text);
+  font-size: .83rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.capability-disclosure > summary::marker { color: var(--accent); }
+.capability-disclosure > summary .muted { text-align: right; font-size: .72rem; }
+.capability-disclosure[open] > summary { border-bottom: 1px solid var(--border); }
+.capability-details { padding: 14px 16px 18px; display: grid; gap: 12px; }
+.capability-details > p { margin: 0; color: var(--muted); font-size: .8rem; }
+.capability-details h4 { font-size: .83rem; color: var(--text); font-weight: 700; margin: 6px 0 0; }
+.capability-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(140px,1fr));
+  gap: 9px;
+  margin: 0;
+}
+.capability-facts > div { padding: 9px; background: var(--surface); border-radius: 6px; }
+.capability-facts dt { font-size: .7rem; color: var(--muted); }
+.capability-facts dd { font-size: .79rem; color: var(--text); margin: 3px 0 0; overflow-wrap: anywhere; }
+.capability-chip-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.capability-chip {
+  padding: 7px 9px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; font-size: .77rem; line-height: 1.6;
+}
+.capability-chip small { display: block; color: var(--muted); }
+.capability-table { overflow: auto; max-height: 260px; }
+.capability-table table { table-layout: auto; }
+.capability-table th,.capability-table td { width: auto; padding: 7px; font-size: .71rem; }
+.capability-table code { font-size: .7rem; color: var(--accent); }
