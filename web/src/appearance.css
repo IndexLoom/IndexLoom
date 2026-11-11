@@ -343,3 +343,30 @@ html[data-hidden-indexers~="panel"] .settings-view[data-layout-kind="indexers"] 
 .capability-table table { table-layout: auto; }
 .capability-table th,.capability-table td { width: auto; padding: 7px; font-size: .71rem; }
 .capability-table code { font-size: .7rem; color: var(--accent); }
+
+/* Structured Torznab/Cardigann search controls. */
+.advanced-search {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--ui-radius);
+  padding: 0 15px;
+}
+.advanced-search > summary {
+  padding: 12px 2px; cursor: pointer;
+  color: var(--muted); font-size: .8rem; font-weight: 600;
+}
+.advanced-search[open] > summary { border-bottom: 1px solid var(--border-soft); color: var(--text); }
+.advanced-search-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(160px,1fr));
+  gap: 12px; margin: 16px 0 12px;
+}
+.advanced-search-grid label { display: grid; gap: 7px; color: var(--muted); font-size: .76rem; }
+.advanced-search-grid input,.advanced-search-grid select {
+  min-height: 39px; max-width: 100%; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: var(--ui-radius);
+  background: var(--surface-raised); color: var(--text);
+}
+.advanced-search > p { margin: 12px 0; font-size: .73rem; }
+.advanced-search > button { margin: 0 0 14px; }
