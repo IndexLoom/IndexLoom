@@ -25,6 +25,7 @@ pub struct AuthUser {
     pub oidc_subject: Option<String>,
     pub email_verified: bool,
     pub disabled: bool,
+    pub role: String,
 }
 
 // Intentionally omit identity-provider and password secrets from Debug.
@@ -54,6 +55,7 @@ pub struct AuthUserView {
     pub has_password: bool,
     pub has_oidc: bool,
     pub disabled: bool,
+    pub role: String,
 }
 
 impl AuthUser {
@@ -67,6 +69,7 @@ impl AuthUser {
             has_password: self.password_hash.is_some(),
             has_oidc: self.oidc_subject.is_some(),
             disabled: self.disabled,
+            role: self.role.clone(),
         }
     }
 }
@@ -85,6 +88,16 @@ pub struct MailTemplate {
 pub struct MailEventSetting {
     pub kind: String,
     pub enabled: bool,
+}
+
+#[derive(Clone, Debug, FromRow, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthAuditEvent {
+    pub id: i64,
+    pub occurred_at: i64,
+    pub actor_id: Option<String>,
+    pub subject_id: Option<String>,
+    pub action: String,
 }
 
 impl Store {
@@ -143,8 +156,8 @@ impl Store {
     ) -> Result<bool, StorageError> {
         let now = epoch();
         let result = sqlx::query(
-            "INSERT INTO auth_users(id, username, email, password_hash, email_verified, created_at, updated_at) \
-             SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM auth_users)"
+            "INSERT INTO auth_users(id, username, email, password_hash, email_verified, created_at, updated_at, role) \
+             SELECT ?, ?, ?, ?, ?, ?, ?, 'owner' WHERE NOT EXISTS (SELECT 1 FROM auth_users)"
         )
         .bind(id).bind(username).bind(email).bind(password_hash).bind(email_verified)
         .bind(now).bind(now)
@@ -163,15 +176,76 @@ impl Store {
         email: &str,
         password_hash: &str,
         email_verified: bool,
+        role: &str,
     ) -> Result<(), StorageError> {
         let now = epoch();
         sqlx::query(
-            "INSERT INTO auth_users(id, username, email, password_hash, email_verified, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO auth_users(id, username, email, password_hash, email_verified, created_at, updated_at, role) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         ).bind(id).bind(username).bind(email).bind(password_hash)
-            .bind(email_verified).bind(now).bind(now)
+            .bind(email_verified).bind(now).bind(now).bind(role)
             .execute(&self.pool).await?;
         Ok(())
+    }
+
+    /// Changes a user's role while preserving the last active owner.
+    ///
+    /// # Errors
+    /// Returns a storage error if SQLite cannot update the row.
+    pub async fn set_user_role(&self, id: &str, role: &str) -> Result<bool, StorageError> {
+        if !matches!(role, "owner" | "admin" | "viewer") {
+            return Ok(false);
+        }
+        let mut tx = self.pool.begin().await?;
+        let current: Option<(String, bool)> =
+            sqlx::query_as("SELECT role, disabled FROM auth_users WHERE id = ?")
+                .bind(id).fetch_optional(&mut *tx).await?;
+        let Some((old_role, disabled)) = current else {
+            tx.rollback().await?;
+            return Ok(false);
+        };
+        if old_role == "owner" && role != "owner" && !disabled {
+            let active_owners: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM auth_users WHERE role = 'owner' AND disabled = 0",
+            ).fetch_one(&mut *tx).await?;
+            if active_owners < 2 {
+                tx.rollback().await?;
+                return Ok(false);
+            }
+        }
+        sqlx::query("UPDATE auth_users SET role = ?, updated_at = ? WHERE id = ?")
+            .bind(role).bind(epoch()).bind(id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Appends one security event; bearer secrets and passwords are never saved.
+    ///
+    /// # Errors
+    /// Returns a storage error if SQLite cannot insert the event.
+    pub async fn auth_audit(
+        &self, actor_id: Option<&str>, subject_id: Option<&str>, action: &str,
+    ) -> Result<(), StorageError> {
+        if !(3..=64).contains(&action.len()) {
+            return Err(StorageError::InvalidData("invalid audit action".into()));
+        }
+        sqlx::query(
+            "INSERT INTO auth_audit_events(occurred_at, actor_id, subject_id, action)
+             VALUES (?, ?, ?, ?)",
+        ).bind(epoch()).bind(actor_id).bind(subject_id).bind(action)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Returns at most 100 recent security events, without secret values.
+    ///
+    /// # Errors
+    /// Returns a storage error if SQLite cannot query the event history.
+    pub async fn auth_audit_events(&self) -> Result<Vec<AuthAuditEvent>, StorageError> {
+        Ok(sqlx::query_as::<_, AuthAuditEvent>(
+            "SELECT id, occurred_at, actor_id, subject_id, action
+             FROM auth_audit_events ORDER BY id DESC LIMIT 100",
+        ).fetch_all(&self.pool).await?)
     }
 
     /// Lists public account fields without password or token secrets.
@@ -181,7 +255,7 @@ impl Store {
     pub async fn list_auth_users(&self) -> Result<Vec<AuthUserView>, StorageError> {
         let users = sqlx::query_as::<_, AuthUser>(
             "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, \
-             email_verified, disabled FROM auth_users ORDER BY username COLLATE NOCASE",
+             email_verified, disabled, role FROM auth_users ORDER BY username COLLATE NOCASE",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -279,8 +353,8 @@ impl Store {
     ) -> Result<(), StorageError> {
         let now = epoch();
         sqlx::query(
-            "INSERT INTO auth_users(id, username, email, oidc_issuer, oidc_subject, email_verified, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, 1, ?, ?)"
+            "INSERT INTO auth_users(id, username, email, oidc_issuer, oidc_subject, email_verified, created_at, updated_at, role) \
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?, CASE WHEN (SELECT COUNT(*) FROM auth_users) = 0 THEN 'owner' ELSE 'viewer' END)"
         )
         .bind(id).bind(username).bind(email).bind(issuer).bind(subject).bind(now).bind(now)
         .execute(&self.pool).await?;
@@ -316,7 +390,7 @@ impl Store {
     ) -> Result<Option<AuthUser>, StorageError> {
         Ok(sqlx::query_as::<_, AuthUser>(
             "SELECT u.id, u.username, u.email, u.password_hash, u.oidc_issuer, u.oidc_subject, \
-             u.email_verified, u.disabled FROM auth_sessions s \
+             u.email_verified, u.disabled, u.role FROM auth_sessions s \
              JOIN auth_users u ON u.id = s.user_id \
              WHERE s.token_sha256 = ? AND s.expires_at > ? AND u.disabled = 0 LIMIT 1",
         )
