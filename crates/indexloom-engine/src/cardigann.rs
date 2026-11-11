@@ -227,7 +227,9 @@ impl CardigannExecutor {
             }
         }
         let response = selected.ok_or_else(|| {
-            last_error.unwrap_or(EngineError::InvalidSearchDefinition("no usable search path"))
+            last_error.unwrap_or(EngineError::InvalidSearchDefinition(
+                "no usable search path",
+            ))
         })?;
         let mut results = match response.response_type.as_str() {
             "json" => parse_json_results(
@@ -770,7 +772,9 @@ fn template_regex_replace(arguments: &[TemplateValue]) -> Result<TemplateValue, 
 fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {
     if let Some(paths) = search.get(key("paths")).and_then(YamlValue::as_sequence) {
         if paths.is_empty() {
-            return Err(EngineError::InvalidSearchDefinition("search paths are empty"));
+            return Err(EngineError::InvalidSearchDefinition(
+                "search paths are empty",
+            ));
         }
         return paths
             .iter()
@@ -784,7 +788,9 @@ fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {
     if search.contains_key(key("path")) {
         return Ok(vec![search]);
     }
-    Err(EngineError::InvalidSearchDefinition("search path is missing"))
+    Err(EngineError::InvalidSearchDefinition(
+        "search path is missing",
+    ))
 }
 
 fn retryable_search_error(error: &EngineError) -> bool {
