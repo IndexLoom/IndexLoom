@@ -18,9 +18,23 @@ their environment explicitly opts into another policy.
 In local/hybrid modes, first open the app and create the first named
 administrator using the operator token. Initial creation is a database-atomic
 single-use operation, preventing a second bootstrap. You can later create more
-local accounts from **Settings → Security & users**. Currently all enabled
-users have administrator access; fine-grained role separation is **not**
-implemented. Do not create untrusted accounts.
+local accounts from **Settings → Security & users**. Server-side access controls
+distinguish three roles: **owner**, **admin** and **viewer**. Newly created local
+users default to viewer, and later OIDC accounts start as viewer. The first
+locally bootstrapped account or the first allowlisted OIDC identity becomes
+owner. Existing accounts from older development migrations are retained and the
+earliest one is promoted to owner.
+
+Owner can manage users, email templates and security history; admin can
+configure indexers and network routing but cannot manage identities or mail;
+viewer can inspect indexers and perform searches without changing configuration.
+Authorization happens for every API request, not only in the React UI. Last
+active owner protection is enforced inside SQLite by an update/delete trigger.
+The legacy operator token remains an owner-level credential in token/hybrid
+mode. Disabling auth grants equivalent access to every requester.
+
+Important: this is a coarse-grained initial RBAC model, not yet per-indexer
+ownership, granular resource scopes or sharing permissions.
 
 No token or plaintext password is stored in the account database. Password
 hashes use salted Argon2id. Session, verification, password reset and OIDC state
@@ -122,8 +136,9 @@ SMTP transport settings.
 - Auth disabled is intentionally dangerous: every protected endpoint becomes
   publicly available. Restrict network exposure or leave authentication on.
 - Token-only mode retains legacy behavior for old automation clients.
-- Dynamic user roles, per-user permissions, WebAuthn/passkeys, TOTP,
-  provider-specific social logins and full audit history are not yet implemented.
+- Owner/admin/viewer authorization and a bounded 100-event security log are
+  implemented; fine-grained indexer ACLs and event filtering/export are not.
+  WebAuthn/passkeys, TOTP and recovery codes are not yet implemented.
 - Request rate limits use login identity; distributed attackers can rotate
   identifiers. Protect public deployments with a reverse proxy/WAF and TLS.
 - Only static PWA resources are cached offline. Searching and changing accounts
@@ -141,6 +156,8 @@ Protected: `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`,
 `/password`, `/email/request-verification`,
 `GET /api/v1/auth/users`, `POST /api/v1/auth/users`,
 `PUT /api/v1/auth/users/{id}/disabled`,
+`PUT /api/v1/auth/users/{id}/role`,
+`GET /api/v1/auth/audit`,
 `POST /api/v1/auth/users/{id}/verify-email`,
 `GET /api/v1/auth/mail`,
 `PUT /api/v1/auth/mail/templates/{kind}`,

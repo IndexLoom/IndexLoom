@@ -99,6 +99,6 @@ Implementation under review in the feature branch:
   installable PWA with static-only offline shell and PNG app icons.
 
 Next milestones: verified real-provider integration and security review,
-TOTP/WebAuthn/passkeys, recovery codes, fine-grained RBAC and audit logs,
+TOTP/WebAuthn/passkeys, recovery codes, per-indexer ACLs and extended audit logs,
 push notifications, extended mail events, and the already planned Torznab,
 RSS, tracker compatibility suite and persistent search history.

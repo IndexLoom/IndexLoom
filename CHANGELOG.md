@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (authentication / responsive PWA)
+
+- Add local/OIDC/hybrid/disabled authentication, Argon2id accounts, session revocation, email verification and password reset.
+- Implement owner/admin/viewer authorization, account role management and a privacy-preserving security event log.
+- Add optional SMTP notifications and editable templates; enable responsive mobile/tablet layout and installable PWA.
+- Keep default bearer-token deployment backward compatible.
+
+
 All notable changes to IndexLoom will be documented in this file.
 
 The format is based on Keep a Changelog, and this project follows Semantic

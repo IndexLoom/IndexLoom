@@ -34,6 +34,8 @@ explicit HTTP, SOCKS and FlareSolverr routing.
 - Select legacy bearer-token, local username/email + Argon2id password, verified
   OpenID Connect (PKCE) or hybrid authentication; explicit insecure no-auth
   mode is available only with a separate operator acknowledgement.
+- Enforce owner/admin/viewer API roles with least-privileged new accounts,
+  database protection against losing the final owner, and a security event log.
 - Optionally configure SMTP with per-event notification switches, editable
   plain-text/HTML templates, email verification and password reset links.
 - Install a responsive PWA on phones, tablets or laptops with a mobile bottom
