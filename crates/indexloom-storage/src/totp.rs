@@ -298,15 +298,14 @@ impl Store {
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
-        for table in [
-            "auth_totp_pending",
-            "auth_totp_challenges",
-            "auth_totp_recovery",
-            "auth_sessions",
-        ] {
-            let query = format!("DELETE FROM {table} WHERE user_id = ?");
-            sqlx::query(&query).bind(user_id).execute(&mut *tx).await?;
-        }
+        sqlx::query("DELETE FROM auth_totp_pending WHERE user_id = ?")
+            .bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM auth_totp_challenges WHERE user_id = ?")
+            .bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM auth_totp_recovery WHERE user_id = ?")
+            .bind(user_id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM auth_sessions WHERE user_id = ?")
+            .bind(user_id).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
