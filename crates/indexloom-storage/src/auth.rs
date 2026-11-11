@@ -120,6 +120,14 @@ impl Store {
             .bind(now)
             .execute(&mut *transaction)
             .await?;
+        sqlx::query("DELETE FROM auth_totp_pending WHERE expires_at <= ?")
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query("DELETE FROM auth_totp_challenges WHERE expires_at <= ?")
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query("DELETE FROM auth_rate_limits WHERE updated_at < ?")
             .bind(now - 86400)
             .execute(&mut *transaction)

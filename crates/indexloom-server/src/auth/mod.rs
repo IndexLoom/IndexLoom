@@ -7,6 +7,7 @@
 
 mod mail;
 mod oidc;
+mod totp;
 
 use std::{env, io::Read, path::Path as FsPath, sync::Arc};
 
@@ -225,6 +226,13 @@ struct SessionView {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum LoginReply {
+    Session(SessionView),
+    Challenge(totp::LoginChallenge),
+}
+
 struct CurrentSession {
     user: Option<AuthUserView>,
     method: &'static str,
@@ -294,6 +302,7 @@ pub fn public_routes() -> Router<AppState> {
         .route("/api/v1/auth/email/request-reset", post(request_reset))
         .route("/api/v1/auth/email/reset", post(reset_password))
         .route("/api/v1/auth/email/verify", post(verify_email))
+        .merge(totp::public_routes())
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
 
@@ -314,6 +323,7 @@ pub fn private_routes() -> Router<AppState> {
         .route("/api/v1/auth/users/{id}/disabled", put(disable_user))
         .route("/api/v1/auth/users/{id}/role", put(change_user_role))
         .route("/api/v1/auth/audit", get(audit_events))
+        .merge(totp::private_routes())
         .route(
             "/api/v1/auth/users/{id}/verify-email",
             post(send_user_verification),
@@ -485,6 +495,7 @@ fn required_access(method: &Method, path: &str) -> AccessLevel {
         || path == "/api/v1/auth/logout"
         || path == "/api/v1/auth/password"
         || path == "/api/v1/auth/email/request-verification"
+        || path.starts_with("/api/v1/auth/totp/")
         || *method == Method::GET
         || *method == Method::HEAD
         || (*method == Method::POST && matches!(path, "/api/v1/search" | "/api/v1/search/stream"))
@@ -603,7 +614,7 @@ async fn bootstrap(
 async fn login(
     State(state): State<AppState>,
     Json(request): Json<Credentials>,
-) -> Result<Json<SessionView>, ApiError> {
+) -> Result<Json<LoginReply>, ApiError> {
     if !state.auth_settings.mode.local() {
         return Err(ApiError::not_found("local login is disabled"));
     }
@@ -644,10 +655,15 @@ async fn login(
         }
     };
     state.store.clear_login_failures(&key).await?;
+    if state.store.totp_enabled(&user.id).await? {
+        let challenge = totp::start_login_challenge(&state, &user, request.remember_me).await?;
+        audit_action(&state, Some(&user.id), Some(&user.id), "login-totp-challenge").await;
+        return Ok(Json(LoginReply::Challenge(challenge)));
+    }
     let session = issue_session(&state, &user, request.remember_me).await?;
     audit_action(&state, Some(&user.id), Some(&user.id), "login-local").await;
     send_login_notification(&state, &user);
-    Ok(Json(session))
+    Ok(Json(LoginReply::Session(session)))
 }
 
 fn send_login_notification(state: &AppState, user: &AuthUser) {
