@@ -10,6 +10,8 @@ use crate::{IndexerDefinition, SourceProject};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+// Separate boolean flags mirror the Cardigann declaration and stay explicit in JSON.
+#[allow(clippy::struct_excessive_bools)]
 pub struct IndexerCapabilities {
     pub description: String,
     pub language: String,
