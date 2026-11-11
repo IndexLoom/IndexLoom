@@ -86,7 +86,12 @@ INDEXLOOM_REQUIRE_VERIFIED_EMAIL=false
 
 Port 587 uses mandatory STARTTLS; 465 uses implicit TLS. No plaintext
 transport mode is exposed. Set SMTP credentials through your secrets manager
-or environment; never commit real credentials.
+or environment; never commit real credentials. Both
+`INDEXLOOM_SMTP_PASSWORD_FILE` and `INDEXLOOM_OIDC_CLIENT_SECRET_FILE`
+can read a secret from a regular file (maximum 64 KiB); use either the
+direct environment value or its `_FILE` variant, not both. The sample
+Compose file passes file paths but does not mount those files for you;
+mount them read-only with appropriate permissions if using file secrets.
 
 A configurable flag `INDEXLOOM_REQUIRE_VERIFIED_EMAIL=true` makes verified
 email mandatory for locally authenticated users and requires SMTP.

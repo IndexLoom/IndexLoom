@@ -142,7 +142,7 @@ impl MailSender {
         }
         .port(port);
         let username = env::var("INDEXLOOM_SMTP_USERNAME").unwrap_or_default();
-        let password = env::var("INDEXLOOM_SMTP_PASSWORD").unwrap_or_default();
+        let password = super::read_optional_secret("INDEXLOOM_SMTP_PASSWORD")?.unwrap_or_default();
         if !username.is_empty() || !password.is_empty() {
             if username.is_empty() || password.is_empty() {
                 bail!("SMTP username and password must both be supplied");

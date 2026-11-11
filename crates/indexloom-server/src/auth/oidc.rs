@@ -104,9 +104,7 @@ impl OidcSettings {
         Ok(Some(Self {
             issuer,
             client_id,
-            client_secret: env::var("INDEXLOOM_OIDC_CLIENT_SECRET")
-                .ok()
-                .filter(|v| !v.is_empty()),
+            client_secret: super::read_optional_secret("INDEXLOOM_OIDC_CLIENT_SECRET")?,
             redirect_uri,
             allowed_emails,
         }))
