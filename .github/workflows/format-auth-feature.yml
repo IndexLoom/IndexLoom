@@ -4,6 +4,8 @@ on:
     branches: [feature/auth-mail-pwa-20261112]
     paths:
       - ".github/workflows/format-auth-feature.yml"
+      - "crates/indexloom-server/src/auth/**"
+      - "crates/indexloom-storage/src/auth.rs"
   workflow_dispatch:
 permissions:
   contents: write
