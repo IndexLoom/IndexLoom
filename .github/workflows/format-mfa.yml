@@ -2,7 +2,13 @@ name: Format MFA feature Rust
 on:
   push:
     branches: [feature/auth-mail-pwa-20261112]
-    paths: [.github/workflows/format-mfa.yml]
+    paths:
+      - .github/workflows/format-mfa.yml
+      - crates/indexloom-server/src/auth/**
+      - crates/indexloom-storage/src/totp.rs
+      - crates/indexloom-storage/src/lib.rs
+      - crates/indexloom-storage/src/auth.rs
+      - crates/indexloom-server/src/lib.rs
   workflow_dispatch:
 permissions:
   contents: write
