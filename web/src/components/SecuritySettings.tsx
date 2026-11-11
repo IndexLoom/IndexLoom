@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useAdminSession } from "./AdminSession";
+import { TotpSettings } from "./TotpSettings";
 
 type Role = "owner" | "admin" | "viewer";
 type AuditEvent = {id: number; occurredAt: number; actorId: string | null; subjectId: string | null; action: string};
@@ -166,6 +167,7 @@ export function SecuritySettings() {
             <label>New password <input type="password" autoComplete="new-password" minLength={12} required value={replacement} onChange={(event) => setReplacement(event.target.value)} /></label>
             <button className="primary-button" disabled={busy} type="submit">Update password and revoke sessions</button>
           </form>
+          <TotpSettings />
         </>
       ) : null}
 
