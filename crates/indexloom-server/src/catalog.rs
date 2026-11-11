@@ -101,8 +101,11 @@ fn safe_catalog_url(url: &Url) -> bool {
             Some(url::Host::Domain(host))
                 if !host.eq_ignore_ascii_case("localhost")
                     && !host.ends_with(".localhost")
-                    && !host.ends_with(".local")
                     && host.contains('.')
+                    && !host
+                        .rsplit('.')
+                        .next()
+                        .is_some_and(|suffix| suffix.eq_ignore_ascii_case("local"))
         )
 }
 
