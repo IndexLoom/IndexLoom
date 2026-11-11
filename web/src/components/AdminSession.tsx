@@ -28,6 +28,7 @@ type AuthContextType = {
 const KEY = "indexloom.admin-token.v1";
 const PERSISTENT_KEY = "indexloom.login-session.v1";
 const OIDC_STATE = "indexloom.oidc-state.v1";
+const OIDC_REMEMBER = "indexloom.oidc-remember.v1";
 const Context = createContext<AuthContextType | null>(null);
 
 function savedToken(): string {
@@ -71,7 +72,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearToken = useCallback(() => {
-    const current = savedToken();
+    const current = token;
     if (current && current !== "disabled") {
       void fetch("/api/v1/auth/logout", {
         method: "POST",
@@ -83,7 +84,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(PERSISTENT_KEY);
     } catch { /* Storage can be unavailable. */ }
     setToken("");
-  }, []);
+  }, [token]);
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
@@ -103,6 +104,25 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => { void loadConfig(); }, [loadConfig]);
+
+  // Reject credentials left over from a different server authorization mode.
+  useEffect(() => {
+    if (!config || config.mode === "disabled" || !token) return;
+    const controller = new AbortController();
+    void fetch("/api/v1/auth/me", {
+      cache: "no-store",
+      headers: { Authorization: "Bearer " + token },
+      signal: controller.signal,
+    }).then((response) => {
+      if (response.status !== 401 || controller.signal.aborted) return;
+      try {
+        sessionStorage.removeItem(KEY);
+        localStorage.removeItem(PERSISTENT_KEY);
+      } catch { /* Browser storage may be disabled. */ }
+      setToken("");
+    }).catch(() => { /* Keep the UI available during offline mode. */ });
+    return () => controller.abort();
+  }, [config, token]);
 
   // Complete OIDC on the same-origin callback without leaking the code to app state or logs.
   useEffect(() => {
@@ -130,16 +150,18 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
     }
     if (!code || !state) return;
     const expected = sessionStorage.getItem(OIDC_STATE);
+    const rememberOidc = sessionStorage.getItem(OIDC_REMEMBER) === "true";
     sessionStorage.removeItem(OIDC_STATE);
+    sessionStorage.removeItem(OIDC_REMEMBER);
     if (!expected || expected !== state) {
       setError("Invalid OIDC state. Start sign-in again.");
       return;
     }
     setLoading(true);
     void postJson<AuthSession>("/api/v1/auth/oidc/complete", {
-      code, state, rememberMe: true,
+      code, state, rememberMe: rememberOidc,
     }).then((session) => {
-      acceptToken(session.accessToken, true);
+      acceptToken(session.accessToken, rememberOidc);
       setNotice("Signed in as " + session.user.username + ".");
     }).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : "OIDC sign-in failed");
@@ -265,6 +287,7 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
       const target = new URL(result.authorizationUrl);
       if (target.protocol !== "https:") throw new Error("Identity provider must use HTTPS");
       sessionStorage.setItem(OIDC_STATE, result.state);
+      sessionStorage.setItem(OIDC_REMEMBER, remember ? "true" : "false");
       window.location.assign(target.href);
     } catch (reason) {
       setLocalError(reason instanceof Error ? reason.message : "OIDC is unavailable");
