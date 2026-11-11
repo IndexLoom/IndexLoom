@@ -20,6 +20,9 @@ authors = ["IndexLoom contributors"]
 
 [workspace.dependencies]
 anyhow = "1.0.104"
+argon2 = "0.5.3"
+openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 async-stream = "0.3.6"
 async-trait = "0.1.92"
 axum = { version = "0.8.9", features = ["json", "macros"] }
