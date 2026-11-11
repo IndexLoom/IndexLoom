@@ -84,3 +84,21 @@ does not bypass the configured background synchronization schedule.
 - Security advisories in current SQLx's bundled SQLite and the YAML parser
   require upstream fixes or an independently tested parser/storage migration;
   routine Cargo.lock refresh does not automatically resolve them.
+
+## Identity, mail and mobile PWA
+
+Implementation under review in the feature branch:
+
+- Local Argon2id sign-in, operator-token bootstrap, login throttling,
+  separate revocable sessions, user management and account disabling.
+- Verified OpenID Connect with PKCE, nonce, issuer/audience and a strict
+  allowlist; hybrid and explicitly disabled authentication modes.
+- Optional TLS SMTP; per-event email switches, customizable HTML/text templates,
+  password recovery, verification and sign-in alerts.
+- Mobile bottom navigation, tablet/laptop responsive layouts, iOS safe areas,
+  installable PWA with static-only offline shell and PNG app icons.
+
+Next milestones: verified real-provider integration and security review,
+TOTP/WebAuthn/passkeys, recovery codes, fine-grained RBAC and audit logs,
+push notifications, extended mail events, and the already planned Torznab,
+RSS, tracker compatibility suite and persistent search history.
