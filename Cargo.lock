@@ -1678,6 +1678,7 @@ dependencies = [
  "base64 0.23.1",
  "flate2",
  "getrandom 0.4.3",
+ "hmac",
  "indexloom-core",
  "indexloom-definitions",
  "indexloom-engine",

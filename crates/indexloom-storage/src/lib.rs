@@ -18,6 +18,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use zeroize::Zeroize;
 
 pub mod auth;
+pub mod totp;
 mod catalog;
 mod routing;
 
@@ -127,6 +128,26 @@ impl SecretVault {
         )?
         .remove("password")
         .ok_or_else(|| StorageError::InvalidData("encrypted proxy password is missing".to_owned()))
+    }
+
+    pub(crate) fn encrypt_totp_secret(
+        &self, user_id: &str, secret: &str,
+    ) -> Result<EncryptedSecrets, StorageError> {
+        self.encrypt_scoped(
+            &format!("indexloom:totp-secret:v{KEY_VERSION}:{user_id}"),
+            &BTreeMap::from([("secret".to_owned(), secret.to_owned())]),
+        )
+    }
+
+    pub(crate) fn decrypt_totp_secret(
+        &self, user_id: &str, nonce: &[u8], ciphertext: &[u8],
+    ) -> Result<String, StorageError> {
+        self.decrypt_scoped(
+            &format!("indexloom:totp-secret:v{KEY_VERSION}:{user_id}"),
+            nonce, ciphertext,
+        )?
+        .remove("secret")
+        .ok_or_else(|| StorageError::InvalidData("encrypted TOTP secret missing".to_owned()))
     }
 
     fn encrypt_scoped(
