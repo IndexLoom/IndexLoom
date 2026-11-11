@@ -14,11 +14,11 @@ use argon2::Argon2;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     routing::{get, post, put},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use indexloom_storage::auth::{AuthUser, AuthUserView, MailEventSetting, MailTemplate};
+use indexloom_storage::auth::{AuthAuditEvent, AuthUser, AuthUserView, MailEventSetting, MailTemplate};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
@@ -246,7 +246,15 @@ struct AddUserInput {
     username: String,
     email: String,
     password: String,
+    #[serde(default = "viewer_role")]
+    role: String,
 }
+
+fn viewer_role() -> String { "viewer".to_owned() }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RoleInput { role: String }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -288,6 +296,8 @@ pub fn private_routes() -> Router<AppState> {
         .route("/api/v1/auth/mail/test", post(test_email))
         .route("/api/v1/auth/users", get(list_users).post(add_user))
         .route("/api/v1/auth/users/{id}/disabled", put(disable_user))
+        .route("/api/v1/auth/users/{id}/role", put(change_user_role))
+        .route("/api/v1/auth/audit", get(audit_events))
         .route(
             "/api/v1/auth/users/{id}/verify-email",
             post(send_user_verification),
@@ -420,34 +430,78 @@ fn bearer(headers: &HeaderMap) -> Option<&str> {
         .strip_prefix("Bearer ")
 }
 
-pub async fn authorize(state: &AppState, headers: &HeaderMap) -> bool {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AccessLevel {
+    Viewer,
+    Admin,
+    Owner,
+}
+
+impl AccessLevel {
+    fn from_user(user: &AuthUser) -> Self {
+        match user.role.as_str() {
+            "owner" => Self::Owner,
+            "admin" => Self::Admin,
+            _ => Self::Viewer,
+        }
+    }
+}
+
+fn required_access(method: &Method, path: &str) -> AccessLevel {
+    if path.starts_with("/api/v1/auth/users")
+        || path.starts_with("/api/v1/auth/mail")
+        || path == "/api/v1/auth/audit"
+    {
+        return AccessLevel::Owner;
+    }
+    if path == "/api/v1/auth/me"
+        || path == "/api/v1/auth/logout"
+        || path == "/api/v1/auth/password"
+        || path == "/api/v1/auth/email/request-verification"
+        || *method == Method::GET || *method == Method::HEAD
+        || (*method == Method::POST
+            && matches!(path, "/api/v1/search" | "/api/v1/search/stream"))
+    {
+        return AccessLevel::Viewer;
+    }
+    AccessLevel::Admin
+}
+
+async fn access_level(state: &AppState, headers: &HeaderMap) -> Option<AccessLevel> {
     if state.auth_settings.mode == AuthMode::Disabled {
-        return true;
+        return Some(AccessLevel::Owner);
     }
     if state.auth_settings.mode.legacy_token()
-        && state
-            .admin_token
-            .as_ref()
-            .is_some_and(|token| token.authorizes(headers))
+        && state.admin_token.as_ref().is_some_and(|token| token.authorizes(headers))
     {
-        return true;
+        return Some(AccessLevel::Owner);
     }
     if state.auth_settings.mode == AuthMode::Token {
-        return false;
+        return None;
     }
-    let Some(token) = bearer(headers) else {
-        return false;
-    };
-    if token.len() < 40 || token.len() > 128 {
-        return false;
+    let token = bearer(headers)?;
+    if !(40..=128).contains(&token.len()) {
+        return None;
     }
-    state
-        .store
-        .auth_user_for_session(&digest(token))
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|user| !state.auth_settings.require_email_verification || user.email_verified)
+    let user = state.store.auth_user_for_session(&digest(token)).await.ok().flatten()?;
+    if state.auth_settings.require_email_verification && !user.email_verified {
+        return None;
+    }
+    Some(AccessLevel::from_user(&user))
+}
+
+/// Authenticates the request and enforces the role required for its action.
+///
+/// # Errors
+/// Returns 401 when no valid credential is provided and 403 on insufficient role.
+pub async fn authorize_action(
+    state: &AppState, headers: &HeaderMap, method: &Method, path: &str,
+) -> Result<(), ApiError> {
+    let level = access_level(state, headers).await.ok_or_else(ApiError::unauthorized)?;
+    if level < required_access(method, path) {
+        return Err(ApiError::forbidden());
+    }
+    Ok(())
 }
 
 async fn public_config(State(state): State<AppState>) -> Result<Json<PublicAuthConfig>, ApiError> {
@@ -965,6 +1019,9 @@ async fn add_user(
     let username = normalize_username(&request.username)?;
     let email = normalize_email(&request.email)?;
     validate_password(&request.password)?;
+    if !matches!(request.role.as_str(), "owner" | "admin" | "viewer") {
+        return Err(ApiError::bad_request("role must be owner, admin or viewer"));
+    }
     if state.store.auth_user_by_login(&username).await?.is_some()
         || state.store.auth_user_by_login(&email).await?.is_some()
     {
@@ -977,7 +1034,7 @@ async fn add_user(
     let verified = !state.auth_settings.require_email_verification;
     state
         .store
-        .add_local_user(&id, &username, &email, &hash, verified)
+        .add_local_user(&id, &username, &email, &hash, verified, &request.role)
         .await
         .map_err(|error| {
             tracing::warn!(%error, "user creation rejected");
@@ -1010,6 +1067,31 @@ async fn disable_user(
         .await?
         .ok_or_else(ApiError::unauthorized)?;
     Ok(Json(user.view()))
+}
+
+async fn change_user_role(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(input): Json<RoleInput>,
+) -> Result<Json<AuthUserView>, ApiError> {
+    if !matches!(input.role.as_str(), "owner" | "admin" | "viewer") {
+        return Err(ApiError::bad_request("unknown account role"));
+    }
+    if !state.store.set_user_role(&id, &input.role).await? {
+        return Err(ApiError::bad_request("cannot change the last active owner or unknown account"));
+    }
+    let actor = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
+    state.store.auth_audit(actor.as_deref(), Some(&id), "role-changed").await?;
+    let user = state.store.auth_user_by_id(&id).await?
+        .ok_or_else(ApiError::unauthorized)?;
+    Ok(Json(user.view()))
+}
+
+async fn audit_events(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AuthAuditEvent>>, ApiError> {
+    Ok(Json(state.store.auth_audit_events().await?))
 }
 
 async fn send_verification_for_user(state: &AppState, user: &AuthUser) -> Result<(), ApiError> {
