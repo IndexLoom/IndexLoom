@@ -25,12 +25,14 @@ jobs:
           toolchain: "1.98.0"
       - name: Resolve new crates for the feature branch
         run: cargo update
-      - name: Commit reviewed Cargo.lock change to feature branch
+      - name: Format feature Rust sources
+        run: cargo fmt --all
+      - name: Commit lockfile and rustfmt to the feature branch
         run: |
           set -euo pipefail
-          if git diff --quiet -- Cargo.lock; then exit 0; fi
+          if git diff --quiet -- Cargo.lock crates/; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock
-          git commit -m "chore(auth): lock authentication and SMTP dependencies"
+          git add Cargo.lock crates/
+          git commit -m "chore(auth): lock and rustfmt authentication/mail sources"
           git push origin HEAD:feature/auth-mail-pwa-20261112
