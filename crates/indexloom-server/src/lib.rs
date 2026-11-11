@@ -161,7 +161,8 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
     let api = Router::new()
         .route("/api/v1/health", get(health))
         .merge(auth::public_routes())
-        .merge(protected);
+        .merge(protected)
+        .layer(middleware::from_fn(security_headers));
 
     #[cfg(feature = "headless")]
     {
@@ -178,6 +179,36 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         let web = ServeDir::new(web_root).append_index_html_on_directories(true);
         api.fallback_service(web).with_state(state)
     }
+}
+
+async fn security_headers(request: Request, next: Next) -> Response {
+    let auth_endpoint = request.uri().path().starts_with("/api/v1/auth/");
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+    if auth_endpoint {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, private"),
+        );
+        headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    }
+    response
 }
 
 #[cfg(feature = "embedded-web")]
