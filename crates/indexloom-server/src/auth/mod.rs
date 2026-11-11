@@ -2,6 +2,7 @@
 //! explicitly disabled. Opaque sessions and one-time token digests live in SQLite.
 
 #![allow(clippy::too_many_lines)]
+#![allow(clippy::missing_errors_doc)]
 
 mod mail;
 mod oidc;
