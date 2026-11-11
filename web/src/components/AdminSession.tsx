@@ -18,6 +18,11 @@ type AuthSession = {
   expiresAt: number;
   user: { id: string; username: string; email: string; emailVerified: boolean };
 };
+type TotpChallenge = {
+  requiresTotp: true;
+  challengeToken: string;
+  expiresAt: number;
+};
 type AuthContextType = {
   token: string;
   acceptToken: (token: string, remember?: boolean) => void;
@@ -37,7 +42,7 @@ function savedToken(): string {
   } catch { return ""; }
 }
 
-type Panel = "login" | "bootstrap" | "token" | "recover" | "reset";
+type Panel = "login" | "bootstrap" | "token" | "recover" | "reset" | "mfa";
 
 async function postJson<T>(route: string, body: unknown): Promise<T> {
   const response = await fetch(route, {
@@ -225,6 +230,8 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
       ? "reset" : config.mode === "token" ? "token" : config.bootstrapAvailable ? "bootstrap" : "login"
   );
   const [login, setLogin] = useState("");
+  const [totpChallenge, setTotpChallenge] = useState("");
+  const [totpCode, setTotpCode] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
@@ -247,7 +254,23 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
         if (!response.ok) throw new Error("Incorrect administrator token");
         onLogin(operatorToken, remember);
       } else if (panel === "login") {
-        const session = await postJson<AuthSession>("/api/v1/auth/login", { login, password, rememberMe: remember });
+        const response = await postJson<AuthSession | TotpChallenge>("/api/v1/auth/login", {
+          login, password, rememberMe: remember,
+        });
+        if ("requiresTotp" in response && response.requiresTotp) {
+          setTotpChallenge(response.challengeToken);
+          setPassword("");
+          setPanel("mfa");
+        } else {
+          onLogin(response.accessToken, remember);
+        }
+      } else if (panel === "mfa") {
+        const session = await postJson<AuthSession>("/api/v1/auth/totp/complete", {
+          challengeToken: totpChallenge,
+          code: totpCode,
+        });
+        setTotpCode("");
+        setTotpChallenge("");
         onLogin(session.accessToken, remember);
       } else if (panel === "bootstrap") {
         const response = await fetch("/api/v1/auth/bootstrap", {
@@ -307,13 +330,14 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
         <header className="auth-header">
           <div className="auth-brand"><span>IL</span><strong>IndexLoom</strong></div>
           <p className="eyebrow">Private workspace</p>
-          <h1>{panel === "bootstrap" ? "Set up your administrator" : panel === "reset" ? "New password" : panel === "recover" ? "Recover access" : "Welcome back"}</h1>
+          <h1>{panel === "bootstrap" ? "Set up your administrator" : panel === "reset" ? "New password" : panel === "recover" ? "Recover access" : panel === "mfa" ? "Verify second factor" : "Welcome back"}</h1>
           <p>{panel === "bootstrap"
             ? "Initialize local login with the independent operator secret. This can only be done once."
             : panel === "token"
               ? "Sign in with your administrator access token."
               : panel === "recover" ? "Enter your account email to request a password reset."
                 : panel === "reset" ? "Create a new password with at least 12 characters."
+                  : panel === "mfa" ? "Enter the six-digit authenticator code or a saved recovery code."
                   : "Sign in to your indexers, searches and settings."}</p>
         </header>
         <form className="auth-form" onSubmit={(event) => { void submit(event); }}>
@@ -332,6 +356,12 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
           {panel === "bootstrap" || panel === "token" ? (
             <label>Operator token <input autoComplete="off" type="password" minLength={32} required value={operatorToken} onChange={(event) => setOperatorToken(event.target.value)} /></label>
           ) : null}
+          {panel === "mfa" ? (
+            <label>Authenticator or recovery code
+              <input autoComplete="one-time-code" autoFocus minLength={6} maxLength={48}
+                required value={totpCode} onChange={(event) => setTotpCode(event.target.value)} />
+            </label>
+          ) : null}
           {panel === "login" || panel === "bootstrap" || panel === "reset" ? (
             <label>Password <input autoComplete={panel === "login" ? "current-password" : "new-password"} type="password" minLength={panel === "login" ? 1 : 12} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           ) : null}
@@ -339,16 +369,17 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             <label className="auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />Keep me signed in on this device</label>
           ) : null}
           <button className="primary-button" disabled={busy} type="submit">
-            {busy ? "Working…" : panel === "bootstrap" ? "Create administrator" : panel === "recover" ? "Send recovery link" : panel === "reset" ? "Update password" : "Sign in"}
+            {busy ? "Working…" : panel === "bootstrap" ? "Create administrator" : panel === "recover" ? "Send recovery link" : panel === "reset" ? "Update password" : panel === "mfa" ? "Verify and sign in" : "Sign in"}
           </button>
         </form>
-        {config.oidcEnabled && panel !== "reset" ? (
+        {config.oidcEnabled && panel !== "reset" && panel !== "mfa" ? (
           <button className="auth-oidc" disabled={busy} onClick={() => { void oidc(); }} type="button">
             Continue with OpenID Connect
           </button>
         ) : null}
         <nav className="auth-actions" aria-label="Sign-in options">
-          {panel !== "login" && config.localEnabled && !config.bootstrapAvailable && panel !== "reset" ? (
+          {panel === "mfa" ? <button type="button" onClick={() => { setTotpCode(""); setTotpChallenge(""); setPanel("login"); }}>Back to password login</button> : null}
+          {panel !== "login" && config.localEnabled && !config.bootstrapAvailable && panel !== "reset" && panel !== "mfa" ? (
             <button type="button" onClick={() => setPanel("login")}>Password login</button>
           ) : null}
           {panel !== "token" && (config.mode === "token" || config.mode === "hybrid") ? (
