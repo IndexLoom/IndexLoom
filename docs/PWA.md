@@ -1,30 +1,35 @@
-# Mobile, tablet, desktop and PWA
+# IndexLoom responsive web app and PWA
 
-IndexLoom includes a responsive browser UI and installable Progressive Web App.
-The built-in web-enabled Rust binary and Docker deployment serve the same
-assets, manifest, icons and service worker; the headless binary serves only
-the API.
+The same built React application is used for desktop, laptop, tablets and
+phones. Responsive CSS adapts sidebar/navigation, forms, management
+panels, tables, and the theme editor. On narrow screens navigation becomes
+a bottom tab bar with iPhone safe-area inset support. Tablets retain an
+abbreviated side navigation with responsive management panels.
 
-- Phone layouts (320–640 CSS px): bottom touch navigation, viewport-safe
-  areas for iPhone notches/home bars, 44px-class controls, stacked configuration
-  panels and horizontally scrollable result tables.
-- Tablet layouts (641–1060 CSS px): narrowed sidebar, adaptive table layouts,
-  responsive management tabs and split editor columns.
-- Laptop and desktop: full sidebar with flexible workspace widths.
-- PWA: `manifest.webmanifest`, standalone display mode, shortcuts, SVG icon,
-  client-side navigation and a service worker.
+## Installing
 
-Only the **static application shell** (HTML, CSS, JS, icon and manifest) may
-be cached for offline startup. API responses, indexer results, passwords,
-admin tokens, search history, OAuth codes and emails are **never written**
-into the service-worker cache. Search and authentication need an online
-connection, so offline mode displays a clear status rather than fake data.
+Serve IndexLoom over **HTTPS** (localhost is accepted for development),
+then use the browser's "Install app" prompt (Chrome/Edge) or **Share → Add to
+Home Screen** (Safari on iOS). The web app declares a standalone display
+mode, scalable SVG icon, theme color and mobile web app metadata.
 
-Installation requires HTTPS except on localhost. On Chrome/Edge, use
-**Install app** when offered. On Safari for iOS/iPadOS, use Share > Add to
-Home Screen; Safari does not offer the Chromium install prompt.
-Web push notifications are not yet implemented; email delivery is separately
-configurable on the server.
+A service worker precaches the empty application shell, icon and manifest.
+Static built assets may be cached; paths below `/api` and all requests
+with `Authorization` headers are never intercepted or cached. The service
+worker cannot make remote indexers work offline. Offline account actions and
+searches fail visibly, rather than returning saved private API responses.
 
-The appearance system (six themes, per-token colors, layout order, custom
-CSS) works in the installed app and remains local to that browser profile.
+For iOS users, the SVG icon is a portable fallback. PNG Apple touch icons
+are more widely supported on older Safari versions and can be added in the
+asset pipeline.
+
+Custom themes and CSS are stored in localStorage on that particular
+browser/profile, not synchronized across installations. Export and import
+an appearance profile in Settings if you want the same design elsewhere.
+
+## Testing checklist
+
+Validate a 320px phone, 390px phone, 768px tablet, 1024px small laptop
+and >=1440px desktop. Ensure keyboard, password form, email editor, search
+filters, indexer tables, bottom navigation and safe areas are usable in
+light and dark themes. Run the Lighthouse PWA checklist after deployment.

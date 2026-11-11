@@ -1,126 +1,146 @@
-# Authentication, identity and email
+# IndexLoom authentication and email configuration
 
-IndexLoom has **five explicit startup authentication modes**. New deployments
-continue to use the original administrator bearer token until the operator
-chooses a different mode. The master key remains independently required to
-decrypt indexer secrets.
+IndexLoom supports five **server-side** authentication modes. Authentication is
+not just a frontend gate: all protected `/api/v1/*` endpoints share the same
+authorization middleware. Existing installations stay in `token` mode unless
+their environment explicitly opts into another policy.
 
-| Mode | What is accepted | Recommended context |
+## Supported modes
+
+| `INDEXLOOM_AUTH_MODE` | Description | Required setup |
 | --- | --- | --- |
-| `token` (default) | `INDEXLOOM_ADMIN_TOKEN` | Existing installations and CLI |
-| `local` | Managed username/email + Argon2id password | Single-host interactive UI |
-| `oidc` | Verified OpenID Connect identity with allowlisted emails | SSO |
-| `hybrid` | Local, verified OIDC, and operator token | Migration between login methods |
-| `disabled` | No authentication | Isolated experiments only |
+| `token` (default) | Legacy administrator bearer token | `INDEXLOOM_ADMIN_TOKEN` of 32+ bytes |
+| `local` | Named accounts using username/email and Argon2id password | First account requires independent administrator token **once** |
+| `oidc` | Verified authorization-code + PKCE OIDC identities | HTTPS issuer, client and explicit email allowlist |
+| `hybrid` | Operator token, local accounts and OIDC | Token and OIDC settings; accounts can be managed in Settings |
+| `disabled` | Public, unauthenticated access | `INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true` confirmation; never expose publicly |
 
-`disabled` requires **both**
-`INDEXLOOM_AUTH_MODE=disabled` and
-`INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true`. Every API endpoint becomes
-accessible without credentials. Never use this mode on the public Internet,
-even behind an unprotected reverse proxy.
+In local/hybrid modes, first open the app and create the first named
+administrator using the operator token. Initial creation is a database-atomic
+single-use operation, preventing a second bootstrap. You can later create more
+local accounts from **Settings → Security & users**. Currently all enabled
+users have administrator access; fine-grained role separation is **not**
+implemented. Do not create untrusted accounts.
 
-## Local account first-run setup
+No token or plaintext password is stored in the account database. Password
+hashes use salted Argon2id. Session, verification, password reset and OIDC state
+tokens are indexed by SHA-256 digests. Session lifetimes are 12 hours or
+7 days with "Remember me". Sessions are revocable; changing a password revokes
+all sessions. Failed local login attempts are throttled by login identity.
+The account owner can change their password with the current password or use
+a one-time email reset link (when SMTP is enabled).
 
-Set `INDEXLOOM_AUTH_MODE=local` (or `hybrid`) and retain the original
-`INDEXLOOM_ADMIN_TOKEN` for bootstrapping. Open the PWA / browser, enter
-a username (3–48 ASCII letters/digits/`_`/`-`), a valid email, a password of
-at least 12 bytes, and the independent operator token. The backend permits
-**one** bootstrap insertion; competing requests cannot initialize multiple
-owners. In `local` mode the bootstrap token is **not accepted by management
-endpoints**. It is accepted as a break-glass token only in `hybrid`.
+Existing `INDEXLOOM_ADMIN_TOKEN` is accepted only in token/hybrid mode for
+normal protected endpoints; the standalone bootstrap endpoint also requires
+it as independent proof of ownership. You must provision it securely.
+Persisting a login token in the browser with "Remember me" uses localStorage:
+avoid using this on shared/untrusted devices; for Internet-facing multi-user
+deployments, cookie-based HTTP-only sessions are a planned hardening step.
 
-Administrators can create and disable further local users in **Settings >
-Security & users**. All accounts currently have full administrator privileges:
-there is no viewer/guest RBAC yet. The final enabled account cannot be
-disabled. Disabling a user revokes their sessions.
+## OIDC
 
-The password algorithm is **Argon2id** with cryptographically random
-per-password 128-bit salt and a 256-bit derived key. Only the encoded result
-is persisted. Password changes and recovery invalidate all existing sessions.
-Bearer session secrets are 256-bit random, indexed in SQLite by SHA-256 hashes,
-and have either a 12-hour lifetime or 7 days when "Keep me signed in" is
-explicitly selected. On the web the short session is stored in tab
-`sessionStorage`; persistent sessions use `localStorage` and carry normal
-browser/XSS risks. Never share profiles or install untrusted CSS.
+The authorization code flow uses provider discovery over HTTPS, PKCE S256,
+per-request CSRF state, OIDC nonce, verified JWT signature, trusted
+issuer/audience and *verified email*. Subjects are permanently bound to an
+issuer. **Accounts are never automatically linked by email** to prevent
+provider identity collisions. Only emails in the explicit allowlist can
+create or access OIDC accounts.
 
-Local login is throttled by normalized account identity: five failed attempts
-within fifteen minutes trigger a fifteen-minute lockout. Rate limits and
-session state survive restarts. For Internet deployments also configure
-IP-aware rate limiting at the trusted reverse proxy.
+Set:
 
-## OpenID Connect
-
-Configure an OpenID Connect provider:
-
-```env
+```dotenv
 INDEXLOOM_AUTH_MODE=oidc
-INDEXLOOM_OIDC_ISSUER=https://id.example.org
+INDEXLOOM_OIDC_ISSUER=https://id.example.com
 INDEXLOOM_OIDC_CLIENT_ID=indexloom
-INDEXLOOM_OIDC_CLIENT_SECRET=REPLACE_WITH_SECRET
+INDEXLOOM_OIDC_CLIENT_SECRET=replace-with-secret
 INDEXLOOM_OIDC_ALLOWED_EMAILS=admin@example.org,other@example.org
-INDEXLOOM_OIDC_REDIRECT_URI=https://indexloom.example.org/
+INDEXLOOM_OIDC_REDIRECT_URI=https://indexloom.example.com/
 ```
 
-The server uses HTTPS discovery, Authorization Code Flow, SHA-256 PKCE,
-one-time server-side state, nonce, JWKS-backed ID token validation (issuer,
-audience, signature, expiry and nonce) and explicitly requires
-`email_verified=true` from the identity provider. A fresh verified identity
-is created only when its email matches the exact operator allowlist.
-Existing local identities are **not linked by email**; this prevents an
-unintended account takeover. Tokens and provider credentials are never put
-into outgoing login-link emails.
+Register `INDEXLOOM_OIDC_REDIRECT_URI` **exactly** at the provider. PKCE
+works with clients without a secret, but confidential deployments should
+supply a client secret. Both Pocket ID and other standards-compliant providers
+can work once these requirements are met; no provider-specific login
+integration is claimed without end-to-end testing.
 
-OIDC requires a publicly reachable HTTPS callback URL (localhost exceptions
-exist for local testing). Use a provider such as Pocket ID, Authentik,
-Keycloak or another standards-compliant OIDC issuer. Validate the actual
-provider configuration and account claims before production use.
+Do not expose an open proxy endpoint as an OIDC issuer. HTTPS public URL
+checks in application startup do not eliminate every DNS-rebinding scenario;
+protect outbound networking at the infrastructure level.
 
-## Email and notifications
+## Optional email
 
-Email is independently disabled by default. To enable SMTP with required
-STARTTLS (port 587) or implicit TLS (port 465):
+SMTP is entirely optional. Disabled deployments continue to support local
+login but cannot use email recovery, confirmation or notifications.
+`INDEXLOOM_MAIL_MODE=disabled` is the default. For SMTP:
 
-```env
+```dotenv
 INDEXLOOM_MAIL_MODE=smtp
-INDEXLOOM_PUBLIC_URL=https://indexloom.example.org
+INDEXLOOM_PUBLIC_URL=https://indexloom.example.com
 INDEXLOOM_SMTP_HOST=smtp.example.org
 INDEXLOOM_SMTP_PORT=587
-INDEXLOOM_SMTP_FROM=IndexLoom <noreply@example.org>
-INDEXLOOM_SMTP_USERNAME=noreply@example.org
-INDEXLOOM_SMTP_PASSWORD=REPLACE_WITH_SECRET
-INDEXLOOM_REQUIRE_VERIFIED_EMAIL=true
+INDEXLOOM_SMTP_FROM=IndexLoom <indexloom@example.org>
+INDEXLOOM_SMTP_USERNAME=indexloom@example.org
+INDEXLOOM_SMTP_PASSWORD=replace-with-app-password
+INDEXLOOM_REQUIRE_VERIFIED_EMAIL=false
 ```
 
-**Settings > Email & notifications** provides per-event toggles for
-verification, password recovery and login alerts, editable plaintext and
-HTML templates for each event plus SMTP test messages. Templates support
-`{{app}}`, `{{username}}`, `{{email}}`, `{{action_url}}`,
-`{{event}}`, and `{{time}}`; placeholder values are HTML-escaped when
-rendered into HTML bodies. Email is sent only when configured and enabled.
+Port 587 uses mandatory STARTTLS; 465 uses implicit TLS. No plaintext
+transport mode is exposed. Set SMTP credentials through your secrets manager
+or environment; never commit real credentials.
 
-Password-reset links expire in **30 minutes**; email verification links in
-**24 hours**. Both use single-use 256-bit tokens, never stored in plaintext.
-Self-registration is intentionally disabled; an existing administrator must
-create users or explicitly allow an OIDC email. Email verification of the
-initial bootstrap account is bypassed to prevent a broken mail server
-permanently locking out the operator holding the bootstrap secret.
+A configurable flag `INDEXLOOM_REQUIRE_VERIFIED_EMAIL=true` makes verified
+email mandatory for locally authenticated users and requires SMTP.
+The initial operator-proven bootstrap account is considered verified, to avoid
+stranding the operator after SMTP misconfiguration.
 
-No mail service is needed for token or OIDC-only operation. When mail is off,
-password resets by email and email notifications are unavailable; an operator
-must use another configured account/recovery route.
+Supported messages:
 
-## Migration and operating notes
+- Email verification — 24-hour, single-use confirmation.
+- Password reset — 30-minute, single-use recovery.
+- Login alert — optional notification of account sign-in.
+- SMTP test — manual test to an administrator-chosen recipient.
 
-1. Back up the existing SQLite database and master key.
-2. Upgrade while leaving `INDEXLOOM_AUTH_MODE=token` to preserve old behavior.
-3. Configure and test SMTP or OIDC independently.
-4. Set `local`, `oidc` or `hybrid` and verify login before removing legacy
-   token fallback.
-5. For reverse proxies, terminate TLS, do not cache `/api/`, do not log
-   Authorization headers or one-time reset/callback query parameters.
+The notification controls and four editable templates appear in **Settings →
+Email & notifications**. Customize subject, plain-text body and optional HTML.
+Available placeholders are `{{app}}`, `{{username}}`, `{{email}}`,
+`{{action_url}}`, `{{event}}` and `{{time}}`. Placeholder values
+in HTML are entity-escaped to prevent email injection via account names.
+Raw admin-provided HTML is trusted by the server; only import templates from
+trusted people. Never share a reset/verification URL: it is a bearer secret.
 
-The auth policy is configured **at startup** by environment variables.
-The Settings page displays the active policy, but does not allow a browser
-session to silently disable its own protection. This is intentional.
-Full RBAC, TOTP/WebAuthn, passkeys, scheduled digests and richer audit events
-are planned, not shipped in this phase.
+Template and notification settings are stored in SQLite; SMTP server settings
+are startup environment configuration. Restart the container after changing
+SMTP transport settings.
+
+## Security boundaries and limitations
+
+- Auth disabled is intentionally dangerous: every protected endpoint becomes
+  publicly available. Restrict network exposure or leave authentication on.
+- Token-only mode retains legacy behavior for old automation clients.
+- Dynamic user roles, per-user permissions, WebAuthn/passkeys, TOTP,
+  provider-specific social logins and full audit history are not yet implemented.
+- Request rate limits use login identity; distributed attackers can rotate
+  identifiers. Protect public deployments with a reverse proxy/WAF and TLS.
+- Only static PWA resources are cached offline. Searching and changing accounts
+  require a live server.
+- SMTP and OIDC behavior must be integration-tested against the selected
+  external identity provider and mail server before public production use.
+
+## API endpoints
+
+Public: `GET /api/v1/auth/config`, `POST /api/v1/auth/bootstrap`,
+`/login`, `/oidc/start`, `/oidc/complete`, `/email/request-reset`,
+`/email/reset`, `/email/verify`.
+
+Protected: `GET /api/v1/auth/me`, `POST /api/v1/auth/logout`,
+`/password`, `/email/request-verification`,
+`GET /api/v1/auth/users`, `POST /api/v1/auth/users`,
+`PUT /api/v1/auth/users/{id}/disabled`,
+`POST /api/v1/auth/users/{id}/verify-email`,
+`GET /api/v1/auth/mail`,
+`PUT /api/v1/auth/mail/templates/{kind}`,
+`PUT /api/v1/auth/mail/events/{kind}`,
+`POST /api/v1/auth/mail/test`.
+
+All protected endpoints accept `Authorization: Bearer <token>`; in
+`local`/`oidc` modes it must be a server-issued access token.
