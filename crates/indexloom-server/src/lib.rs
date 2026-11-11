@@ -195,6 +195,7 @@ struct IndexerView {
     values: BTreeMap<String, Value>,
     configured_secrets: Vec<String>,
     configuration_schema: ConfigurationSchema,
+    capabilities: indexloom_definitions::capabilities::IndexerCapabilities,
 }
 
 #[derive(Debug, Deserialize)]
@@ -382,6 +383,7 @@ fn indexer_view(record: IndexerConfigurationRecord) -> Result<IndexerView, ApiEr
         values: record.values,
         configured_secrets: record.configured_secrets,
         configuration_schema: definition.configuration_schema(),
+        capabilities: indexloom_definitions::capabilities::summarize(&definition),
     })
 }
 

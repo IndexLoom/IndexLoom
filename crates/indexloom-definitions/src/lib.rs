@@ -1,5 +1,7 @@
 //! Canonical, versioned `IndexLoom` definition model.
 
+pub mod capabilities;
+
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 use thiserror::Error;

@@ -28,6 +28,22 @@ export type ConfigurationField = {
   options: ConfigurationOption[];
 };
 
+export type IndexerCapabilities = {
+  description: string;
+  language: string;
+  source: "jackett" | "prowlarr-indexers";
+  searchModes: Array<{ name: string; parameters: string[] }>;
+  categoryMappings: Array<{ id: string; category: string; description: string | null; default: boolean }>;
+  categories: string[];
+  genreSearch: boolean;
+  rawSearch: boolean;
+  authentication: boolean;
+  captcha: boolean;
+  downloadHandler: boolean;
+  searchPaths: number;
+  alternateUrls: number;
+};
+
 export type Indexer = {
   id: string;
   definitionId: string;
@@ -43,6 +59,7 @@ export type Indexer = {
   lastTest: IndexerTestResult | null;
   values: Record<string, ConfigurationValue>;
   configuredSecrets: string[];
+  capabilities: IndexerCapabilities;
   configurationSchema: {
     fields: ConfigurationField[];
     flaresolverrRecommended: boolean;
