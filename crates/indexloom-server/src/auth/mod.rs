@@ -13,7 +13,7 @@ use std::{env, sync::Arc};
 use argon2::Argon2;
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, StatusCode, header},
     routing::{get, post, put},
 };
@@ -237,6 +237,7 @@ pub fn public_routes() -> Router<AppState> {
         .route("/api/v1/auth/email/request-reset", post(request_reset))
         .route("/api/v1/auth/email/reset", post(reset_password))
         .route("/api/v1/auth/email/verify", post(verify_email))
+        .layer(DefaultBodyLimit::max(16 * 1024))
 }
 
 pub fn private_routes() -> Router<AppState> {
@@ -624,7 +625,15 @@ async fn request_reset(
     if !state.auth_settings.mode.local() || state.mail_sender.is_none() {
         return Err(ApiError::not_found("password recovery email is disabled"));
     }
-    // Always return the same response for existing/missing accounts.
+    // Throttle repeated recovery requests even for unknown accounts; never
+    // reveal address existence through the response status.
+    if let Ok(email) = normalize_email(&request.email) {
+        let rate_key = digest(&format!("recovery:{email}"));
+        if state.store.is_login_locked(&rate_key).await? {
+            return Ok(StatusCode::ACCEPTED);
+        }
+        state.store.record_login_failure(&rate_key).await?;
+    }
     if let Ok(email) = normalize_email(&request.email)
         && let Some(user) = state.store.auth_user_by_login(&email).await?
         && user.password_hash.is_some()
