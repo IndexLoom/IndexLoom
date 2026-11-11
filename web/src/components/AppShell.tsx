@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useAppearance } from "../lib/ui-preferences";
 
 export type View = "search" | "indexers" | "history" | "settings";
 
@@ -16,24 +17,23 @@ const navigation: Array<{ id: View; label: string }> = [
 ];
 
 export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
+  const { preferences } = useAppearance();
+  const orderedNavigation = [...navigation].sort(
+    (left, right) => preferences.navigation.indexOf(left.id) - preferences.navigation.indexOf(right.id),
+  );
   return (
-    <div className="app-shell">
+    <div className="app-shell modern-shell">
       <a className="skip-link" href="#main-workspace">
         Skip to workspace
       </a>
       <aside className="sidebar">
         <div className="brand" aria-label="IndexLoom">
-          <span className="brand-mark" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
+          <span className="brand-mark" aria-hidden="true">IL</span>
           <span>IndexLoom</span>
         </div>
 
         <nav className="navigation" aria-label="Primary navigation">
-          {navigation.map((item) => (
+          {orderedNavigation.map((item) => (
             <button
               aria-current={item.id === activeView ? "page" : undefined}
               className={item.id === activeView ? "nav-item active" : "nav-item"}
@@ -48,9 +48,29 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
           ))}
         </nav>
 
-        <p className="sidebar-footnote">Pre-alpha · schema v1alpha1</p>
+        <div className="sidebar-footer">
+          <span className="sidebar-footnote">IndexLoom · v0.3</span>
+          <button
+            aria-label="Customize interface"
+            className="sidebar-appearance"
+            onClick={() => onNavigate("settings")}
+            type="button"
+          >
+            Customize
+          </button>
+        </div>
       </aside>
       <main className="workspace" id="main-workspace" tabIndex={-1}>
+        <div className="workspace-topbar">
+          <span className="topbar-location">Workspace <span>/</span> {navigation.find((item) => item.id === activeView)?.label}</span>
+          <button
+            className="topbar-settings"
+            onClick={() => onNavigate("settings")}
+            type="button"
+          >
+            Appearance
+          </button>
+        </div>
         {children}
       </main>
     </div>
