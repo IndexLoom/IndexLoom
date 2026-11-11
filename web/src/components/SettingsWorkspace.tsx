@@ -1,6 +1,8 @@
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
 
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
+import { SecuritySettings } from "./SecuritySettings";
+import { EmailSettings } from "./EmailSettings";
 import { ApiError, type CatalogStatus, fetchCatalogStatus } from "../lib/api";
 import {
   type PaletteKey, type UiPreferences, type Workspace,
@@ -8,9 +10,10 @@ import {
   paletteKeys, searchBlocks, themes, useAppearance,
 } from "../lib/ui-preferences";
 
-type Tab = "themes" | "layout" | "css" | "database";
+type Tab = "themes" | "layout" | "css" | "database" | "security" | "email";
 const labels: Record<Tab, string> = {
   themes: "Appearance", layout: "Layout", css: "Custom CSS", database: "Indexer database",
+  security: "Security & users", email: "Email & notifications",
 };
 const paletteLabels: Record<PaletteKey, string> = {
   page: "Background", surface: "Surface", raised: "Elevated surface",
@@ -203,6 +206,8 @@ export function SettingsWorkspace() {
       ) : null}
 
       {tab === "database" ? <CatalogDiagnostics /> : null}
+      {tab === "security" ? <SecuritySettings /> : null}
+      {tab === "email" ? <EmailSettings /> : null}
       <footer className="appearance-footer">
         <div>
           <button className="quiet-button" onClick={exportProfile} type="button">Export profile</button>
