@@ -236,7 +236,21 @@ impl CardigannExecutor {
             .map(|filters| apply_filters(term.to_owned(), filters))
             .transpose()?
             .unwrap_or_else(|| term.to_owned());
+        if let Some(mode) = parameters.mode.as_deref() {
+            let supported = mapping(&self.definition.spec.implementation.capabilities)
+                .and_then(|caps| caps.get(key("modes")))
+                .and_then(mapping)
+                .is_some_and(|modes| modes.contains_key(YamlValue::String(mode.to_owned())));
+            if !supported {
+                return Err(EngineError::UnsupportedSearchMode(mode.to_owned()));
+            }
+        }
         let categories = resolve_category_ids(&self.definition, parameters.category.as_deref());
+        if let Some(category) = parameters.category.as_deref()
+            && categories.is_empty()
+        {
+            return Err(EngineError::UnsupportedSearchCategory(category.to_owned()));
+        }
         let render = self.context.for_search_with_parameters(
             &keywords,
             BTreeMap::new(),
