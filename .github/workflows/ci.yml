@@ -76,4 +76,4 @@ jobs:
           push: false
           tags: indexloom:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
