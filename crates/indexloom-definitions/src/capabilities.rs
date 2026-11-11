@@ -62,21 +62,33 @@ pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
     let mut categories = BTreeSet::new();
     let mut category_mappings = Vec::new();
 
-    if let Some(modes) = capabilities.and_then(|caps| entry(caps, "modes")).and_then(Value::as_mapping) {
+    if let Some(modes) = capabilities
+        .and_then(|caps| entry(caps, "modes"))
+        .and_then(Value::as_mapping)
+    {
         for (name, fields) in modes {
             if let Some(name) = scalar(name) {
-                let parameters = fields.as_sequence().map_or_else(Vec::new, |seq| {
-                    seq.iter().filter_map(scalar).collect()
-                });
+                let parameters = fields
+                    .as_sequence()
+                    .map_or_else(Vec::new, |seq| seq.iter().filter_map(scalar).collect());
                 search_modes.push(SearchMode { name, parameters });
             }
         }
     }
-    if let Some(mapping) = capabilities.and_then(|caps| entry(caps, "categorymappings")).and_then(Value::as_sequence) {
+    if let Some(mapping) = capabilities
+        .and_then(|caps| entry(caps, "categorymappings"))
+        .and_then(Value::as_sequence)
+    {
         for value in mapping {
-            let Some(value) = value.as_mapping() else { continue };
-            let Some(id) = entry(value, "id").and_then(scalar) else { continue };
-            let Some(category) = entry(value, "cat").and_then(scalar) else { continue };
+            let Some(value) = value.as_mapping() else {
+                continue;
+            };
+            let Some(id) = entry(value, "id").and_then(scalar) else {
+                continue;
+            };
+            let Some(category) = entry(value, "cat").and_then(scalar) else {
+                continue;
+            };
             categories.insert(category.clone());
             category_mappings.push(CategoryMapping {
                 id,
@@ -87,7 +99,10 @@ pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
         }
     }
     // Some source definitions use category maps rather than categorymappings.
-    if let Some(mapping) = capabilities.and_then(|caps| entry(caps, "categories")).and_then(Value::as_mapping) {
+    if let Some(mapping) = capabilities
+        .and_then(|caps| entry(caps, "categories"))
+        .and_then(Value::as_mapping)
+    {
         for key in mapping.keys() {
             if let Some(category) = scalar(key) {
                 categories.insert(category);
@@ -95,8 +110,10 @@ pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
         }
     }
     let search = definition.spec.implementation.search.as_mapping();
-    let search_paths = search.and_then(|search| entry(search, "paths"))
-        .and_then(Value::as_sequence).map_or(0, Vec::len);
+    let search_paths = search
+        .and_then(|search| entry(search, "paths"))
+        .and_then(Value::as_sequence)
+        .map_or(0, Vec::len);
     let authentication = definition.spec.implementation.authentication.as_ref();
     let captcha = authentication
         .and_then(Value::as_mapping)
@@ -105,7 +122,9 @@ pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
         SourceProject::Jackett => "jackett",
         SourceProject::ProwlarrIndexers => "prowlarr-indexers",
     };
-    let genre_search = search_modes.iter().any(|mode| mode.parameters.iter().any(|p| p == "genre"));
+    let genre_search = search_modes
+        .iter()
+        .any(|mode| mode.parameters.iter().any(|p| p == "genre"));
     IndexerCapabilities {
         description: definition.metadata.description.clone(),
         language: definition.metadata.language.clone(),
@@ -114,12 +133,16 @@ pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
         category_mappings,
         categories: categories.into_iter().collect(),
         genre_search,
-        raw_search: matches!(capabilities.and_then(|caps| entry(caps, "allowrawsearch")), Some(Value::Bool(true))),
+        raw_search: matches!(
+            capabilities.and_then(|caps| entry(caps, "allowrawsearch")),
+            Some(Value::Bool(true))
+        ),
         authentication: authentication.is_some(),
         captcha,
         download_handler: definition.spec.implementation.download.is_some(),
         search_paths,
-        alternate_urls: definition.spec.base_urls.len().saturating_sub(1) + definition.spec.legacy_urls.len(),
+        alternate_urls: definition.spec.base_urls.len().saturating_sub(1)
+            + definition.spec.legacy_urls.len(),
     }
 }
 
