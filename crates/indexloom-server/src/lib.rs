@@ -1200,6 +1200,72 @@ spec:
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn role_policies_protect_direct_api_requests_not_just_frontend_controls() {
+        use axum::http::Method;
+
+        const OWNER: &str = "owner-session-token-longer-than-forty-characters";
+        const ADMIN: &str = "admin-session-token-longer-than-forty-characters";
+        const VIEWER: &str = "viewer-session-token-longer-than-forty-characters";
+
+        async fn request_as(
+            app: axum::Router, method: Method, path: &'static str,
+            token: &'static str, body: &'static str,
+        ) -> StatusCode {
+            app.oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            ).await.unwrap().status()
+        }
+
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Local;
+        state.store.bootstrap_admin(
+            "owner-id", "owner", "owner@example.org", "hash", true,
+        ).await.unwrap();
+        state.store.add_local_user(
+            "admin-id", "admin", "admin@example.org", "hash", true, "admin",
+        ).await.unwrap();
+        state.store.add_local_user(
+            "viewer-id", "viewer", "viewer@example.org", "hash", true, "viewer",
+        ).await.unwrap();
+        for (token, id) in [(OWNER,"owner-id"),(ADMIN,"admin-id"),(VIEWER,"viewer-id")] {
+            state.store.create_session(&super::auth::digest(token), id, 120).await.unwrap();
+        }
+        let app = router(state.clone(), PathBuf::from("missing-web-root"));
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/indexers",VIEWER,"").await, StatusCode::OK);
+        assert_eq!(request_as(app.clone(),Method::POST,"/api/v1/search",VIEWER,"{}").await, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(request_as(app.clone(),Method::PUT,"/api/v1/flaresolverr/abc",VIEWER,"{}").await, StatusCode::FORBIDDEN);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/auth/users",VIEWER,"").await, StatusCode::FORBIDDEN);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/auth/mail",VIEWER,"").await, StatusCode::FORBIDDEN);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/auth/audit",ADMIN,"").await, StatusCode::FORBIDDEN);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/auth/users",ADMIN,"").await, StatusCode::FORBIDDEN);
+        assert_eq!(request_as(app.clone(),Method::PUT,"/api/v1/flaresolverr/abc",ADMIN,"{}").await, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/auth/users",OWNER,"").await, StatusCode::OK);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/auth/audit",OWNER,"").await, StatusCode::OK);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/indexers",TOKEN,"").await, StatusCode::UNAUTHORIZED);
+
+        let elevate = request_as(
+            app.clone(),Method::PUT,"/api/v1/auth/users/viewer-id/role",OWNER,
+            r#"{"role":"admin"}"#,
+        ).await;
+        assert_eq!(elevate, StatusCode::OK);
+        assert_eq!(request_as(app.clone(),Method::PUT,"/api/v1/flaresolverr/abc",VIEWER,"{}").await, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(request_as(app.clone(),Method::GET,"/api/v1/auth/users",VIEWER,"").await, StatusCode::FORBIDDEN);
+        let demote = request_as(
+            app.clone(),Method::PUT,"/api/v1/auth/users/viewer-id/role",OWNER,
+            r#"{"role":"viewer"}"#,
+        ).await;
+        assert_eq!(demote, StatusCode::OK);
+        assert_eq!(request_as(app,Method::PUT,"/api/v1/flaresolverr/abc",VIEWER,"{}").await, StatusCode::FORBIDDEN);
+    }
+
     #[test]
     fn normalizes_flaresolverr_base_url() {
         assert_eq!(
