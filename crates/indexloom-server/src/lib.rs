@@ -879,73 +879,136 @@ spec:
         state.auth_settings.mode = super::auth::AuthMode::Local;
         let app = router(state, PathBuf::from("missing-web-root"));
         let bootstrap_json = r#"{"username":"alice","email":"alice@example.org","password":"correct-horse-battery"}"#;
-        let without_operator = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/bootstrap")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(bootstrap_json)).unwrap(),
-        ).await.unwrap();
+        let without_operator = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(bootstrap_json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(without_operator.status(), StatusCode::UNAUTHORIZED);
 
-        let bootstrap = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/bootstrap")
-                .header(header::CONTENT_TYPE, "application/json")
-                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                .body(Body::from(bootstrap_json)).unwrap(),
-        ).await.unwrap();
+        let bootstrap = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::from(bootstrap_json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(bootstrap.status(), StatusCode::OK);
         let body = to_bytes(bootstrap.into_body(), 4096).await.unwrap();
         let session: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let token = session["accessToken"].as_str().unwrap();
         assert_eq!(session["user"]["username"], "alice");
 
-        let legacy = app.clone().oneshot(
-            Request::builder().uri("/api/v1/indexers")
-                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let legacy = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(legacy.status(), StatusCode::UNAUTHORIZED);
 
-        let authorized = app.clone().oneshot(
-            Request::builder().uri("/api/v1/indexers")
-                .header(header::AUTHORIZATION, format!("Bearer {token}"))
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let authorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(authorized.status(), StatusCode::OK);
 
-        let repeated = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/bootstrap")
-                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(bootstrap_json)).unwrap(),
-        ).await.unwrap();
+        let repeated = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(bootstrap_json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(repeated.status(), StatusCode::CONFLICT);
 
-        let login_bad = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/login")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"login":"alice","password":"wrong-password"}"#)).unwrap(),
-        ).await.unwrap();
+        let login_bad = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"login":"alice","password":"wrong-password"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(login_bad.status(), StatusCode::UNAUTHORIZED);
 
-        let login_ok = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/login")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"login":"alice@example.org","password":"correct-horse-battery"}"#)).unwrap(),
-        ).await.unwrap();
+        let login_ok = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"login":"alice@example.org","password":"correct-horse-battery"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(login_ok.status(), StatusCode::OK);
 
-        let logout = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/logout")
-                .header(header::AUTHORIZATION, format!("Bearer {token}"))
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let logout = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(logout.status(), StatusCode::NO_CONTENT);
 
-        let revoked = app.oneshot(
-            Request::builder().uri("/api/v1/indexers")
-                .header(header::AUTHORIZATION, format!("Bearer {token}"))
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let revoked = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -955,9 +1018,13 @@ spec:
         state.auth_settings.mode = super::auth::AuthMode::Disabled;
         let response = router(state, PathBuf::from("missing-web-root"))
             .oneshot(
-                Request::builder().uri("/api/v1/indexers")
-                    .body(Body::empty()).unwrap(),
-            ).await.unwrap();
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
 
