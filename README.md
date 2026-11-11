@@ -5,7 +5,7 @@
 [![Rust 1.98](https://img.shields.io/badge/rust-1.98-orange.svg)](rust-toolchain.toml)
 
 IndexLoom is a self-hosted indexer manager and federated torrent search engine
-built with Rust, React and TypeScript. It combines a verifiable YAML catalog
+built with Rust, React and TypeScript. It combines a separately released SQLite catalog
 with isolated tracker instances, encrypted credentials, grouped search and
 explicit HTTP, SOCKS and FlareSolverr routing.
 
@@ -21,6 +21,14 @@ explicit HTTP, SOCKS and FlareSolverr routing.
   instance and another routed through a proxy.
 - Search all enabled instances, selected instances or reusable groups while
   preserving per-indexer result and error boundaries.
+- Use structured filters (mode, category, genre, year, season, episode, IMDb
+  and TMDb IDs) with tracker-specific category conversion and explicit errors
+  for unsupported modes/categories.
+- Explore imported Jackett/Prowlarr categories, modes and origin metadata and
+  filter the indexer catalog by language, source, category or mode.
+- Personalize the browser workspace with a dark violet default, six
+  palettes, custom colors, CSS, sidebar position, density, panel split and
+  reorderable/hideable workspace blocks, plus JSON profile import/export.
 - Store tracker cookies, API keys, passwords, passkeys and proxy credentials
   encrypted with XChaCha20-Poly1305.
 - Route globally, by group or by indexer through HTTP, SOCKS4a or SOCKS5h, with
@@ -133,10 +141,11 @@ duplicate-grab prevention without treating a UI row UUID as persistent state.
 
 ## Current execution scope
 
-The first Cardigann layer supports globally bounded concurrent tests and
+The evolving Cardigann layer supports globally bounded concurrent tests and
 searches, progressive POST/NDJSON search results, HTML/XML and JSON rows,
 common templates and filters, entry-capped cookie/form sessions isolated by instance with idle expiry,
-redirect and response-size limits, per-instance user agents, proxy routing and
+redirect and per-chunk response-size limits, retryable multi-path searches,
+per-instance user agents, proxy routing and
 optional FlareSolverr. Direct HTTP also enforces public-address DNS resolution
 inside the connector to resist rebinding. Remote-DNS proxy and FlareSolverr
 routes deliberately delegate address policy to their administrator-controlled
@@ -145,6 +154,20 @@ hiding successful results from other indexers.
 
 See the [API guide](docs/API.md), [architecture notes](docs/architecture/README.md)
 and [roadmap](docs/ROADMAP.md) for current limits and planned Torznab/RSS work.
+
+## Interface customization
+
+Open **Settings → Appearance** to choose Obsidian Violet (the black/purple
+default), Carbon, Midnight Blue, Evergreen, Burgundy or light Porcelain.
+Change the exact color values, sidebar location, density, corner radius,
+typography scale, indexer panel width and individual page block visibility or
+order. Custom CSS is appended after the built-in stylesheet and can override
+any part of the application. Appearance profiles can be exported/imported as
+JSON, validated on import and stored in this browser's local storage. They do
+not change server configuration or indexer credentials.
+
+See [UI customization guide](docs/design/APPEARANCE.md) for CSS examples,
+selectors, limitations and data retention.
 
 ## Binary releases
 

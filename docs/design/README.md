@@ -1,19 +1,22 @@
-# Product interface direction
+# IndexLoom interface
 
-The initial interface follows the reference in
-[`indexloom-primary-screen-concept.png`](./indexloom-primary-screen-concept.png).
+IndexLoom uses a restrained, practical UI, not simulated indexer data or
+decorative dashboard templates. Search and indexer management prioritize dense,
+legible tables, direct feedback and functional controls.
 
-The concept is a direction, not product data. The implementation must not ship
-fake indexers, fabricated search results, or inactive controls merely to match a
-mockup. Its durable design decisions are:
+The default is **Obsidian Violet**: almost black surfaces, soft high-contrast
+text and restrained violet focus/action accents. The old early-stage
+amber/navy sketch remains in `indexloom-primary-screen-concept.png` as
+historical exploration, **not** as a constraint on the current UI.
 
-- a compact navigation rail;
-- search as the primary workspace;
-- dense tables rather than card grids;
-- a near-black/navy palette with one restrained amber accent;
-- explicit indexer health and runtime status;
-- a details panel only when a real result is selected.
+Users can select six themes or edit their own via Settings. The appearance
+engine supports palette overrides, optional custom CSS, navigation ordering,
+sidebar position, font scale, density, radius, indexer panel split and optional
+reordering/hiding of Search and Indexers blocks.
 
-The first scaffold implements the shell, responsive states, runtime health, and
-honest empty states. Search, indexer configuration, and result details arrive as
-their backend contracts become real.
+The design may be freely replaced with user CSS; there are no fabricated
+results, fake availability states, placeholder metrics or inactive buttons
+in the current functional workspaces. History remains an explicitly labeled
+unimplemented feature.
+
+See [Appearance and customization](APPEARANCE.md).

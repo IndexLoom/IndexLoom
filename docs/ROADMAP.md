@@ -67,3 +67,20 @@ The protected `GET /api/v1/catalog/status` endpoint and Settings page show
 available, retired, and total definitions, along with the last successfully
 applied release timestamp. The refresh control only reloads diagnostics; it
 does not bypass the configured background synchronization schedule.
+
+## UI and Cardigann evolution (November 2026)
+
+- Implemented: six themed palettes with Obsidian Violet as default,
+  editable token colors, layout, navigation, custom CSS and portable profiles.
+- Implemented: catalog UI facets from native categories, languages, search
+  modes and Jackett/Prowlarr provenance.
+- Implemented: structured search variables for native categories, mode, genre,
+  year, season/episode, IMDb and TMDb IDs, with explicit unsupported-mode errors.
+- Implemented: bounded streaming for direct tracker responses and fallback to
+  alternate search paths for transient transport/server errors.
+- Pending: full Cardigann filter/authentication compatibility, tested real
+  trackers, date/selector variants, Torznab/RSS, native source-specific plugins,
+  dedicated full drag-and-drop layout designer and production security review.
+- Security advisories in current SQLx's bundled SQLite and the YAML parser
+  require upstream fixes or an independently tested parser/storage migration;
+  routine Cargo.lock refresh does not automatically resolve them.

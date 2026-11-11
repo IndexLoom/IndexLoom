@@ -7,7 +7,11 @@ routes require `Authorization: Bearer <INDEXLOOM_ADMIN_TOKEN>` and return
 ## Catalog instances and organization
 
 - `GET /indexers` lists redacted indexer state, configuration schema, tags,
-  groups, routing and the latest persisted test.
+  groups, routing and the latest persisted test. The `capabilities` object
+  summarizes original Jackett/Prowlarr metadata (language, source, category
+  IDs and mappings, search modes/parameters, CAPTCHA and login declarations,
+  search-path and alternate-URL counts). Declared capability is not a guarantee
+  of full interpreter support.
 - `PUT /indexers/{id}/configuration` saves public definition values,
   `User-Agent`, FlareSolverr selection and three-state secrets. A missing secret
   is preserved, a string replaces it and `null` clears it.
@@ -50,7 +54,10 @@ all enabled indexers and ignores the two ID arrays.
 - `POST /indexer-tests` accepts a selection and returns `202 Accepted` with a
   job record.
 - `GET /indexer-tests/{jobId}` returns progress and per-indexer outcomes.
-- `POST /search` accepts `query`, `selection`, and `limitPerIndexer` (1-200).
+- `POST /search` accepts `query`, `selection`, `limitPerIndexer` (1-200)
+  and an optional `filters` object. Mode and category unsupported by any
+  selected indexer produce per-indexer errors rather than silently returning
+  unrelated results.
   Its `indexers` array always groups results and errors by indexer so one failed
   tracker does not hide successful results from the others.
 - `POST /search/stream` accepts the same JSON and returns
@@ -58,6 +65,24 @@ all enabled indexers and ignores the two ID arrays.
   worker, and a terminal `finished` event. Use streaming `fetch`, not native
   `EventSource`, so the administrator token remains in the Authorization
   header rather than a URL.
+
+Optional `filters` JSON fields are `mode`, `category`, `genre`,
+`year`, `season`, `episode`, `imdbId` and `tmdbId`. Standard
+Cardigann variables including `.Query.Genre`, `.Query.Year`,
+`.Query.Season`, `.Query.Ep`, `.Query.IMDBID` and `.Categories`
+receive those values. `category` is a normalized category name offered by
+a selected definition and gets mapped to native tracker IDs. Unsupported
+per-site modes and unmappable categories are explicit failures for that
+site, while other enabled sites may succeed.
+
+```json
+{
+  "query": "example",
+  "selection": { "all": false, "indexerIds": ["example-main"], "groupIds": [] },
+  "limitPerIndexer": 50,
+  "filters": { "mode": "movie-search", "category": "Movies/HD", "year": 2026 }
+}
+```
 
 Example stream:
 
