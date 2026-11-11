@@ -769,4 +769,55 @@ mod tests {
                 .is_none()
         );
     }
+    #[tokio::test]
+    async fn owner_admin_viewer_permissions_are_persistent_and_last_owner_is_safe() {
+        let store = Store::connect("sqlite::memory:").await.expect("migrate account roles");
+        assert!(store.bootstrap_admin(
+            "owner", "first", "first@example.org", "argon2", true,
+        ).await.unwrap());
+        let initial = store.auth_user_by_id("owner").await.unwrap().unwrap();
+        assert_eq!(initial.role, "owner");
+        assert!(!store.set_user_role("owner", "viewer").await.unwrap());
+        assert!(!store.set_user_disabled("owner", true).await.unwrap());
+
+        store.add_local_user(
+            "reader", "reader", "reader@example.org", "argon2", true, "viewer",
+        ).await.unwrap();
+        assert_eq!(store.auth_user_by_id("reader").await.unwrap().unwrap().role, "viewer");
+        assert!(store.set_user_role("reader", "admin").await.unwrap());
+        assert_eq!(store.auth_user_by_id("reader").await.unwrap().unwrap().role, "admin");
+        assert!(store.set_user_role("reader", "owner").await.unwrap());
+        assert!(store.set_user_role("owner", "viewer").await.unwrap());
+        assert!(!store.set_user_disabled("reader", true).await.unwrap());
+        assert!(store.set_user_role("owner", "owner").await.unwrap());
+        assert!(store.set_user_disabled("reader", true).await.unwrap());
+        assert!(store.auth_user_by_id("reader").await.unwrap().unwrap().disabled);
+
+        store.auth_audit(Some("owner"), Some("reader"), "role-changed").await.unwrap();
+        let events = store.auth_audit_events().await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].action, "role-changed");
+        assert_eq!(events[0].actor_id.as_deref(), Some("owner"));
+        assert!(!store.set_user_role("owner", "invalid").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn first_oidc_user_is_owner_but_subsequent_identities_are_viewers() {
+        let store = Store::connect("sqlite::memory:").await.unwrap();
+        store.add_oidc_user(
+            "oidc-primary", "oidc-one", "one@example.org",
+            "https://issuer.example.org", "subject-1",
+        ).await.unwrap();
+        store.add_oidc_user(
+            "oidc-secondary", "oidc-two", "two@example.org",
+            "https://issuer.example.org", "subject-2",
+        ).await.unwrap();
+        assert_eq!(
+            store.auth_user_by_id("oidc-primary").await.unwrap().unwrap().role, "owner"
+        );
+        assert_eq!(
+            store.auth_user_by_id("oidc-secondary").await.unwrap().unwrap().role, "viewer"
+        );
+    }
+
 }
