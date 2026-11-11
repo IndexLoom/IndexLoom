@@ -122,7 +122,7 @@ pub struct AuthSettings {
 impl AuthSettings {
     pub fn from_env(mail_enabled: bool) -> anyhow::Result<Self> {
         let mode = AuthMode::from_env().map_err(anyhow::Error::msg)?;
-        let oidc = OidcSettings::from_env()?;
+        let oidc = if mode.oidc() { OidcSettings::from_env()? } else { None };
         if mode.oidc() && oidc.is_none() {
             anyhow::bail!("OIDC mode requires configured OIDC issuer, client and allowlist");
         }

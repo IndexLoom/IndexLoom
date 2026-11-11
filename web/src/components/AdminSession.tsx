@@ -342,7 +342,7 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             {busy ? "Working…" : panel === "bootstrap" ? "Create administrator" : panel === "recover" ? "Send recovery link" : panel === "reset" ? "Update password" : "Sign in"}
           </button>
         </form>
-        {config.oidcEnabled && panel !== "bootstrap" && panel !== "reset" ? (
+        {config.oidcEnabled && panel !== "reset" ? (
           <button className="auth-oidc" disabled={busy} onClick={() => { void oidc(); }} type="button">
             Continue with OpenID Connect
           </button>
