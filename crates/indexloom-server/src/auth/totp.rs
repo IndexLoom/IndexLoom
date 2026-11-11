@@ -437,17 +437,20 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::too_many_lines)]
     async fn totp_login_requires_second_factor_and_recovery_is_one_use() {
-        use std::path::PathBuf;
         use axum::{
             body::{Body, to_bytes},
             http::{Request, StatusCode, header},
         };
         use indexloom_storage::{SecretVault, Store};
         use serde_json::Value;
+        use std::path::PathBuf;
         use tower::ServiceExt;
 
+        use super::{
+            super::{AuthMode, AuthSettings},
+            decode_base32, totp_for_step,
+        };
         use crate::{AdminToken, AppState, router};
-        use super::{super::{AuthMode, AuthSettings}, decode_base32, totp_for_step};
 
         const OPERATOR: &str = "test-operator-token-with-at-least-32-bytes";
         let store = Store::connect("sqlite::memory:").await.unwrap();
@@ -455,8 +458,11 @@ mod tests {
         let mut settings = AuthSettings::legacy();
         settings.mode = AuthMode::Local;
         let state = AppState::with_auth(
-            store.clone(), vault, Some(AdminToken::new(OPERATOR).unwrap()),
-            settings, None,
+            store.clone(),
+            vault,
+            Some(AdminToken::new(OPERATOR).unwrap()),
+            settings,
+            None,
         );
         let app = router(state, PathBuf::from("nonexistent-web-directory"));
 
@@ -468,91 +474,150 @@ mod tests {
                 .unwrap(),
         ).await.unwrap();
         assert_eq!(bootstrap.status(), StatusCode::OK);
-        let reply: Value = serde_json::from_slice(
-            &to_bytes(bootstrap.into_body(), 4096).await.unwrap(),
-        ).unwrap();
+        let reply: Value =
+            serde_json::from_slice(&to_bytes(bootstrap.into_body(), 4096).await.unwrap()).unwrap();
         let first_token = reply["accessToken"].as_str().unwrap().to_owned();
 
-        let begin = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/totp/start")
-                .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"password":"correct-horse-battery"}"#)).unwrap(),
-        ).await.unwrap();
+        let begin = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/totp/start")
+                    .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"password":"correct-horse-battery"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(begin.status(), StatusCode::OK);
-        let begin_data: Value = serde_json::from_slice(
-            &to_bytes(begin.into_body(), 4096).await.unwrap(),
-        ).unwrap();
+        let begin_data: Value =
+            serde_json::from_slice(&to_bytes(begin.into_body(), 4096).await.unwrap()).unwrap();
         let secret = decode_base32(begin_data["secret"].as_str().unwrap()).unwrap();
-        let now = time::OffsetDateTime::now_utc().unix_timestamp().div_euclid(30);
+        let now = time::OffsetDateTime::now_utc()
+            .unix_timestamp()
+            .div_euclid(30);
         let code = totp_for_step(&secret, now).unwrap();
 
-        let confirm = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/totp/confirm")
-                .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::json!({"code": code}).to_string())).unwrap(),
-        ).await.unwrap();
+        let confirm = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/totp/confirm")
+                    .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::json!({"code": code}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(confirm.status(), StatusCode::OK);
-        let confirmed: Value = serde_json::from_slice(
-            &to_bytes(confirm.into_body(), 4096).await.unwrap(),
-        ).unwrap();
+        let confirmed: Value =
+            serde_json::from_slice(&to_bytes(confirm.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(confirmed["recoveryCodes"].as_array().unwrap().len(), 10);
         let backup = confirmed["recoveryCodes"][0].as_str().unwrap().to_owned();
 
-        let revoked = app.clone().oneshot(
-            Request::builder().uri("/api/v1/indexers")
-                .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
-                .body(Body::empty()).unwrap(),
-        ).await.unwrap();
+        let revoked = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {first_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
 
-        let login = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/login")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(r#"{"login":"alice","password":"correct-horse-battery"}"#)).unwrap(),
-        ).await.unwrap();
+        let login = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"login":"alice","password":"correct-horse-battery"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(login.status(), StatusCode::OK);
-        let challenge_data: Value = serde_json::from_slice(
-            &to_bytes(login.into_body(), 4096).await.unwrap(),
-        ).unwrap();
+        let challenge_data: Value =
+            serde_json::from_slice(&to_bytes(login.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(challenge_data["requiresTotp"], true);
         assert!(challenge_data.get("accessToken").is_none());
-        let challenge = challenge_data["challengeToken"].as_str().unwrap().to_owned();
+        let challenge = challenge_data["challengeToken"]
+            .as_str()
+            .unwrap()
+            .to_owned();
 
-        let invalid = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/totp/complete")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::json!({
-                    "challengeToken": challenge, "code": "invalid",
-                }).to_string())).unwrap(),
-        ).await.unwrap();
+        let invalid = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/totp/complete")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "challengeToken": challenge, "code": "invalid",
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(invalid.status(), StatusCode::UNAUTHORIZED);
 
-        let completed = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/totp/complete")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::json!({
-                    "challengeToken": challenge, "code": backup,
-                }).to_string())).unwrap(),
-        ).await.unwrap();
+        let completed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/totp/complete")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "challengeToken": challenge, "code": backup,
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(completed.status(), StatusCode::OK);
-        let completed_data: Value = serde_json::from_slice(
-            &to_bytes(completed.into_body(), 4096).await.unwrap(),
-        ).unwrap();
+        let completed_data: Value =
+            serde_json::from_slice(&to_bytes(completed.into_body(), 4096).await.unwrap()).unwrap();
         let session = completed_data["accessToken"].as_str().unwrap();
         assert!(session.len() >= 40);
         assert_eq!(store.totp_recovery_count("unused").await.unwrap(), 0);
         assert_eq!(store.auth_user_count().await.unwrap(), 1);
         let user = store.auth_user_by_login("alice").await.unwrap().unwrap();
         assert_eq!(store.totp_recovery_count(&user.id).await.unwrap(), 9);
-        let replay = app.clone().oneshot(
-            Request::builder().method("POST").uri("/api/v1/auth/totp/complete")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::json!({
-                    "challengeToken": challenge, "code": backup,
-                }).to_string())).unwrap(),
-        ).await.unwrap();
+        let replay = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/totp/complete")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "challengeToken": challenge, "code": backup,
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
     }
 
