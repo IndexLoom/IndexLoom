@@ -555,8 +555,9 @@ impl Store {
         enabled_only: bool,
     ) -> Result<Vec<String>, StorageError> {
         let available = sqlx::query_as::<_, IdEnabledRow>(
-            "SELECT i.id, (i.enabled = 1 AND d.catalog_available = 1) AS enabled \
-             FROM indexers i JOIN indexer_definitions d ON d.id = i.definition_id",
+            "SELECT i.id, i.enabled \
+             FROM indexers i JOIN indexer_definitions d ON d.id = i.definition_id \
+             WHERE d.catalog_available = 1",
         )
             .fetch_all(&self.pool)
             .await?;
