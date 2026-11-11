@@ -5,7 +5,7 @@ ALTER TABLE auth_users
         CHECK (role IN ('owner', 'admin', 'viewer'));
 
 UPDATE auth_users SET role = 'owner'
-WHERE id = (SELECT id FROM auth_users ORDER BY created_at ASC, id ASC LIMIT 1);
+WHERE id = (SELECT id FROM auth_users ORDER BY disabled ASC, created_at ASC, id ASC LIMIT 1);
 
 -- Defense in depth: no concurrent request may remove the last active owner.
 CREATE TRIGGER auth_protect_last_owner_update
