@@ -1,6 +1,10 @@
 //! Persistent user identity, opaque session and notification configuration storage.
 //! Secrets and one-time tokens are indexed exclusively by SHA-256 digests.
 
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_fields_in_debug)]
+#![allow(clippy::struct_excessive_bools)]
+
 use serde::Serialize;
 use sqlx::FromRow;
 use time::OffsetDateTime;
