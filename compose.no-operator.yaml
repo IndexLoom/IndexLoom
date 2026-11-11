@@ -1,0 +1,68 @@
+# Explicit OIDC-only or deliberately unauthenticated deployment.
+# No administrator bearer token or INDEXLOOM_ADMIN_TOKEN is required.
+# Never select INDEXLOOM_AUTH_MODE=disabled on publicly reachable networks.
+name: indexloom
+
+services:
+  indexloom:
+    image: indexloom:dev
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      INDEXLOOM_BIND: 0.0.0.0:8080
+      INDEXLOOM_DATABASE_URL: sqlite:///data/indexloom.db?mode=rwc
+      INDEXLOOM_WEB_ROOT: /app/web
+      INDEXLOOM_AUTH_MODE: ${INDEXLOOM_AUTH_MODE:-oidc}
+      INDEXLOOM_ALLOW_UNSAFE_NO_AUTH: ${INDEXLOOM_ALLOW_UNSAFE_NO_AUTH:-false}
+      INDEXLOOM_MAIL_MODE: ${INDEXLOOM_MAIL_MODE:-disabled}
+      INDEXLOOM_REQUIRE_VERIFIED_EMAIL: ${INDEXLOOM_REQUIRE_VERIFIED_EMAIL:-false}
+      INDEXLOOM_PUBLIC_URL: ${INDEXLOOM_PUBLIC_URL:-}
+      INDEXLOOM_OIDC_ISSUER: ${INDEXLOOM_OIDC_ISSUER:-}
+      INDEXLOOM_OIDC_CLIENT_ID: ${INDEXLOOM_OIDC_CLIENT_ID:-}
+      INDEXLOOM_OIDC_CLIENT_SECRET: ${INDEXLOOM_OIDC_CLIENT_SECRET:-}
+      INDEXLOOM_OIDC_CLIENT_SECRET_FILE: ${INDEXLOOM_OIDC_CLIENT_SECRET_FILE:-}
+      INDEXLOOM_OIDC_ALLOWED_EMAILS: ${INDEXLOOM_OIDC_ALLOWED_EMAILS:-}
+      INDEXLOOM_OIDC_REDIRECT_URI: ${INDEXLOOM_OIDC_REDIRECT_URI:-}
+      INDEXLOOM_SMTP_HOST: ${INDEXLOOM_SMTP_HOST:-}
+      INDEXLOOM_SMTP_PORT: ${INDEXLOOM_SMTP_PORT:-587}
+      INDEXLOOM_SMTP_FROM: ${INDEXLOOM_SMTP_FROM:-}
+      INDEXLOOM_SMTP_USERNAME: ${INDEXLOOM_SMTP_USERNAME:-}
+      INDEXLOOM_SMTP_PASSWORD: ${INDEXLOOM_SMTP_PASSWORD:-}
+      INDEXLOOM_SMTP_PASSWORD_FILE: ${INDEXLOOM_SMTP_PASSWORD_FILE:-}
+      INDEXLOOM_MASTER_KEY_FILE: /run/secrets/indexloom_master_key
+      INDEXLOOM_CATALOG_DIR: ${INDEXLOOM_CATALOG_DIR:-}
+      INDEXLOOM_CATALOG_SOURCE_URL: ${INDEXLOOM_CATALOG_SOURCE_URL:-https://github.com/IndexLoom/Indexers/releases/latest/download/manifest.json}
+      INDEXLOOM_CATALOG_SYNC_SECONDS: ${INDEXLOOM_CATALOG_SYNC_SECONDS:-21600}
+      RUST_LOG: indexloom=info,tower_http=info
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - indexloom-data:/data
+    secrets:
+      - source: indexloom_master_key
+        target: indexloom_master_key
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  indexloom-data:
+
+secrets:
+  indexloom_master_key:
+    environment: INDEXLOOM_MASTER_KEY

@@ -1,8 +1,11 @@
 # Management and search API
 
-IndexLoom's pre-alpha API is rooted at `/api/v1`. Except for `GET /health`, all
-routes require `Authorization: Bearer <INDEXLOOM_ADMIN_TOKEN>` and return
-`Cache-Control: no-store`.
+IndexLoom's pre-alpha API is rooted at `/api/v1`. Most management/search
+routes require authentication, with modes `token`, `local`, `oidc`,
+`hybrid` and an explicitly unsafe `disabled` mode. The public exceptions
+are `GET /health` and the login/recovery bootstrap endpoints below.
+All authentication responses use `Cache-Control: no-store, private`.
+See [Authentication and email](AUTHENTICATION.md) for setup and security.
 
 ## Catalog instances and organization
 
@@ -122,3 +125,34 @@ deduplicate results should prefer tracker-native `sourceId`, `sourceGuid` and
 Callers must not assume the details page is a downloadable torrent resource.
 
 Request and response objects are not stable before the first tagged release.
+
+## Authentication API
+
+Public entry points: `GET /auth/config`, `POST /auth/bootstrap`,
+`POST /auth/login`, `POST /auth/oidc/start`,
+`POST /auth/oidc/complete`, `POST /auth/email/request-reset`,
+`POST /auth/email/reset` and `POST /auth/email/verify`.
+
+Protected management endpoints: `GET /auth/me`, `POST /auth/logout`,
+`POST /auth/password`, `POST /auth/email/request-verification`,
+`GET /auth/users`, `POST /auth/users`,
+`PUT /auth/users/{id}/disabled`,
+`POST /auth/users/{id}/verify-email`, `GET /auth/mail`,
+`PUT /auth/mail/templates/{kind}`,
+`PUT /auth/mail/events/{kind}` and `POST /auth/mail/test`.
+
+```json
+{"login":"admin@example.org","password":"long-secret-passphrase","rememberMe":false}
+```
+
+`POST /auth/login` returns a random bearer `accessToken`, its
+Unix-second `expiresAt`, and public account metadata. Use
+`Authorization: Bearer <accessToken>` for protected calls.
+Sessions can be revoked; a password change revokes all sessions.
+`POST /auth/mail/test` accepts `{"to":"someone@example.org"}`.
+Mail template updates accept `subject`, `textBody` and optional `htmlBody`.
+
+In `local` mode, the legacy operator token is only accepted at
+`/auth/bootstrap` while the first local account is created. In `hybrid`
+the operator token also remains usable for management. In `disabled` all
+management APIs become public; never use it on a public server.

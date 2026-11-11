@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dependencies:
     runs-on: ubuntu-latest
@@ -61,6 +65,27 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
 
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate token-compatible default Compose
+        env:
+          INDEXLOOM_ADMIN_TOKEN: test-operator-secret-longer-than-32-characters
+          INDEXLOOM_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: docker compose -f compose.yaml config --quiet
+      - name: Validate no-operator OIDC Compose
+        env:
+          INDEXLOOM_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          INDEXLOOM_AUTH_MODE: oidc
+        run: docker compose -f compose.no-operator.yaml config --quiet
+      - name: Validate explicitly disabled authentication Compose
+        env:
+          INDEXLOOM_MASTER_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          INDEXLOOM_AUTH_MODE: disabled
+          INDEXLOOM_ALLOW_UNSAFE_NO_AUTH: "true"
+        run: docker compose -f compose.no-operator.yaml config --quiet
+
   container:
     runs-on: ubuntu-latest
     steps:
@@ -72,4 +97,4 @@ jobs:
           push: false
           tags: indexloom:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min

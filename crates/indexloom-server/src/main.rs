@@ -10,6 +10,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use indexloom_server::{
     AdminToken, AppState,
+    auth::{AuthMode, AuthSettings, MailSender},
     catalog::{CatalogSource, synchronize},
     router,
 };
@@ -37,10 +38,18 @@ async fn main() -> Result<()> {
         "sqlite:///data/indexloom.db?mode=rwc",
     );
     let web_root = PathBuf::from(env_or("INDEXLOOM_WEB_ROOT", "/app/web"));
-    let mut admin_token_value = load_required_secret("INDEXLOOM_ADMIN_TOKEN")?;
-    let admin_token = AdminToken::new(&admin_token_value);
-    admin_token_value.zeroize();
-    let admin_token = admin_token.map_err(anyhow::Error::msg)?;
+    let mail_sender = MailSender::from_env()?;
+    let auth_settings = AuthSettings::from_env(mail_sender.is_some())?;
+    let admin_token = load_optional_secret("INDEXLOOM_ADMIN_TOKEN")?
+        .map(|mut value| {
+            let result = AdminToken::new(&value).map_err(anyhow::Error::msg);
+            value.zeroize();
+            result
+        })
+        .transpose()?;
+    if matches!(auth_settings.mode, AuthMode::Token | AuthMode::Hybrid) && admin_token.is_none() {
+        bail!("token and hybrid modes require INDEXLOOM_ADMIN_TOKEN");
+    }
     let mut master_key = load_required_secret("INDEXLOOM_MASTER_KEY")?;
     let vault = SecretVault::from_base64(&master_key);
     master_key.zeroize();
@@ -49,6 +58,27 @@ async fn main() -> Result<()> {
     let store = Store::connect(&database_url)
         .await
         .context("failed to initialize IndexLoom storage")?;
+    store
+        .purge_expired_auth_state()
+        .await
+        .context("failed to prune expired login state")?;
+    let maintenance_store = store.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(3600));
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            if let Err(error) = maintenance_store.purge_expired_auth_state().await {
+                tracing::warn!(%error, "session housekeeping failed");
+            }
+        }
+    });
+    if matches!(auth_settings.mode, AuthMode::Local | AuthMode::Hybrid)
+        && store.auth_user_count().await? == 0
+        && admin_token.is_none()
+    {
+        bail!("first local administrator requires INDEXLOOM_ADMIN_TOKEN for bootstrap");
+    }
     let catalog_source = CatalogSource::from_values(
         env::var("INDEXLOOM_CATALOG_DIR").ok(),
         &env::var("INDEXLOOM_CATALOG_SOURCE_URL")
@@ -63,7 +93,13 @@ async fn main() -> Result<()> {
     let catalog_interval = env_or("INDEXLOOM_CATALOG_SYNC_SECONDS", "21600")
         .parse::<u64>()
         .context("INDEXLOOM_CATALOG_SYNC_SECONDS must be an integer")?;
-    let state = AppState::new(store.clone(), vault, admin_token);
+    let state = AppState::with_auth(
+        store.clone(),
+        vault,
+        admin_token,
+        auth_settings,
+        mail_sender,
+    );
     if catalog_interval != 0 {
         if catalog_interval < 300 {
             anyhow::bail!("INDEXLOOM_CATALOG_SYNC_SECONDS must be 0 or at least 300");
@@ -132,6 +168,14 @@ async fn catalog_sync_loop(
 
 fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+fn load_optional_secret(name: &str) -> Result<Option<String>> {
+    let file_name = format!("{name}_FILE");
+    if env::var_os(name).is_none() && env::var_os(&file_name).is_none() {
+        return Ok(None);
+    }
+    load_required_secret(name).map(Some)
 }
 
 fn load_required_secret(name: &str) -> Result<String> {

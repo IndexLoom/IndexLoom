@@ -1,0 +1,53 @@
+{
+  "name": "IndexLoom — Indexer Workspace",
+  "short_name": "IndexLoom",
+  "description": "Private, configurable federated indexer manager",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#09090f",
+  "theme_color": "#09090f",
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/icons/indexloom-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/indexloom-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/indexloom.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Search",
+      "short_name": "Search",
+      "url": "/?view=search"
+    },
+    {
+      "name": "Indexers",
+      "short_name": "Indexers",
+      "url": "/?view=indexers"
+    },
+    {
+      "name": "Settings",
+      "short_name": "Settings",
+      "url": "/?view=settings"
+    }
+  ]
+}

@@ -84,3 +84,32 @@ does not bypass the configured background synchronization schedule.
 - Security advisories in current SQLx's bundled SQLite and the YAML parser
   require upstream fixes or an independently tested parser/storage migration;
   routine Cargo.lock refresh does not automatically resolve them.
+
+## Identity, mail and mobile PWA
+
+Implementation under review in the feature branch:
+
+- Local Argon2id sign-in, operator-token bootstrap, login throttling,
+  separate revocable sessions, user management and account disabling.
+- Verified OpenID Connect with PKCE, nonce, issuer/audience and a strict
+  allowlist; hybrid and explicitly disabled authentication modes.
+- Optional TLS SMTP; per-event email switches, customizable HTML/text templates,
+  password recovery, verification and sign-in alerts.
+- Mobile bottom navigation, tablet/laptop responsive layouts, iOS safe areas,
+  installable PWA with static-only offline shell and PNG app icons.
+
+Next milestones: verified real-provider integration and security review,
+TOTP/WebAuthn/passkeys, recovery codes, per-indexer ACLs and extended audit logs,
+push notifications, extended mail events, and the already planned Torznab,
+RSS, tracker compatibility suite and persistent search history.
+
+## Authentication hardening beyond the first MFA rollout
+
+- [x] Local password login, verified OIDC and legacy/hybrid/disabled modes.
+- [x] Owner/admin/viewer roles and account security event history.
+- [x] Optional TOTP with HMAC-SHA256, backup codes, encrypted factors and replay protection.
+- [ ] End-to-end tests against an external OIDC provider and SMTP server.
+- [ ] HTTP-only SameSite session cookies and CSRF lifecycle for browser clients.
+- [ ] FIDO2/WebAuthn passkeys, hardware authenticators and mandatory provider-independent MFA policies.
+- [ ] Recovery workflows with supportable account-owner identity proof and secure audit exports.
+- [ ] Replace or remove vulnerable upstream RustSec dependencies when compatible audited releases are available.

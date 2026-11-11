@@ -1,10 +1,13 @@
 import { AppearanceProvider } from "./lib/ui-preferences";
+import { AuthenticationProvider } from "./components/AdminSession";
+import { registerPwa } from "./lib/pwa";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
 import "./styles.css";
 import "./appearance.css";
+import "./auth-responsive.css";
 
 const root = document.getElementById("root");
 
@@ -14,6 +17,10 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <AppearanceProvider><App /></AppearanceProvider>
+    <AppearanceProvider>
+      <AuthenticationProvider><App /></AuthenticationProvider>
+    </AppearanceProvider>
   </StrictMode>,
 );
+
+registerPwa();

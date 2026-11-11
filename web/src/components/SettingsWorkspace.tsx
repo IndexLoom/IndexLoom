@@ -1,6 +1,8 @@
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
 
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
+import { SecuritySettings } from "./SecuritySettings";
+import { EmailSettings } from "./EmailSettings";
 import { ApiError, type CatalogStatus, fetchCatalogStatus } from "../lib/api";
 import {
   type PaletteKey, type UiPreferences, type Workspace,
@@ -8,9 +10,10 @@ import {
   paletteKeys, searchBlocks, themes, useAppearance,
 } from "../lib/ui-preferences";
 
-type Tab = "themes" | "layout" | "css" | "database";
+type Tab = "themes" | "layout" | "css" | "database" | "security" | "email";
 const labels: Record<Tab, string> = {
   themes: "Appearance", layout: "Layout", css: "Custom CSS", database: "Indexer database",
+  security: "Security & users", email: "Email & notifications",
 };
 const paletteLabels: Record<PaletteKey, string> = {
   page: "Background", surface: "Surface", raised: "Elevated surface",
@@ -20,6 +23,30 @@ const paletteLabels: Record<PaletteKey, string> = {
 
 export function SettingsWorkspace() {
   const { preferences, update, importProfile, reset } = useAppearance();
+  const { token, config } = useAdminSession();
+  const [canManageMail, setCanManageMail] = useState(config?.mode === "disabled");
+  useEffect(() => {
+    if (!token || !config) return;
+    const controller = new AbortController();
+    void fetch("/api/v1/auth/me", {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { Authorization: "Bearer " + token },
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Cannot load current account");
+      return await response.json() as {
+        user: { role?: string } | null;
+        method: string;
+      };
+    }).then((session) => {
+      if (controller.signal.aborted) return;
+      setCanManageMail(
+        session.method === "disabled" || session.method === "legacy-token"
+          || session.user?.role === "owner",
+      );
+    }).catch(() => { if (!controller.signal.aborted) setCanManageMail(false); });
+    return () => controller.abort();
+  }, [token, config]);
   const [tab, setTab] = useState<Tab>("themes");
   const [message, setMessage] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
@@ -61,7 +88,7 @@ export function SettingsWorkspace() {
         </div>
       </header>
       <div className="appearance-tabs" role="tablist" aria-label="Settings sections">
-        {(Object.keys(labels) as Tab[]).map((key) => (
+        {(Object.keys(labels) as Tab[]).filter((key) => key !== "email" || canManageMail).map((key) => (
           <button
             aria-selected={key === tab}
             className={tab === key ? "active" : ""}
@@ -203,6 +230,8 @@ export function SettingsWorkspace() {
       ) : null}
 
       {tab === "database" ? <CatalogDiagnostics /> : null}
+      {tab === "security" ? <SecuritySettings /> : null}
+      {tab === "email" && canManageMail ? <EmailSettings /> : null}
       <footer className="appearance-footer">
         <div>
           <button className="quiet-button" onClick={exportProfile} type="button">Export profile</button>

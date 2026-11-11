@@ -31,6 +31,17 @@ explicit HTTP, SOCKS and FlareSolverr routing.
   reorderable/hideable workspace blocks, plus JSON profile import/export.
 - Store tracker cookies, API keys, passwords, passkeys and proxy credentials
   encrypted with XChaCha20-Poly1305.
+- Select legacy bearer-token, local username/email + Argon2id password, verified
+  OpenID Connect (PKCE) or hybrid authentication; explicit insecure no-auth
+  mode is available only with a separate operator acknowledgement.
+- Enforce owner/admin/viewer API roles with least-privileged new accounts,
+  database protection against losing the final owner, and a security event log.
+- Protect local password accounts with optional SHA-256 TOTP, short-lived
+  second-factor login challenges, encrypted enrollment and one-use recovery codes.
+- Optionally configure SMTP with per-event notification switches, editable
+  plain-text/HTML templates, email verification and password reset links.
+- Install a responsive PWA on phones, tablets or laptops with a mobile bottom
+  bar, offline static shell, safe-area support and device-local appearance.
 - Route globally, by group or by indexer through HTTP, SOCKS4a or SOCKS5h, with
   optional FlareSolverr for definitions that need browser challenge handling.
 - Synchronize a separate, reproducible catalog transactionally while retaining
@@ -84,6 +95,15 @@ Open `http://127.0.0.1:8080`, enter the administrator token for the current
 browser tab, and configure only the indexers you intend to use. A reverse proxy
 can be added separately when remote access is required.
 
+For **OIDC-only** installation without an operator token, run
+`docker compose -f compose.no-operator.yaml up --build -d` with
+`INDEXLOOM_AUTH_MODE=oidc` and a configured HTTPS identity provider.
+The same file permits an isolated no-auth deployment if the explicit
+`INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true` acknowledgment is also set.
+Unlike the default Compose file, it does not require an administrator
+bearer token secret. Keep it loopback-bound or behind a trusted reverse
+proxy, and never expose the no-auth mode to the public Internet.
+
 The application also accepts `INDEXLOOM_ADMIN_TOKEN_FILE` and
 `INDEXLOOM_MASTER_KEY_FILE` in custom Docker or Kubernetes deployments. Each
 pair is mutually exclusive. Mounted secret files may end in one LF or CRLF;
@@ -95,8 +115,12 @@ are supported.
 | --- | --- | --- |
 | `INDEXLOOM_BIND` | `0.0.0.0:8080` | HTTP listener inside the container |
 | `INDEXLOOM_DATABASE_URL` | `sqlite:///data/indexloom.db?mode=rwc` | Storage connection string |
-| `INDEXLOOM_ADMIN_TOKEN` / `_FILE` | required | Independent API administrator credential |
+| `INDEXLOOM_ADMIN_TOKEN` / `_FILE` | required in token/hybrid and initial local bootstrap | Independent operator credential; not accepted for ordinary API access in local/OIDC mode |
 | `INDEXLOOM_MASTER_KEY` / `_FILE` | required | Standard Base64 encoding of exactly 32 bytes |
+| `INDEXLOOM_AUTH_MODE` | `token` | `token`, `local`, `oidc`, `hybrid` or `disabled` |
+| `INDEXLOOM_MAIL_MODE` | `disabled` | Optional SMTP; keep disabled if notifications and recovery are unnecessary |
+| `INDEXLOOM_REQUIRE_VERIFIED_EMAIL` | `false` | Require verified local email addresses when SMTP is enabled |
+| `INDEXLOOM_ALLOW_UNSAFE_NO_AUTH` | `false` | Must be `true` before selecting `disabled`; never use on publicly accessible servers |
 | `INDEXLOOM_CATALOG_DIR` | empty | Optional local Indexers checkout |
 | `INDEXLOOM_CATALOG_SOURCE_URL` | Latest Indexers release manifest | Release source URL (legacy archives also supported) |
 | `INDEXLOOM_CATALOG_SYNC_SECONDS` | `21600` | Refresh period; `0` disables periodic refresh |
@@ -104,6 +128,26 @@ are supported.
 
 Do not reuse the admin token as the master key. Losing the master key makes
 encrypted tracker credentials unrecoverable.
+
+## Authentication, email and PWA
+
+The default token-only setup is unchanged and remains valid for existing
+deployments. **Settings → Security & users** manages local accounts, password
+changes and access mode status. **Settings → Email & notifications** manages
+notification switches and editable message templates. Auth and SMTP
+configuration are server-side startup settings; passwords and SMTP credentials
+must not be committed to this repository.
+
+For local login, configure `INDEXLOOM_AUTH_MODE=local` and use the operator
+token once to bootstrap the initial account. OIDC requires a verified HTTPS
+issuer, PKCE-compatible client and explicit permitted email list. Switching
+to `disabled` disables authorization of all protected API routes; do this
+only on a trusted, isolated network.
+
+Detailed [authentication and SMTP guide](docs/AUTHENTICATION.md), including
+OIDC setup, security limitations, recovery, and all API endpoints.
+[PWA and responsive installation guide](docs/PWA.md) covers smartphones,
+tablets, standalone installs and offline behavior.
 
 ## Catalog lifecycle
 

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { useAppearance } from "../lib/ui-preferences";
+import { useAdminSession } from "./AdminSession";
+import { useEffect, useState } from "react";
 
 export type View = "search" | "indexers" | "history" | "settings";
 
@@ -18,6 +20,22 @@ const navigation: Array<{ id: View; label: string }> = [
 
 export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
   const { preferences } = useAppearance();
+  const { clearToken, config } = useAdminSession();
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null);
+  useEffect(() => {
+    const handler = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+  function install() {
+    if (!installPrompt) return;
+    const event = installPrompt as Event & { prompt: () => Promise<void> };
+    void event.prompt();
+    setInstallPrompt(null);
+  }
   const orderedNavigation = [...navigation].sort(
     (left, right) => preferences.navigation.indexOf(left.id) - preferences.navigation.indexOf(right.id),
   );
@@ -63,13 +81,11 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
       <main className="workspace" id="main-workspace" tabIndex={-1}>
         <div className="workspace-topbar">
           <span className="topbar-location">Workspace <span>/</span> {navigation.find((item) => item.id === activeView)?.label}</span>
-          <button
-            className="topbar-settings"
-            onClick={() => onNavigate("settings")}
-            type="button"
-          >
-            Appearance
-          </button>
+          <div className="topbar-actions">
+            {installPrompt ? <button className="topbar-settings" onClick={install} type="button">Install app</button> : null}
+            <button className="topbar-settings" onClick={() => onNavigate("settings")} type="button">Appearance</button>
+            {config?.mode !== "disabled" ? <button className="topbar-settings" onClick={clearToken} type="button">Sign out</button> : null}
+          </div>
         </div>
         {children}
       </main>

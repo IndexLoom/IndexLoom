@@ -1,0 +1,41 @@
+name: Resolve MFA Cargo lockfile
+on:
+  push:
+    branches: [feature/auth-mail-pwa-20261112]
+    paths: [.github/workflows/resolve-mfa-lock.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: resolve-mfa-feature-lock
+  cancel-in-progress: false
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/auth-mail-pwa-20261112
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.0"
+      - name: Regenerate minimally changed workspace lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH=feature/auth-mail-pwa-20261112
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4; do
+            git fetch origin "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            cargo update --workspace
+            cargo metadata --locked --format-version 1 > /dev/null
+            git diff --check
+            if git diff --quiet -- Cargo.lock; then exit 0; fi
+            git add Cargo.lock
+            git commit -m "chore(mfa): regenerate locked authenticator dependencies"
+            if git push origin "HEAD:$BRANCH"; then exit 0; fi
+          done
+          exit 1

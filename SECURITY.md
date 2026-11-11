@@ -13,7 +13,20 @@ handling.
 
 ## Credential model
 
-Configuration writes require `INDEXLOOM_ADMIN_TOKEN`. Tracker passwords,
+Authentication is selected through `INDEXLOOM_AUTH_MODE`; the default
+`token` mode retains the existing bearer token. The `local` mode uses
+per-user Argon2id password hashes and revocable sessions. `oidc` validates
+OpenID Connect Authorization Code + PKCE, ID token signatures, nonce,
+issuer, audience, expiry and verified email against an explicit allowlist.
+`hybrid` permits all configured login methods.
+
+All users currently have full administrator access; RBAC and MFA remain
+unimplemented. Mode `disabled` requires two independent settings and
+exposes **every management route** without a login. Never expose it on a
+public network. Password reset tokens, email verification secrets and
+opaque login sessions are stored hashed in the SQLite database.
+
+Tracker passwords,
 cookies, API keys, passkeys, PINs, and 2FA tokens are encrypted with
 XChaCha20-Poly1305 under the independent `INDEXLOOM_MASTER_KEY`. The API returns
 only the names of configured secret fields, never their values. The master key
@@ -69,3 +82,22 @@ committed. Manifest downloads are limited to 1 MiB and exported catalogs to
 is **not** a substitute for signed, independently authenticated releases.
 Administrators should only configure trusted release feeds, and use network egress
 policies where DNS rebinding protection is required.
+
+## Authentication, email and PWA hardening
+
+The initial account can only be bootstrapped with the independent operator
+secret. Extra users are created from authenticated management APIs, not
+public registration. Local password changes revoke all sessions, and
+failed logins are rate-limited by normalized identity. External proxies
+should additionally enforce IP-aware rate limits.
+
+SMTP is off by default; opt-in delivery requires TLS. Editable HTML email
+templates are trusted administrator content, but data substitutions are
+HTML-escaped. OIDC client secrets, mail passwords and the operator token
+must be kept in protected deployment configuration.
+
+Auth API responses are never cached; the PWA caches only the static shell,
+not search results, OAuth data, account profiles or API replies. HTTP
+security headers suppress referrer leakage and iframe embedding.
+Local and connected-provider login, mail recovery, and notifications require
+end-to-end testing against the operator's real OIDC and SMTP providers.

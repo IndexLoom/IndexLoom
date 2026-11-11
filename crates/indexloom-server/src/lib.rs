@@ -33,6 +33,7 @@ mod embedded_web {
 
 use url::Url;
 
+pub mod auth;
 pub mod catalog;
 mod execution;
 mod management;
@@ -47,7 +48,9 @@ const MAX_CONFIGURATION_FIELDS: usize = 128;
 pub struct AppState {
     store: Store,
     vault: SecretVault,
-    admin_token: AdminToken,
+    admin_token: Option<AdminToken>,
+    auth_settings: auth::AuthSettings,
+    mail_sender: Option<auth::MailSender>,
     test_jobs: execution::TestJobRegistry,
     executor_cache: execution::ExecutorCache,
     search_permits: Arc<tokio::sync::Semaphore>,
@@ -60,7 +63,30 @@ impl AppState {
         Self {
             store,
             vault,
+            admin_token: Some(admin_token),
+            auth_settings: auth::AuthSettings::legacy(),
+            mail_sender: None,
+            test_jobs: execution::TestJobRegistry::default(),
+            executor_cache: execution::ExecutorCache::default(),
+            search_permits: execution::search_permits(),
+        }
+    }
+
+    /// Runtime-selectable authentication and mail configuration.
+    #[must_use]
+    pub fn with_auth(
+        store: Store,
+        vault: SecretVault,
+        admin_token: Option<AdminToken>,
+        auth_settings: auth::AuthSettings,
+        mail_sender: Option<auth::MailSender>,
+    ) -> Self {
+        Self {
+            store,
+            vault,
             admin_token,
+            auth_settings,
+            mail_sender,
             test_jobs: execution::TestJobRegistry::default(),
             executor_cache: execution::ExecutorCache::default(),
             search_permits: execution::search_permits(),
@@ -128,12 +154,15 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         )
         .merge(management::routes())
         .merge(execution::routes())
+        .merge(auth::private_routes())
         .layer(DefaultBodyLimit::max(MAX_CONFIGURATION_BODY))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
 
     let api = Router::new()
         .route("/api/v1/health", get(health))
-        .merge(protected);
+        .merge(auth::public_routes())
+        .merge(protected)
+        .layer(middleware::from_fn(security_headers));
 
     #[cfg(feature = "headless")]
     {
@@ -150,6 +179,36 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         let web = ServeDir::new(web_root).append_index_html_on_directories(true);
         api.fallback_service(web).with_state(state)
     }
+}
+
+async fn security_headers(request: Request, next: Next) -> Response {
+    let auth_endpoint = request.uri().path().starts_with("/api/v1/auth/");
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+    if auth_endpoint {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, private"),
+        );
+        headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    }
+    response
 }
 
 #[cfg(feature = "embedded-web")]
@@ -243,8 +302,15 @@ async fn health(
 }
 
 async fn require_admin(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    if !state.admin_token.authorizes(request.headers()) {
-        return ApiError::unauthorized().into_response();
+    if let Err(error) = auth::authorize_action(
+        &state,
+        request.headers(),
+        request.method(),
+        request.uri().path(),
+    )
+    .await
+    {
+        return error.into_response();
     }
     let mut response = next.run(request).await;
     response
@@ -535,7 +601,27 @@ impl ApiError {
             status: StatusCode::UNAUTHORIZED,
             body: ErrorBody {
                 code: "UNAUTHORIZED",
-                message: "a valid administrator bearer token is required",
+                message: "valid authentication is required",
+            },
+        }
+    }
+
+    const fn forbidden() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            body: ErrorBody {
+                code: "FORBIDDEN",
+                message: "your role does not permit this operation",
+            },
+        }
+    }
+
+    const fn conflict(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            body: ErrorBody {
+                code: "CONFLICT",
+                message,
             },
         }
     }
@@ -690,6 +776,135 @@ spec:
     }
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn local_bootstrap_requires_operator_secret_and_sessions_are_revoked() {
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Local;
+        let app = router(state, PathBuf::from("missing-web-root"));
+
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let payload = r#"{"username":"alice","email":"alice@example.org","password":"very-long-secret-password"}"#;
+        let rejected = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, "Bearer invalid")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+        let created = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.status(), StatusCode::OK);
+        let data: serde_json::Value =
+            serde_json::from_slice(&to_bytes(created.into_body(), 32_768).await.unwrap()).unwrap();
+        let access_token = data["accessToken"]
+            .as_str()
+            .expect("session token is returned");
+        assert!(access_token.len() >= 40);
+        assert_eq!(data["user"]["username"], "alice");
+
+        let repeat = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(repeat.status(), StatusCode::CONFLICT);
+
+        let accessible = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(accessible.status(), StatusCode::OK);
+
+        let logged_out = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(logged_out.status(), StatusCode::NO_CONTENT);
+
+        let rejected_again = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected_again.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn disabled_mode_explicitly_removes_auth_from_management_api() {
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Disabled;
+        let response = router(state, PathBuf::from("missing-web-root"))
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn management_api_requires_bearer_token() {
         let response = router(test_state().await, PathBuf::from("missing-web-root"))
             .oneshot(
@@ -832,6 +1047,333 @@ spec:
         assert!(text.contains(r#""displayName":"Example Private""#));
         assert!(text.contains(r#""groupIds":["private"]"#));
         assert!(text.contains(r#""tags":["anime","private"]"#));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn local_bootstrap_login_logout_and_legacy_token_isolation() {
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Local;
+        let app = router(state, PathBuf::from("missing-web-root"));
+        let bootstrap_json = r#"{"username":"alice","email":"alice@example.org","password":"correct-horse-battery"}"#;
+        let without_operator = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(bootstrap_json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(without_operator.status(), StatusCode::UNAUTHORIZED);
+
+        let bootstrap = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::from(bootstrap_json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bootstrap.status(), StatusCode::OK);
+        let body = to_bytes(bootstrap.into_body(), 4096).await.unwrap();
+        let session: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let token = session["accessToken"].as_str().unwrap();
+        assert_eq!(session["user"]["username"], "alice");
+
+        let legacy = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(legacy.status(), StatusCode::UNAUTHORIZED);
+
+        let authorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(authorized.status(), StatusCode::OK);
+
+        let repeated = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(bootstrap_json))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(repeated.status(), StatusCode::CONFLICT);
+
+        let login_bad = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"login":"alice","password":"wrong-password"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_bad.status(), StatusCode::UNAUTHORIZED);
+
+        let login_ok = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/login")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        r#"{"login":"alice@example.org","password":"correct-horse-battery"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_ok.status(), StatusCode::OK);
+
+        let logout = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(logout.status(), StatusCode::NO_CONTENT);
+
+        let revoked = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn explicitly_disabled_mode_bypasses_admin_gate() {
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Disabled;
+        let response = router(state, PathBuf::from("missing-web-root"))
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)]
+    async fn role_policies_protect_direct_api_requests_not_just_frontend_controls() {
+        use axum::http::Method;
+
+        const OWNER: &str = "owner-session-token-longer-than-forty-characters";
+        const ADMIN: &str = "admin-session-token-longer-than-forty-characters";
+        const VIEWER: &str = "viewer-session-token-longer-than-forty-characters";
+
+        async fn request_as(
+            app: axum::Router,
+            method: Method,
+            path: &'static str,
+            token: &'static str,
+            body: &'static str,
+        ) -> StatusCode {
+            app.oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+            .status()
+        }
+
+        let mut state = test_state().await;
+        state.auth_settings.mode = super::auth::AuthMode::Local;
+        state
+            .store
+            .bootstrap_admin("owner-id", "owner", "owner@example.org", "hash", true)
+            .await
+            .unwrap();
+        state
+            .store
+            .add_local_user(
+                "admin-id",
+                "admin",
+                "admin@example.org",
+                "hash",
+                true,
+                "admin",
+            )
+            .await
+            .unwrap();
+        state
+            .store
+            .add_local_user(
+                "viewer-id",
+                "viewer",
+                "viewer@example.org",
+                "hash",
+                true,
+                "viewer",
+            )
+            .await
+            .unwrap();
+        for (token, id) in [
+            (OWNER, "owner-id"),
+            (ADMIN, "admin-id"),
+            (VIEWER, "viewer-id"),
+        ] {
+            state
+                .store
+                .create_session(&super::auth::digest(token), id, 120)
+                .await
+                .unwrap();
+        }
+        let app = router(state.clone(), PathBuf::from("missing-web-root"));
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/indexers", VIEWER, "").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::POST, "/api/v1/search", VIEWER, "{}").await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            request_as(
+                app.clone(),
+                Method::PUT,
+                "/api/v1/flaresolverr/abc",
+                VIEWER,
+                "{}"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/auth/users", VIEWER, "").await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/auth/mail", VIEWER, "").await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/auth/audit", ADMIN, "").await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/auth/users", ADMIN, "").await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request_as(
+                app.clone(),
+                Method::PUT,
+                "/api/v1/flaresolverr/abc",
+                ADMIN,
+                "{}"
+            )
+            .await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/auth/users", OWNER, "").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/auth/audit", OWNER, "").await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/indexers", TOKEN, "").await,
+            StatusCode::UNAUTHORIZED
+        );
+
+        let elevate = request_as(
+            app.clone(),
+            Method::PUT,
+            "/api/v1/auth/users/viewer-id/role",
+            OWNER,
+            r#"{"role":"admin"}"#,
+        )
+        .await;
+        assert_eq!(elevate, StatusCode::OK);
+        assert_eq!(
+            request_as(
+                app.clone(),
+                Method::PUT,
+                "/api/v1/flaresolverr/abc",
+                VIEWER,
+                "{}"
+            )
+            .await,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/auth/users", VIEWER, "").await,
+            StatusCode::FORBIDDEN
+        );
+        let demote = request_as(
+            app.clone(),
+            Method::PUT,
+            "/api/v1/auth/users/viewer-id/role",
+            OWNER,
+            r#"{"role":"viewer"}"#,
+        )
+        .await;
+        assert_eq!(demote, StatusCode::OK);
+        assert_eq!(
+            request_as(app, Method::PUT, "/api/v1/flaresolverr/abc", VIEWER, "{}").await,
+            StatusCode::FORBIDDEN
+        );
     }
 
     #[test]
