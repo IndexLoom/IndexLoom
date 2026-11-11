@@ -306,7 +306,7 @@ function IndexersManager({
   ).length;
 
   return (
-    <section className="settings-view" aria-labelledby="indexers-heading">
+    <section className="settings-view" data-layout-kind="indexers" aria-labelledby="indexers-heading">
       <div className="page-heading">
         <div>
           <p className="eyebrow">Indexer control center</p>
@@ -321,7 +321,7 @@ function IndexersManager({
         </button>
       </div>
 
-      <div className="overview-grid" aria-label="Indexer overview">
+      <div className="overview-grid" data-ui-section="overview" aria-label="Indexer overview">
         <OverviewMetric label="Definitions" value={state.indexers.length} />
         <OverviewMetric label="Enabled" tone="healthy" value={enabledCount} />
         <OverviewMetric label="Groups" value={state.groups.length} />
@@ -331,7 +331,7 @@ function IndexersManager({
         />
       </div>
 
-      <nav className="management-tabs" aria-label="Indexer management">
+      <nav className="management-tabs" data-ui-section="tools" aria-label="Indexer management">
         {managementNavigation.map((item) => (
           <button
             aria-pressed={managementView === item.id}
@@ -346,7 +346,7 @@ function IndexersManager({
         ))}
       </nav>
 
-      <div className="management-panel">
+      <div className="management-panel" data-ui-section="panel">
         {managementView === "catalog" ? (
           <IndexerConfigurationPanel
             connectors={state.connectors}

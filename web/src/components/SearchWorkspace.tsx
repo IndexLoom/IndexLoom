@@ -93,7 +93,7 @@ function AuthenticatedSearch({
   const enabledIndexers = useMemo(
     () =>
       workspace.kind === "ready"
-        ? workspace.indexers.filter((indexer) => indexer.enabled)
+        ? workspace.indexers.filter((indexer) => indexer.enabled && indexer.catalogAvailable)
         : [],
     [workspace],
   );
@@ -208,7 +208,7 @@ function AuthenticatedSearch({
         </button>
       </div>
 
-      <div className="overview-grid search-overview" aria-label="Search overview">
+      <div className="overview-grid search-overview" aria-label="Search overview" data-ui-section="overview">
         <div className="overview-metric healthy">
           <strong>{enabledIndexers.length.toLocaleString()}</strong>
           <span>Enabled indexers</span>
@@ -223,7 +223,7 @@ function AuthenticatedSearch({
         </div>
       </div>
 
-      <form className="search-toolbar" onSubmit={submitSearch}>
+      <form className="search-toolbar" data-ui-section="query" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="query">
           Search across indexers
         </label>
@@ -251,7 +251,7 @@ function AuthenticatedSearch({
         </p>
       ) : null}
 
-      <section className="data-section" aria-labelledby="status-heading">
+      <section className="data-section" data-ui-section="status" aria-labelledby="status-heading">
         <div className="section-heading">
           <h2 id="status-heading">Indexer status</h2>
           <RuntimeStatus health={workspace.health} />
@@ -309,7 +309,7 @@ function AuthenticatedSearch({
         </div>
       </section>
 
-      <section className="data-section" aria-labelledby="results-heading">
+      <section className="data-section" data-ui-section="results" aria-labelledby="results-heading">
         <div className="section-heading">
           <h2 id="results-heading">Results by indexer</h2>
           <span className="muted">

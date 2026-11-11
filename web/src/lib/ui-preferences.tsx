@@ -132,6 +132,8 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     root.dataset.appearance = themes[preferences.theme].dark ? "dark" : "light";
     root.dataset.sidebar = preferences.sidebar;
     root.dataset.density = preferences.density;
+    root.dataset.hiddenSearch = preferences.hiddenBlocks.search.join(" ");
+    root.dataset.hiddenIndexers = preferences.hiddenBlocks.indexers.join(" ");
     for (const kind of ["search", "indexers"] as const) {
       for (const [index, id] of preferences.blocks[kind].entries()) {
         root.style.setProperty("--" + kind + "-block-" + id + "-order", String(index));
