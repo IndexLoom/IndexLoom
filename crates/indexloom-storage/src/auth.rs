@@ -381,13 +381,17 @@ impl Store {
         email: &str,
         issuer: &str,
         subject: &str,
+        role: &str,
     ) -> Result<(), StorageError> {
+        if !matches!(role, "owner" | "viewer") {
+            return Err(StorageError::InvalidData("invalid OIDC role".to_owned()));
+        }
         let now = epoch();
         sqlx::query(
             "INSERT INTO auth_users(id, username, email, oidc_issuer, oidc_subject, email_verified, created_at, updated_at, role) \
-             VALUES (?, ?, ?, ?, ?, 1, ?, ?, CASE WHEN (SELECT COUNT(*) FROM auth_users) = 0 THEN 'owner' ELSE 'viewer' END)"
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)"
         )
-        .bind(id).bind(username).bind(email).bind(issuer).bind(subject).bind(now).bind(now)
+        .bind(id).bind(username).bind(email).bind(issuer).bind(subject).bind(now).bind(now).bind(role)
         .execute(&self.pool).await?;
         Ok(())
     }
@@ -855,7 +859,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn first_oidc_user_is_owner_but_subsequent_identities_are_viewers() {
+    async fn explicit_owner_role_is_not_based_on_oidc_login_order() {
         let store = Store::connect("sqlite::memory:").await.unwrap();
         store
             .add_oidc_user(
@@ -864,6 +868,7 @@ mod tests {
                 "one@example.org",
                 "https://issuer.example.org",
                 "subject-1",
+                "viewer",
             )
             .await
             .unwrap();
@@ -874,6 +879,7 @@ mod tests {
                 "two@example.org",
                 "https://issuer.example.org",
                 "subject-2",
+                "owner",
             )
             .await
             .unwrap();
@@ -884,7 +890,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .role,
-            "owner"
+            "viewer"
         );
         assert_eq!(
             store
@@ -893,7 +899,7 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .role,
-            "viewer"
+            "owner"
         );
     }
 }
