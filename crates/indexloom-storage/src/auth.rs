@@ -107,7 +107,7 @@ impl Store {
     ) -> Result<(), StorageError> {
         let now = epoch();
         sqlx::query(
-            "INSERT INTO auth_users(id, username, email, password_hash, email_verified, created_at, updated_at) \\
+            "INSERT INTO auth_users(id, username, email, password_hash, email_verified, created_at, updated_at) \
              VALUES (?, ?, ?, ?, ?, ?, ?)"
         ).bind(id).bind(username).bind(email).bind(password_hash)
             .bind(email_verified).bind(now).bind(now)
@@ -117,7 +117,7 @@ impl Store {
 
     pub async fn list_auth_users(&self) -> Result<Vec<AuthUserView>, StorageError> {
         let users = sqlx::query_as::<_, AuthUser>(
-            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, \\
+            "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, \
              email_verified, disabled FROM auth_users ORDER BY username COLLATE NOCASE"
         ).fetch_all(&self.pool).await?;
         Ok(users.iter().map(AuthUser::view).collect())
