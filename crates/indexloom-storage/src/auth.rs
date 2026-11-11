@@ -27,6 +27,8 @@ pub struct AuthUser {
     pub disabled: bool,
 }
 
+// Intentionally omit identity-provider and password secrets from Debug.
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for AuthUser {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -42,6 +44,8 @@ impl std::fmt::Debug for AuthUser {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+// These explicit booleans are a compact, stable read-only API representation.
+#[allow(clippy::struct_excessive_bools)]
 pub struct AuthUserView {
     pub id: String,
     pub username: String,
@@ -85,6 +89,10 @@ pub struct MailEventSetting {
 
 impl Store {
     /// Count existing accounts. Initial administrator creation is guarded by a one-time insert.
+    /// Counts users for secure first-run setup.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn auth_user_count(&self) -> Result<i64, StorageError> {
         Ok(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM auth_users")
@@ -94,6 +102,10 @@ impl Store {
     }
 
     /// Insert exactly one initial account; concurrent setup requests cannot create a second owner.
+    /// Atomically inserts exactly one initial administrator.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn bootstrap_admin(
         &self,
         id: &str,
@@ -113,6 +125,10 @@ impl Store {
         Ok(result.rows_affected() == 1)
     }
 
+    /// Creates an account with a pre-hashed password.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn add_local_user(
         &self,
         id: &str,
@@ -131,6 +147,10 @@ impl Store {
         Ok(())
     }
 
+    /// Lists public account fields without password or token secrets.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn list_auth_users(&self) -> Result<Vec<AuthUserView>, StorageError> {
         let users = sqlx::query_as::<_, AuthUser>(
             "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, \
@@ -142,6 +162,10 @@ impl Store {
     }
 
     /// Never disable the last active user; a disabled account loses all sessions.
+    /// Changes account status and revokes its sessions when disabled.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn set_user_disabled(
         &self,
         user_id: &str,
@@ -176,6 +200,10 @@ impl Store {
         Ok(true)
     }
 
+    /// Looks up an account by username or email.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn auth_user_by_login(&self, login: &str) -> Result<Option<AuthUser>, StorageError> {
         Ok(sqlx::query_as::<_, AuthUser>(
             "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled \
@@ -183,6 +211,10 @@ impl Store {
         ).bind(login).bind(login).fetch_optional(&self.pool).await?)
     }
 
+    /// Retrieves one user by immutable identifier.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn auth_user_by_id(&self, id: &str) -> Result<Option<AuthUser>, StorageError> {
         Ok(sqlx::query_as::<_, AuthUser>(
             "SELECT id, username, email, password_hash, oidc_issuer, oidc_subject, email_verified, disabled \
@@ -190,6 +222,10 @@ impl Store {
         ).bind(id).fetch_optional(&self.pool).await?)
     }
 
+    /// Finds a previously bound issuer and subject.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn auth_user_by_oidc(
         &self,
         issuer: &str,
@@ -202,6 +238,10 @@ impl Store {
     }
 
     /// OIDC subjects remain bound to the issuer; email collisions never auto-link accounts.
+    /// Creates an OIDC-only account with immutable issuer binding.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn add_oidc_user(
         &self,
         id: &str,
@@ -220,6 +260,10 @@ impl Store {
         Ok(())
     }
 
+    /// Persists a hashed opaque session with a bounded expiry.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn create_session(
         &self,
         digest: &str,
@@ -235,6 +279,10 @@ impl Store {
         Ok(expires)
     }
 
+    /// Resolves a valid, non-expired opaque session.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn auth_user_for_session(
         &self,
         digest: &str,
@@ -251,6 +299,10 @@ impl Store {
         .await?)
     }
 
+    /// Revokes a single server-issued session.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn revoke_session(&self, digest: &str) -> Result<(), StorageError> {
         sqlx::query("DELETE FROM auth_sessions WHERE token_sha256 = ?")
             .bind(digest)
@@ -259,6 +311,10 @@ impl Store {
         Ok(())
     }
 
+    /// Revokes all sessions belonging to an account.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn revoke_all_sessions(&self, user_id: &str) -> Result<(), StorageError> {
         sqlx::query("DELETE FROM auth_sessions WHERE user_id = ?")
             .bind(user_id)
@@ -267,6 +323,10 @@ impl Store {
         Ok(())
     }
 
+    /// Issues a short-lived verification or recovery token.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn create_one_time_token(
         &self,
         digest: &str,
@@ -290,6 +350,10 @@ impl Store {
     }
 
     /// A single DELETE RETURNING enforces one-time use across concurrent requests.
+    /// Atomically consumes a one-time token and returns its owner.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn consume_one_time_token(
         &self,
         digest: &str,
@@ -306,6 +370,10 @@ impl Store {
         .await?)
     }
 
+    /// Marks the account email address verified.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn verify_email(&self, user_id: &str) -> Result<(), StorageError> {
         sqlx::query("UPDATE auth_users SET email_verified = 1, updated_at = ? WHERE id = ?")
             .bind(epoch())
@@ -315,6 +383,10 @@ impl Store {
         Ok(())
     }
 
+    /// Replaces a password hash and revokes all account sessions.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn change_password(
         &self,
         user_id: &str,
@@ -329,6 +401,10 @@ impl Store {
         self.revoke_all_sessions(user_id).await
     }
 
+    /// Stores a short-lived OIDC state, PKCE verifier and nonce.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn store_oidc_flow(
         &self,
         state_digest: &str,
@@ -345,6 +421,10 @@ impl Store {
         Ok(())
     }
 
+    /// Atomically consumes the OIDC state and returns its verifier.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn consume_oidc_flow(
         &self,
         state_digest: &str,
@@ -359,6 +439,10 @@ impl Store {
         .await?)
     }
 
+    /// Checks the persistent login-attempt lockout.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn is_login_locked(&self, digest: &str) -> Result<bool, StorageError> {
         Ok(sqlx::query_scalar::<_, i64>(
             "SELECT locked_until FROM auth_rate_limits WHERE identity_sha256 = ?",
@@ -369,6 +453,10 @@ impl Store {
         .is_some_and(|until| until > epoch()))
     }
 
+    /// Records a failed login and applies a bounded lockout.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn record_login_failure(&self, digest: &str) -> Result<(), StorageError> {
         let now = epoch();
         sqlx::query(
@@ -390,6 +478,10 @@ impl Store {
         Ok(())
     }
 
+    /// Removes the failed login counter after success.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn clear_login_failures(&self, digest: &str) -> Result<(), StorageError> {
         sqlx::query("DELETE FROM auth_rate_limits WHERE identity_sha256 = ?")
             .bind(digest)
@@ -398,6 +490,10 @@ impl Store {
         Ok(())
     }
 
+    /// Lists the currently customized message templates.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn mail_templates(&self) -> Result<Vec<MailTemplate>, StorageError> {
         Ok(sqlx::query_as::<_, MailTemplate>(
             "SELECT kind, subject, text_body, html_body FROM mail_templates ORDER BY kind",
@@ -406,6 +502,10 @@ impl Store {
         .await?)
     }
 
+    /// Gets the optional custom template for an event.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn mail_template(&self, kind: &str) -> Result<Option<MailTemplate>, StorageError> {
         Ok(sqlx::query_as::<_, MailTemplate>(
             "SELECT kind, subject, text_body, html_body FROM mail_templates WHERE kind = ?",
@@ -415,6 +515,10 @@ impl Store {
         .await?)
     }
 
+    /// Creates or replaces a custom email template.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn save_mail_template(&self, template: &MailTemplate) -> Result<(), StorageError> {
         sqlx::query(
             "INSERT INTO mail_templates(kind, subject, text_body, html_body, updated_at) \
@@ -433,6 +537,10 @@ impl Store {
         Ok(())
     }
 
+    /// Lists the configured notification event switches.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn mail_event_settings(&self) -> Result<Vec<MailEventSetting>, StorageError> {
         Ok(sqlx::query_as::<_, MailEventSetting>(
             "SELECT kind, enabled FROM mail_event_settings ORDER BY kind",
@@ -441,6 +549,10 @@ impl Store {
         .await?)
     }
 
+    /// Checks whether a notification event may send email.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn is_mail_event_enabled(&self, kind: &str) -> Result<bool, StorageError> {
         Ok(
             sqlx::query_scalar::<_, bool>("SELECT enabled FROM mail_event_settings WHERE kind = ?")
@@ -451,6 +563,10 @@ impl Store {
         )
     }
 
+    /// Enables or disables an email event.
+    ///
+    /// # Errors
+    /// Returns a storage error if the SQLite operation fails.
     pub async fn set_mail_event_enabled(
         &self,
         kind: &str,
