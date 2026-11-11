@@ -88,6 +88,25 @@ pub struct MailEventSetting {
 }
 
 impl Store {
+    /// Prunes expired session, recovery, OIDC and rate-limit state.
+    ///
+    /// # Errors
+    /// Returns an error if the database cannot be updated.
+    pub async fn purge_expired_auth_state(&self) -> Result<(), StorageError> {
+        let now = epoch();
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("DELETE FROM auth_sessions WHERE expires_at <= ?")
+            .bind(now).execute(&mut *transaction).await?;
+        sqlx::query("DELETE FROM auth_one_time_tokens WHERE expires_at <= ?")
+            .bind(now).execute(&mut *transaction).await?;
+        sqlx::query("DELETE FROM auth_oidc_flows WHERE expires_at <= ?")
+            .bind(now).execute(&mut *transaction).await?;
+        sqlx::query("DELETE FROM auth_rate_limits WHERE updated_at < ?")
+            .bind(now - 86400).execute(&mut *transaction).await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
     /// Count existing accounts. Initial administrator creation is guarded by a one-time insert.
     /// Counts users for secure first-run setup.
     ///
