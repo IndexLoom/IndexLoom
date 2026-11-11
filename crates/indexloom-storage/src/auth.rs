@@ -96,13 +96,21 @@ impl Store {
         let now = epoch();
         let mut transaction = self.pool.begin().await?;
         sqlx::query("DELETE FROM auth_sessions WHERE expires_at <= ?")
-            .bind(now).execute(&mut *transaction).await?;
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query("DELETE FROM auth_one_time_tokens WHERE expires_at <= ?")
-            .bind(now).execute(&mut *transaction).await?;
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query("DELETE FROM auth_oidc_flows WHERE expires_at <= ?")
-            .bind(now).execute(&mut *transaction).await?;
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query("DELETE FROM auth_rate_limits WHERE updated_at < ?")
-            .bind(now - 86400).execute(&mut *transaction).await?;
+            .bind(now - 86400)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
