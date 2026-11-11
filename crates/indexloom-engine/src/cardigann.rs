@@ -208,8 +208,27 @@ impl CardigannExecutor {
             .transpose()?
             .unwrap_or_else(|| term.to_owned());
         let render = self.context.for_search(&keywords, BTreeMap::new());
-        let path = first_search_path(search)?;
-        let response = self.execute_search_path(search, path, &render).await?;
+        // Cardigann can declare multiple search paths. Fall back only for
+        // temporary transport/server errors; malformed templates, authentication
+        // errors and policy violations are not made safe by trying another path.
+        let paths = all_search_paths(search)?;
+        let mut last_error = None;
+        let mut selected = None;
+        for (index, path) in paths.iter().enumerate() {
+            match self.execute_search_path(search, path, &render).await {
+                Ok(response) => {
+                    selected = Some(response);
+                    break;
+                }
+                Err(error) if index + 1 < paths.len() && retryable_search_error(&error) => {
+                    last_error = Some(error);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        let response = selected.ok_or_else(|| {
+            last_error.unwrap_or(EngineError::InvalidSearchDefinition("no usable search path"))
+        })?;
         let mut results = match response.response_type.as_str() {
             "json" => parse_json_results(
                 &self.indexer_instance_id,
@@ -748,21 +767,32 @@ fn template_regex_replace(arguments: &[TemplateValue]) -> Result<TemplateValue, 
     Ok(TemplateValue::String(rendered.into_owned()))
 }
 
-fn first_search_path(search: &Mapping) -> Result<&Mapping, EngineError> {
+fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {
     if let Some(paths) = search.get(key("paths")).and_then(YamlValue::as_sequence) {
+        if paths.is_empty() {
+            return Err(EngineError::InvalidSearchDefinition("search paths are empty"));
+        }
         return paths
-            .first()
-            .and_then(mapping)
-            .ok_or(EngineError::InvalidSearchDefinition(
-                "search paths are empty",
-            ));
+            .iter()
+            .map(|value| {
+                mapping(value).ok_or(EngineError::InvalidSearchDefinition(
+                    "search path must be a mapping",
+                ))
+            })
+            .collect();
     }
     if search.contains_key(key("path")) {
-        return Ok(search);
+        return Ok(vec![search]);
     }
-    Err(EngineError::InvalidSearchDefinition(
-        "search path is missing",
-    ))
+    Err(EngineError::InvalidSearchDefinition("search path is missing"))
+}
+
+fn retryable_search_error(error: &EngineError) -> bool {
+    match error {
+        EngineError::HttpClient(error) => error.is_timeout() || error.is_connect(),
+        EngineError::UnexpectedStatus(status) => *status == 429 || (500..=599).contains(status),
+        _ => false,
+    }
 }
 
 fn render_inputs(
