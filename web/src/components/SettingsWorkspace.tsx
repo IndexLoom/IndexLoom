@@ -23,6 +23,30 @@ const paletteLabels: Record<PaletteKey, string> = {
 
 export function SettingsWorkspace() {
   const { preferences, update, importProfile, reset } = useAppearance();
+  const { token, config } = useAdminSession();
+  const [canManageMail, setCanManageMail] = useState(config?.mode === "disabled");
+  useEffect(() => {
+    if (!token || !config) return;
+    const controller = new AbortController();
+    void fetch("/api/v1/auth/me", {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { Authorization: "Bearer " + token },
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Cannot load current account");
+      return await response.json() as {
+        user: { role?: string } | null;
+        method: string;
+      };
+    }).then((session) => {
+      if (controller.signal.aborted) return;
+      setCanManageMail(
+        session.method === "disabled" || session.method === "legacy-token"
+          || session.user?.role === "owner",
+      );
+    }).catch(() => { if (!controller.signal.aborted) setCanManageMail(false); });
+    return () => controller.abort();
+  }, [token, config]);
   const [tab, setTab] = useState<Tab>("themes");
   const [message, setMessage] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
@@ -64,7 +88,7 @@ export function SettingsWorkspace() {
         </div>
       </header>
       <div className="appearance-tabs" role="tablist" aria-label="Settings sections">
-        {(Object.keys(labels) as Tab[]).map((key) => (
+        {(Object.keys(labels) as Tab[]).filter((key) => key !== "email" || canManageMail).map((key) => (
           <button
             aria-selected={key === tab}
             className={tab === key ? "active" : ""}
@@ -207,7 +231,7 @@ export function SettingsWorkspace() {
 
       {tab === "database" ? <CatalogDiagnostics /> : null}
       {tab === "security" ? <SecuritySettings /> : null}
-      {tab === "email" ? <EmailSettings /> : null}
+      {tab === "email" && canManageMail ? <EmailSettings /> : null}
       <footer className="appearance-footer">
         <div>
           <button className="quiet-button" onClick={exportProfile} type="button">Export profile</button>
