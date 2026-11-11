@@ -302,8 +302,10 @@ async fn health(
 }
 
 async fn require_admin(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    if !auth::authorize(&state, request.headers()).await {
-        return ApiError::unauthorized().into_response();
+    if let Err(error) = auth::authorize_action(
+        &state, request.headers(), request.method(), request.uri().path(),
+    ).await {
+        return error.into_response();
     }
     let mut response = next.run(request).await;
     response
@@ -595,6 +597,16 @@ impl ApiError {
             body: ErrorBody {
                 code: "UNAUTHORIZED",
                 message: "valid authentication is required",
+            },
+        }
+    }
+
+    const fn forbidden() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            body: ErrorBody {
+                code: "FORBIDDEN",
+                message: "your role does not permit this operation",
             },
         }
     }
