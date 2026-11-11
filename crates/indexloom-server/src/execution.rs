@@ -17,7 +17,7 @@ use indexloom_core::SearchResult;
 use indexloom_definitions::parse_yaml;
 use indexloom_engine::{
     CardigannExecutor, FlareSolverrClient, IndexerExecutionConfig, IndexerSearchBatch,
-    IndexerTestOutcome, ProxyRoute,
+    IndexerTestOutcome, ProxyRoute, SearchParameters,
 };
 use indexloom_storage::{
     FlareSolverrInstance, IndexerConfigurationRecord, IndexerTestRecord,
@@ -118,6 +118,8 @@ struct SearchRequest {
     selection: IndexerSelection,
     #[serde(default = "default_result_limit")]
     limit_per_indexer: usize,
+    #[serde(default)]
+    filters: SearchParameters,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -183,6 +185,7 @@ struct PreparedSearch {
     query: String,
     indexer_ids: Vec<String>,
     limit_per_indexer: usize,
+    filters: SearchParameters,
 }
 
 impl TestJobRegistry {
@@ -486,6 +489,7 @@ async fn prepare_search(
             "search query must contain 1 to 500 bytes",
         ));
     }
+    validate_search_filters(&request.filters)?;
     if !(1..=200).contains(&request.limit_per_indexer) {
         return Err(ApiError::bad_request(
             "limitPerIndexer must be between 1 and 200",
@@ -514,6 +518,7 @@ async fn prepare_search(
         query: query.to_owned(),
         indexer_ids,
         limit_per_indexer: request.limit_per_indexer,
+        filters: request.filters,
     })
 }
 
@@ -525,9 +530,10 @@ fn spawn_search_tasks(state: &AppState, prepared: &PreparedSearch) -> JoinSet<Se
         let indexer_id = indexer_id.clone();
         let query = prepared.query.clone();
         let limit = prepared.limit_per_indexer;
+        let filters = prepared.filters.clone();
         tasks.spawn(async move {
             let _permit = semaphore.acquire_owned().await.ok();
-            search_one(&state, &indexer_id, &query, limit).await
+            search_one(&state, &indexer_id, &query, limit, &filters).await
         });
     }
     tasks
@@ -570,9 +576,10 @@ async fn search_one(
     indexer_id: &str,
     query: &str,
     limit: usize,
+    filters: &SearchParameters,
 ) -> SearchIndexerView {
     match build_executor(state, indexer_id).await {
-        Ok(handle) => match handle.executor.search(query, limit).await {
+        Ok(handle) => match handle.executor.search_with_parameters(query, limit, filters).await {
             Ok(IndexerSearchBatch {
                 indexer_instance_id,
                 definition_id,
@@ -772,6 +779,27 @@ fn zeroize_resolved_credentials(
     if let Some(password) = proxy.as_mut().and_then(|proxy| proxy.password.as_mut()) {
         password.zeroize();
     }
+}
+
+fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
+    for value in [
+        filters.mode.as_deref(),
+        filters.category.as_deref(),
+        filters.genre.as_deref(),
+        filters.imdb_id.as_deref(),
+        filters.tmdb_id.as_deref(),
+    ].into_iter().flatten() {
+        if value.len() > 100 || value.chars().any(char::is_control) {
+            return Err(ApiError::bad_request("search filter is too long or invalid"));
+        }
+    }
+    if filters.year.is_some_and(|year| !(1800..=2100).contains(&year))
+        || filters.season.is_some_and(|season| season > 1000)
+        || filters.episode.is_some_and(|episode| episode > 10_000)
+    {
+        return Err(ApiError::bad_request("search numeric filter is out of range"));
+    }
+    Ok(())
 }
 
 fn validate_selection(selection: &IndexerSelection) -> Result<(), ApiError> {

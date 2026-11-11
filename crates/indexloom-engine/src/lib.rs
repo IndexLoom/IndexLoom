@@ -22,6 +22,7 @@ mod cardigann;
 
 pub use cardigann::{
     CardigannExecutor, IndexerExecutionConfig, IndexerSearchBatch, IndexerTestOutcome,
+    SearchParameters,
 };
 
 const MAX_FLARESOLVERR_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
