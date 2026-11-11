@@ -125,6 +125,17 @@ export type IndexerOrganizationUpdate = {
   tags: string[];
 };
 
+export type SearchFilters = {
+  mode?: string;
+  category?: string;
+  genre?: string;
+  year?: number;
+  season?: number;
+  episode?: number;
+  imdbId?: string;
+  tmdbId?: string;
+};
+
 export type IndexerSelection = {
   all: boolean;
   indexerIds: string[];
@@ -424,9 +435,10 @@ export function searchIndexers(
   query: string,
   selection: IndexerSelection,
   limitPerIndexer = 50,
+  filters: SearchFilters = {},
 ): Promise<SearchResponse> {
   return authenticatedJson<SearchResponse>("/api/v1/search", token, {
-    body: JSON.stringify({ query, selection, limitPerIndexer }),
+    body: JSON.stringify({ query, selection, limitPerIndexer, filters }),
     method: "POST",
   });
 }
@@ -438,9 +450,10 @@ export async function searchIndexersStream(
   onEvent: (event: SearchStreamEvent) => void,
   signal?: AbortSignal,
   limitPerIndexer = 50,
+  filters: SearchFilters = {},
 ): Promise<void> {
   const response = await fetch("/api/v1/search/stream", {
-    body: JSON.stringify({ query, selection, limitPerIndexer }),
+    body: JSON.stringify({ query, selection, limitPerIndexer, filters }),
     cache: "no-store",
     headers: {
       Accept: "application/x-ndjson",

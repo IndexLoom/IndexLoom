@@ -8,6 +8,7 @@ import {
   type IndexerSelection,
   type SearchIndexerResults,
   type SearchResponse,
+  type SearchFilters,
   fetchGroups,
   fetchHealth,
   fetchIndexers,
@@ -44,6 +45,8 @@ function AuthenticatedSearch({
     kind: "loading",
   });
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<SearchFilters>({});
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selection, setSelection] = useState<IndexerSelection>({
     all: true,
     groupIds: [],
@@ -96,6 +99,14 @@ function AuthenticatedSearch({
         ? workspace.indexers.filter((indexer) => indexer.enabled && indexer.catalogAvailable)
         : [],
     [workspace],
+  );
+  const availableCategories = useMemo(
+    () => [...new Set(enabledIndexers.flatMap((indexer) => indexer.capabilities.categories))].sort(),
+    [enabledIndexers],
+  );
+  const availableModes = useMemo(
+    () => [...new Set(enabledIndexers.flatMap((indexer) => indexer.capabilities.searchModes.map((mode) => mode.name)))].sort(),
+    [enabledIndexers],
   );
   const groupNames = useMemo(
     () =>
@@ -162,6 +173,8 @@ function AuthenticatedSearch({
           );
         },
         controller.signal,
+        50,
+        filters,
       );
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -243,6 +256,43 @@ function AuthenticatedSearch({
         <button className="primary-button" disabled={searching} type="submit">
           {searching ? "Searching…" : "Search"}
         </button>
+        <details className="advanced-search" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+          <summary>Advanced search filters</summary>
+          <div className="advanced-search-grid">
+            <label>Mode
+              <select value={filters.mode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value || undefined }))}>
+                <option value="">Default search</option>
+                {availableModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+              </select>
+            </label>
+            <label>Category
+              <select value={filters.category ?? ""} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value || undefined }))}>
+                <option value="">All categories</option>
+                {availableCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
+            <label>Genre
+              <input value={filters.genre ?? ""} onChange={(event) => setFilters((current) => ({ ...current, genre: event.target.value || undefined }))} placeholder="Genre ID or name" />
+            </label>
+            <label>Year
+              <input min={1800} max={2100} type="number" value={filters.year ?? ""} onChange={(event) => setFilters((current) => ({ ...current, year: event.target.value ? Number(event.target.value) : undefined }))} />
+            </label>
+            <label>Season
+              <input min={0} max={1000} type="number" value={filters.season ?? ""} onChange={(event) => setFilters((current) => ({ ...current, season: event.target.value ? Number(event.target.value) : undefined }))} />
+            </label>
+            <label>Episode
+              <input min={0} max={10000} type="number" value={filters.episode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, episode: event.target.value ? Number(event.target.value) : undefined }))} />
+            </label>
+            <label>IMDb ID
+              <input value={filters.imdbId ?? ""} placeholder="tt1234567" onChange={(event) => setFilters((current) => ({ ...current, imdbId: event.target.value || undefined }))} />
+            </label>
+            <label>TMDb ID
+              <input value={filters.tmdbId ?? ""} placeholder="12345" onChange={(event) => setFilters((current) => ({ ...current, tmdbId: event.target.value || undefined }))} />
+            </label>
+          </div>
+          <p className="muted">Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.</p>
+          <button className="quiet-button" onClick={() => setFilters({})} type="button">Clear filters</button>
+        </details>
       </form>
 
       {notice ? (
