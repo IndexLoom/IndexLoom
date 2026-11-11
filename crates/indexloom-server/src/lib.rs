@@ -765,81 +765,109 @@ spec:
         state.auth_settings.mode = super::auth::AuthMode::Local;
         let app = router(state, PathBuf::from("missing-web-root"));
 
-        let unauthorized = app.clone().oneshot(
-            Request::builder()
-                .uri("/api/v1/indexers")
-                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                .body(Body::empty())
-                .unwrap(),
-        ).await.unwrap();
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
 
         let payload = r#"{"username":"alice","email":"alice@example.org","password":"very-long-secret-password"}"#;
-        let rejected = app.clone().oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/auth/bootstrap")
-                .header(header::AUTHORIZATION, "Bearer invalid")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(payload))
-                .unwrap(),
-        ).await.unwrap();
+        let rejected = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, "Bearer invalid")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
 
-        let created = app.clone().oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/auth/bootstrap")
-                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(payload))
-                .unwrap(),
-        ).await.unwrap();
+        let created = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(created.status(), StatusCode::OK);
-        let data: serde_json::Value = serde_json::from_slice(
-            &to_bytes(created.into_body(), 32_768).await.unwrap(),
-        ).unwrap();
-        let access_token = data["accessToken"].as_str().expect("session token is returned");
+        let data: serde_json::Value =
+            serde_json::from_slice(&to_bytes(created.into_body(), 32_768).await.unwrap()).unwrap();
+        let access_token = data["accessToken"]
+            .as_str()
+            .expect("session token is returned");
         assert!(access_token.len() >= 40);
         assert_eq!(data["user"]["username"], "alice");
 
-        let repeat = app.clone().oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/auth/bootstrap")
-                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(payload))
-                .unwrap(),
-        ).await.unwrap();
+        let repeat = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/bootstrap")
+                    .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(repeat.status(), StatusCode::CONFLICT);
 
-        let accessible = app.clone().oneshot(
-            Request::builder()
-                .uri("/api/v1/indexers")
-                .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
-                .body(Body::empty())
-                .unwrap(),
-        ).await.unwrap();
+        let accessible = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(accessible.status(), StatusCode::OK);
 
-        let logged_out = app.clone().oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/auth/logout")
-                .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
-                .body(Body::empty())
-                .unwrap(),
-        ).await.unwrap();
+        let logged_out = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/auth/logout")
+                    .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(logged_out.status(), StatusCode::NO_CONTENT);
 
-        let rejected_again = app.oneshot(
-            Request::builder()
-                .uri("/api/v1/indexers")
-                .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
-                .body(Body::empty())
-                .unwrap(),
-        ).await.unwrap();
+        let rejected_again = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/indexers")
+                    .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(rejected_again.status(), StatusCode::UNAUTHORIZED);
     }
 
