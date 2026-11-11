@@ -715,12 +715,7 @@ impl RenderContext {
     }
 
     fn for_search(&self, keywords: &str, result: BTreeMap<String, String>) -> TemplateValue {
-        self.for_search_with_parameters(
-            keywords,
-            result,
-            &SearchParameters::default(),
-            &[],
-        )
+        self.for_search_with_parameters(keywords, result, &SearchParameters::default(), &[])
     }
 
     fn for_search_with_parameters(
@@ -861,11 +856,16 @@ fn template_regex_replace(arguments: &[TemplateValue]) -> Result<TemplateValue, 
 }
 
 fn resolve_category_ids(definition: &IndexerDefinition, requested: Option<&str>) -> Vec<String> {
-    let Some(requested) = requested else { return Vec::new() };
+    let Some(requested) = requested else {
+        return Vec::new();
+    };
     let Some(caps) = mapping(&definition.spec.implementation.capabilities) else {
         return Vec::new();
     };
-    if let Some(mappings) = caps.get(key("categorymappings")).and_then(YamlValue::as_sequence) {
+    if let Some(mappings) = caps
+        .get(key("categorymappings"))
+        .and_then(YamlValue::as_sequence)
+    {
         let ids = mappings
             .iter()
             .filter_map(mapping)
@@ -873,13 +873,14 @@ fn resolve_category_ids(definition: &IndexerDefinition, requested: Option<&str>)
                 item.get(key("cat"))
                     .and_then(scalar)
                     .is_some_and(|category| {
-                        category == requested
-                            || category.starts_with(&format!("{requested}/"))
+                        category == requested || category.starts_with(&format!("{requested}/"))
                     })
             })
             .filter_map(|item| item.get(key("id")).and_then(scalar))
             .collect::<Vec<_>>();
-        if !ids.is_empty() { return ids; }
+        if !ids.is_empty() {
+            return ids;
+        }
     }
     let Some(categories) = caps.get(key("categories")).and_then(mapping) else {
         return Vec::new();
@@ -1745,20 +1746,23 @@ mod tests {
 
     #[test]
     fn validates_all_search_paths_and_retries_only_transient_server_failures() {
-        let source: YamlValue = serde_yaml::from_str(
-            "paths:\n  - path: /primary\n  - path: /fallback\n",
-        )
-        .expect("valid search paths");
+        let source: YamlValue =
+            serde_yaml::from_str("paths:\n  - path: /primary\n  - path: /fallback\n")
+                .expect("valid search paths");
         let paths = all_search_paths(source.as_mapping().unwrap()).unwrap();
         assert_eq!(paths.len(), 2);
-        assert!(retryable_search_error(&crate::EngineError::UnexpectedStatus(503)));
-        assert!(!retryable_search_error(&crate::EngineError::UnexpectedStatus(429)));
-        assert!(!retryable_search_error(&crate::EngineError::UnexpectedStatus(403)));
+        assert!(retryable_search_error(
+            &crate::EngineError::UnexpectedStatus(503)
+        ));
+        assert!(!retryable_search_error(
+            &crate::EngineError::UnexpectedStatus(429)
+        ));
+        assert!(!retryable_search_error(
+            &crate::EngineError::UnexpectedStatus(403)
+        ));
 
-        let broken: YamlValue = serde_yaml::from_str(
-            "paths:\n  - path: /valid\n  - invalid",
-        )
-        .expect("valid YAML with invalid path shape");
+        let broken: YamlValue = serde_yaml::from_str("paths:\n  - path: /valid\n  - invalid")
+            .expect("valid YAML with invalid path shape");
         assert!(all_search_paths(broken.as_mapping().unwrap()).is_err());
     }
 

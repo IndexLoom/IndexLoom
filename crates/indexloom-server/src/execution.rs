@@ -579,7 +579,11 @@ async fn search_one(
     filters: &SearchParameters,
 ) -> SearchIndexerView {
     match build_executor(state, indexer_id).await {
-        Ok(handle) => match handle.executor.search_with_parameters(query, limit, filters).await {
+        Ok(handle) => match handle
+            .executor
+            .search_with_parameters(query, limit, filters)
+            .await
+        {
             Ok(IndexerSearchBatch {
                 indexer_instance_id,
                 definition_id,
@@ -788,16 +792,25 @@ fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
         filters.genre.as_deref(),
         filters.imdb_id.as_deref(),
         filters.tmdb_id.as_deref(),
-    ].into_iter().flatten() {
+    ]
+    .into_iter()
+    .flatten()
+    {
         if value.len() > 100 || value.chars().any(char::is_control) {
-            return Err(ApiError::bad_request("search filter is too long or invalid"));
+            return Err(ApiError::bad_request(
+                "search filter is too long or invalid",
+            ));
         }
     }
-    if filters.year.is_some_and(|year| !(1800..=2100).contains(&year))
+    if filters
+        .year
+        .is_some_and(|year| !(1800..=2100).contains(&year))
         || filters.season.is_some_and(|season| season > 1000)
         || filters.episode.is_some_and(|episode| episode > 10_000)
     {
-        return Err(ApiError::bad_request("search numeric filter is out of range"));
+        return Err(ApiError::bad_request(
+            "search numeric filter is out of range",
+        ));
     }
     Ok(())
 }
