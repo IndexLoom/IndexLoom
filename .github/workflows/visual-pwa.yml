@@ -1,0 +1,115 @@
+name: Responsive PWA browser smoke
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/auth-mail-pwa-20261112]
+    paths: [.github/workflows/visual-pwa.yml]
+permissions:
+  contents: read
+jobs:
+  responsive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.23.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Build frontend
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Install Playwright Chromium
+        run: |
+          npm install --prefix /tmp/indexloom-playwright playwright@1.57.0
+          /tmp/indexloom-playwright/node_modules/.bin/playwright install chromium --with-deps
+      - name: Start static preview
+        run: |
+          cd web
+          nohup pnpm exec vite preview --host 127.0.0.1 --port 4173 >/tmp/indexloom-vite.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/indexloom-vite.log
+          exit 1
+      - name: Test phone/tablet/laptop/desktop and save captures
+        shell: bash
+        run: |
+          mkdir -p /tmp/indexloom-screenshots
+          node --input-type=module <<'JS'
+          import { chromium } from '/tmp/indexloom-playwright/node_modules/playwright/index.mjs';
+          const browser = await chromium.launch({ headless: true });
+          const devices = [
+            { width: 320, height: 720 },
+            { width: 390, height: 844 },
+            { width: 768, height: 1024 },
+            { width: 1024, height: 768 },
+            { width: 1440, height: 900 },
+          ];
+          for (const size of devices) {
+            const context = await browser.newContext({
+              viewport: size,
+              deviceScaleFactor: 1,
+              isMobile: size.width < 641,
+              hasTouch: size.width < 1025,
+            });
+            const page = await context.newPage();
+            await page.route('**/api/v1/auth/config', (route) => route.fulfill({
+              status: 200, contentType: 'application/json',
+              body: JSON.stringify({
+                mode: 'disabled', localEnabled: false,
+                oidcEnabled: false, mailEnabled: false,
+                emailVerificationRequired: false,
+                bootstrapAvailable: false, oidcIssuer: null,
+              }),
+            }));
+            await page.route('**/api/v1/health', (route) => route.fulfill({
+              status: 200, contentType: 'application/json',
+              body: JSON.stringify({status: 'ok',version: 'test',database: 'ok'}),
+            }));
+            await page.route('**/api/v1/indexers', (route) => route.fulfill({
+              status: 200, contentType: 'application/json', body: '[]',
+            }));
+            await page.goto('http://127.0.0.1:4173/', {waitUntil: 'networkidle'});
+            const nav = page.locator('nav[aria-label="Primary navigation"] button');
+            if (await nav.count() !== 4) throw new Error('Missing navigation at ' + size.width);
+            const metrics = await page.evaluate(() => ({
+              documentWidth: document.documentElement.scrollWidth,
+              viewportWidth: document.documentElement.clientWidth,
+            }));
+            if (metrics.documentWidth > metrics.viewportWidth + 5) {
+              throw new Error('Unexpected page overflow ' + size.width + ': ' + JSON.stringify(metrics));
+            }
+            if (size.width < 641) {
+              const bounds = await page.locator('.sidebar').boundingBox();
+              if (!bounds || bounds.y < size.height * .65) {
+                throw new Error('Mobile navigation is not bottom-docked at ' + size.width);
+              }
+            }
+            await page.screenshot({path: '/tmp/indexloom-screenshots/search-' + size.width + '.png'});
+            await page.getByRole('button', {name: 'Settings', exact: true}).click();
+            await page.getByRole('tab', {name: 'Security & users'}).waitFor();
+            await page.screenshot({path: '/tmp/indexloom-screenshots/settings-' + size.width + '.png'});
+            await context.close();
+          }
+          const page = await browser.newPage();
+          await page.goto('http://127.0.0.1:4173/');
+          for(const path of ['/manifest.webmanifest','/icons/indexloom-180.png','/icons/indexloom-192.png','/icons/indexloom-512.png','/sw.js']){
+            const response = await page.request.get('http://127.0.0.1:4173' + path);
+            if (!response.ok()) throw new Error('Missing PWA asset: ' + path);
+          }
+          await browser.close();
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: responsive-pwa-captures
+          path: /tmp/indexloom-screenshots/
+          if-no-files-found: warn
