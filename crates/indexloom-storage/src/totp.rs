@@ -159,12 +159,18 @@ impl Store {
         &self, digest: &str, user_id: &str, remember_me: bool,
     ) -> Result<i64, StorageError> {
         let now = epoch();
+        let mut transaction = self.pool.begin().await?;
+        // A successful password check starts a single outstanding challenge.
+        // Replacing it prevents unbounded challenge storage from password reuse.
+        sqlx::query("DELETE FROM auth_totp_challenges WHERE user_id = ?")
+            .bind(user_id).execute(&mut *transaction).await?;
         sqlx::query(
             "INSERT INTO auth_totp_challenges
              (token_sha256, user_id, remember_me, expires_at, created_at)
              VALUES (?, ?, ?, ?, ?)",
         ).bind(digest).bind(user_id).bind(remember_me)
-            .bind(now + 300).bind(now).execute(&self.pool).await?;
+            .bind(now + 300).bind(now).execute(&mut *transaction).await?;
+        transaction.commit().await?;
         Ok(now + 300)
     }
 

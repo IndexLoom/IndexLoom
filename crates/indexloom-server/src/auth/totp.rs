@@ -15,10 +15,9 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
-use tokio::sync::Semaphore;
 
 use super::{
-    ApiError, AppState, AuthMode, audit_action, digest, hash_password, issue_session, new_token,
+    ApiError, AppState, audit_action, digest, issue_session, new_token,
     user_for_bearer, verify_password,
 };
 
@@ -249,11 +248,19 @@ async fn confirm_setup(
     let user = user_for_bearer(&state, &headers).await?;
     let secret = state.store.totp_pending_secret(&user.id, &state.vault).await?
         .ok_or_else(|| ApiError::bad_request("no pending TOTP enrollment"))?;
-    if normalize_factor(&request.code).as_deref().and_then(|code| {
-        valid_totp_step(&secret, code).ok().flatten()
-    }).is_none() {
-        return Err(ApiError::unauthorized());
+    let rate_key = digest(&format!("totp-enrollment:{}", user.id));
+    if state.store.is_login_locked(&rate_key).await? {
+        return Err(ApiError::too_many_requests("too many authenticator enrollment attempts"));
     }
+    let normalized = normalize_factor(&request.code);
+    let step = match normalized.as_deref() {
+        Some(code) => valid_totp_step(&secret, code)?,
+        None => None,
+    };
+    let Some(step) = step else {
+        state.store.record_login_failure(&rate_key).await?;
+        return Err(ApiError::unauthorized());
+    };
     let mut codes = Vec::with_capacity(10);
     let mut digests = Vec::with_capacity(10);
     for _ in 0..10 {
@@ -266,6 +273,9 @@ async fn confirm_setup(
     if !state.store.totp_confirm_pending(&user.id, &digests).await? {
         return Err(ApiError::bad_request("enrollment has expired or factor already exists"));
     }
+    // The setup code must also be single use; no immediate reuse for sign-in.
+    state.store.totp_consume_step(&user.id, step).await?;
+    state.store.clear_login_failures(&rate_key).await?;
     // Revoke old sessions after successful enrollment: authenticate with new factor.
     state.store.revoke_all_sessions(&user.id).await?;
     audit_action(&state, Some(&user.id), Some(&user.id), "totp-enabled").await;
@@ -280,12 +290,18 @@ async fn disable(
         return Err(ApiError::bad_request("TOTP is not enabled"));
     }
     let hash = user.password_hash.ok_or_else(ApiError::unauthorized)?;
+    let rate_key = digest(&format!("totp-disable:{}", user.id));
+    if state.store.is_login_locked(&rate_key).await? {
+        return Err(ApiError::too_many_requests("too many authenticator removal attempts"));
+    }
     if !verify_password(
         request.password, hash, Arc::clone(&state.auth_settings.hash_permits),
     ).await || !use_factor(&state, &user.id, &request.code).await? {
+        state.store.record_login_failure(&rate_key).await?;
         return Err(ApiError::unauthorized());
     }
     state.store.totp_disable(&user.id).await?;
+    state.store.clear_login_failures(&rate_key).await?;
     audit_action(&state, Some(&user.id), Some(&user.id), "totp-disabled").await;
     Ok(StatusCode::NO_CONTENT)
 }
