@@ -559,8 +559,8 @@ impl Store {
              FROM indexers i JOIN indexer_definitions d ON d.id = i.definition_id \
              WHERE d.catalog_available = 1",
         )
-            .fetch_all(&self.pool)
-            .await?;
+        .fetch_all(&self.pool)
+        .await?;
         let enabled = available
             .iter()
             .filter(|row| !enabled_only || row.enabled)

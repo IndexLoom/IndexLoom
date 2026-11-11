@@ -761,6 +761,7 @@ spec:
 "#;
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     async fn retiring_catalog_definitions_preserves_configuration_and_manual_entries() {
         let store = Store::connect("sqlite::memory:")
             .await
@@ -784,57 +785,94 @@ spec:
             content_yaml: DEFINITION.replace("id: example", "id: other"),
             content_sha256: "b".repeat(64),
         };
-        store.sync_catalog(&[example.clone(), other.clone()])
+        store
+            .sync_catalog(&[example.clone(), other.clone()])
             .await
             .expect("initial snapshot should sync");
-        store.create_indexer("configured", "example", "Customized Example", true)
+        store
+            .create_indexer("configured", "example", "Customized Example", true)
             .await
             .expect("custom indexer should persist");
-        store.upsert_definition(
-            "local", "manual", None, "indexloom.io/v1alpha1",
-            DEFINITION, &"f".repeat(64),
-        )
-        .await
-        .expect("manual definition should persist");
-        store.create_indexer("local-active", "local", "Manual", true)
+        store
+            .upsert_definition(
+                "local",
+                "manual",
+                None,
+                "indexloom.io/v1alpha1",
+                DEFINITION,
+                &"f".repeat(64),
+            )
+            .await
+            .expect("manual definition should persist");
+        store
+            .create_indexer("local-active", "local", "Manual", true)
             .await
             .expect("manual instance should persist");
 
-        let initial = store.select_indexer_ids(true, &[], &[], true)
-            .await.expect("initial selection");
+        let initial = store
+            .select_indexer_ids(true, &[], &[], true)
+            .await
+            .expect("initial selection");
         assert!(initial.contains(&"configured".to_owned()));
         assert!(initial.contains(&"local-active".to_owned()));
 
-        let retired = store.sync_catalog(&[other])
-            .await.expect("retiring an indexer should not delete it");
+        let retired = store
+            .sync_catalog(&[other])
+            .await
+            .expect("retiring an indexer should not delete it");
         assert!(retired.updated);
-        let record = store.get_indexer("configured", &vault)
-            .await.expect("retired instance must remain accessible");
+        let record = store
+            .get_indexer("configured", &vault)
+            .await
+            .expect("retired instance must remain accessible");
         assert!(record.enabled, "user preference must be retained");
-        assert!(!record.catalog_available, "missing definition must be marked unavailable");
+        assert!(
+            !record.catalog_available,
+            "missing definition must be marked unavailable"
+        );
         for enabled_only in [false, true] {
-            let selected = store.select_indexer_ids(true, &[], &[], enabled_only)
-                .await.expect("selection after retirement");
+            let selected = store
+                .select_indexer_ids(true, &[], &[], enabled_only)
+                .await
+                .expect("selection after retirement");
             assert!(!selected.contains(&"configured".to_owned()));
             assert!(selected.contains(&"local-active".to_owned()));
         }
-        assert!(store.get_indexer("local-active", &vault)
-            .await.expect("manual record should survive").catalog_available);
+        assert!(
+            store
+                .get_indexer("local-active", &vault)
+                .await
+                .expect("manual record should survive")
+                .catalog_available
+        );
 
-        let restored = store.sync_catalog(&[example])
-            .await.expect("returning definition should reactivate availability");
+        let restored = store
+            .sync_catalog(&[example])
+            .await
+            .expect("returning definition should reactivate availability");
         assert!(restored.updated);
-        let record = store.get_indexer("configured", &vault)
-            .await.expect("user settings should survive catalog restoration");
+        let record = store
+            .get_indexer("configured", &vault)
+            .await
+            .expect("user settings should survive catalog restoration");
         assert!(record.catalog_available);
         assert!(record.enabled);
-        assert!(store.select_indexer_ids(true, &[], &[], true)
-            .await.expect("selection after restoration")
-            .contains(&"configured".to_owned()));
+        assert!(
+            store
+                .select_indexer_ids(true, &[], &[], true)
+                .await
+                .expect("selection after restoration")
+                .contains(&"configured".to_owned())
+        );
 
         assert!(store.sync_catalog(&[]).await.is_err());
-        assert!(store.get_indexer("configured", &vault)
-            .await.expect("empty snapshot must not mutate persisted data").catalog_available);
+        assert!(
+            store
+                .get_indexer("configured", &vault)
+                .await
+                .expect("empty snapshot must not mutate persisted data")
+                .catalog_available
+        );
     }
 
     #[tokio::test]
