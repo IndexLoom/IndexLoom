@@ -58,3 +58,14 @@ trusted proxies and prefer end-to-end HTTPS tracker URLs.
 
 Master-key rotation is not implemented yet. Back up the key independently from
 the database and treat loss of the key as loss of the encrypted credentials.
+
+## Catalog update trust boundary
+
+A configured catalog URL must use HTTPS and a non-local DNS hostname; redirects
+must also stay on HTTPS hostnames. Source metadata and release assets are checked
+against their recorded sizes and SHA-256 digests before a catalog transaction is
+committed. Manifest downloads are limited to 1 MiB and exported catalogs to
+64 MiB compressed / 96 MiB extracted. SHA-256 detects corrupted artifacts but
+is **not** a substitute for signed, independently authenticated releases.
+Administrators should only configure trusted release feeds, and use network egress
+policies where DNS rebinding protection is required.

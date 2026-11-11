@@ -15,7 +15,10 @@ use reqwest::Url;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use super::{CatalogError, MAX_EXTRACTED_BYTES, download_archive};
+use super::{
+    CatalogError, MAX_EXTRACTED_BYTES, MAX_RELEASE_MANIFEST_BYTES,
+    download_archive, download_with_limit,
+};
 
 const RELEASE_FORMAT: &str = "indexloom-indexers/v1";
 const RELEASE_ASSET: &str = "indexers.jsonl.gz";
@@ -48,7 +51,7 @@ pub(super) async fn synchronize(
     store: &Store,
     manifest_url: &Url,
 ) -> Result<CatalogSyncReport, CatalogError> {
-    let manifest_bytes = download_archive(manifest_url).await?;
+    let manifest_bytes = download_with_limit(manifest_url, MAX_RELEASE_MANIFEST_BYTES).await?;
     let fingerprint = format!("{:x}", Sha256::digest(&manifest_bytes));
     let manifest: ReleaseManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|error| CatalogError::Release(format!("invalid release manifest: {error}")))?;

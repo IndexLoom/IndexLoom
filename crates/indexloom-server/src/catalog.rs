@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_RELEASE_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_EXTRACTED_BYTES: usize = 96 * 1024 * 1024;
 const MAX_CATALOG_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -42,7 +43,7 @@ impl CatalogSource {
             return Ok(Self::Directory(PathBuf::from(directory)));
         }
         let url = Url::parse(archive_url).map_err(CatalogError::InvalidArchiveUrl)?;
-        if url.scheme() != "https" || url.host_str().is_none() {
+        if !safe_catalog_url(&url) {
             return Err(CatalogError::UnsafeArchiveUrl);
         }
         if url.path().ends_with("/manifest.json") {
@@ -86,10 +87,39 @@ pub async fn synchronize(
 }
 
 async fn download_archive(url: &Url) -> Result<Vec<u8>, CatalogError> {
+    download_with_limit(url, MAX_ARCHIVE_BYTES).await
+}
+
+fn safe_catalog_url(url: &Url) -> bool {
+    // Only HTTPS DNS names: no loopback, link-local, private-address
+    // literals, userinfo or local-only hostnames may be used as catalog origins.
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && matches!(
+            url.host(),
+            Some(url::Host::Domain(host))
+                if !host.eq_ignore_ascii_case("localhost")
+                    && !host.ends_with(".localhost")
+                    && !host.ends_with(".local")
+                    && host.contains('.')
+        )
+}
+
+async fn download_with_limit(url: &Url, max_bytes: usize) -> Result<Vec<u8>, CatalogError> {
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(60))
-        .redirect(reqwest::redirect::Policy::limited(3))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if !safe_catalog_url(attempt.url()) {
+                return attempt.error(std::io::Error::other("unsafe catalog redirect"));
+            }
+            if attempt.previous().len() >= 3 {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
         .build()
         .map_err(CatalogError::Http)?;
     let mut response = client
@@ -102,13 +132,13 @@ async fn download_archive(url: &Url) -> Result<Vec<u8>, CatalogError> {
         .map_err(CatalogError::Http)?;
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_ARCHIVE_BYTES as u64)
+        .is_some_and(|length| length > max_bytes as u64)
     {
         return Err(CatalogError::ArchiveTooLarge);
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(CatalogError::Http)? {
-        if bytes.len().saturating_add(chunk.len()) > MAX_ARCHIVE_BYTES {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
             return Err(CatalogError::ArchiveTooLarge);
         }
         bytes.extend_from_slice(&chunk);
@@ -320,11 +350,32 @@ pub enum CatalogError {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{CatalogError, strip_archive_root, validate_catalog};
+    use super::{CatalogError, CatalogSource, safe_catalog_url, strip_archive_root, validate_catalog};
 
     #[test]
     fn rejects_archive_traversal() {
         assert!(strip_archive_root(std::path::Path::new("root/../secret")).is_err());
+    }
+
+    #[test]
+    fn rejects_unsafe_catalog_destinations() {
+        for url in [
+            "http://github.com/IndexLoom/Indexers/releases/latest/download/manifest.json",
+            "https://127.0.0.1/manifest.json",
+            "https://[::1]/manifest.json",
+            "https://localhost/manifest.json",
+            "https://host.local/manifest.json",
+            "https://user:pass@github.com/manifest.json",
+        ] {
+            let parsed = url::Url::parse(url).unwrap();
+            assert!(!safe_catalog_url(&parsed), "{url}");
+            assert!(CatalogSource::from_values(None, url).is_err(), "{url}");
+        }
+        let github = url::Url::parse(
+            "https://github.com/IndexLoom/Indexers/releases/latest/download/manifest.json",
+        )
+        .unwrap();
+        assert!(safe_catalog_url(&github));
     }
 
     #[test]

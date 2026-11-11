@@ -39,6 +39,7 @@ use super::{ApiError, AppState, validate_identifier};
 const TEST_CONCURRENCY: usize = 16;
 const SEARCH_CONCURRENCY: usize = 12;
 const MAX_SEARCH_INDEXERS: usize = 256;
+const MAX_SELECTION_IDENTIFIERS: usize = 20_000;
 const MAX_RUNNING_TEST_JOBS: usize = 8;
 const MAX_COMPLETED_TEST_JOBS: usize = 256;
 const TEST_JOB_TTL: Duration = Duration::from_hours(24);
@@ -774,7 +775,9 @@ fn zeroize_resolved_credentials(
 }
 
 fn validate_selection(selection: &IndexerSelection) -> Result<(), ApiError> {
-    if selection.indexer_ids.len() > 553 || selection.group_ids.len() > 100 {
+    if selection.indexer_ids.len() > MAX_SELECTION_IDENTIFIERS
+        || selection.group_ids.len() > 100
+    {
         return Err(ApiError::bad_request("indexer selection is too large"));
     }
     if !selection.all && selection.indexer_ids.is_empty() && selection.group_ids.is_empty() {
