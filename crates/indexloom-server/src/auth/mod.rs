@@ -135,6 +135,9 @@ impl AuthSettings {
         if mode.oidc() && oidc.is_none() {
             anyhow::bail!("OIDC mode requires configured OIDC issuer, client and allowlist");
         }
+        if mode == AuthMode::Oidc && oidc.as_ref().is_some_and(|settings| !settings.has_owner_email()) {
+            anyhow::bail!("OIDC-only mode requires INDEXLOOM_OIDC_OWNER_EMAIL to designate the owner");
+        }
         let require_email_verification =
             env::var("INDEXLOOM_REQUIRE_VERIFIED_EMAIL").as_deref() == Ok("true");
         if require_email_verification && !mail_enabled && mode.local() {
@@ -951,6 +954,7 @@ async fn complete_oidc(
                 &identity.email,
                 &identity.issuer,
                 &identity.subject,
+                if settings.is_owner_email(&identity.email) { "owner" } else { "viewer" },
             )
             .await?;
         state
