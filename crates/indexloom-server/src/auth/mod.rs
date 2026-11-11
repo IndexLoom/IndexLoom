@@ -52,13 +52,13 @@ impl AuthMode {
             "oidc" => Ok(Self::Oidc),
             "hybrid" => Ok(Self::Hybrid),
             "disabled" => {
-                if !matches!(
+                if matches!(
                     env::var("INDEXLOOM_ALLOW_UNSAFE_NO_AUTH").as_deref(),
                     Ok("true")
                 ) {
-                    Err("disabled auth requires INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true".to_owned())
-                } else {
                     Ok(Self::Disabled)
+                } else {
+                    Err("disabled auth requires INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true".to_owned())
                 }
             }
             _ => {
