@@ -58,6 +58,21 @@ async fn main() -> Result<()> {
     let store = Store::connect(&database_url)
         .await
         .context("failed to initialize IndexLoom storage")?;
+    store
+        .purge_expired_auth_state()
+        .await
+        .context("failed to prune expired login state")?;
+    let maintenance_store = store.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(3600));
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            if let Err(error) = maintenance_store.purge_expired_auth_state().await {
+                tracing::warn!(%error, "session housekeeping failed");
+            }
+        }
+    });
     if matches!(auth_settings.mode, AuthMode::Local | AuthMode::Hybrid)
         && store.auth_user_count().await? == 0
         && admin_token.is_none()
