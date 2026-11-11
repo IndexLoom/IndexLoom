@@ -62,7 +62,11 @@ jobs:
           set -euo pipefail
           BRANCH=automation/rust-dependency-refresh
           if gh pr list --base main --head "$BRANCH" --json number --jq 'length' | grep -qx 0; then
-            gh pr create --base main --head "$BRANCH" \
+            if ! gh pr create --base main --head "$BRANCH" \
               --title "chore(deps): refresh compatible Rust dependencies" \
-              --body "Automatically refreshed Cargo.lock within Cargo.toml version constraints. Formatting, Clippy and workspace tests passed. Review the GitHub security advisory check and dependency diff before merging. No changes are merged automatically."
+              --body "Automatically refreshed Cargo.lock within Cargo.toml version constraints. Formatting, Clippy and workspace tests passed. Review the GitHub security advisory check and dependency diff before merging. No changes are merged automatically."; then
+              echo "::warning::GitHub Actions token cannot open pull requests in this repository. The tested branch remains available."
+              echo "Create a review PR from the existing tested branch:" >> "$GITHUB_STEP_SUMMARY"
+              echo "https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1" >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
