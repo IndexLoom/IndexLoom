@@ -257,12 +257,12 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
         const response = await postJson<AuthSession | TotpChallenge>("/api/v1/auth/login", {
           login, password, rememberMe: remember,
         });
-        if ("requiresTotp" in response && response.requiresTotp) {
+        if ("accessToken" in response) {
+          onLogin(response.accessToken, remember);
+        } else {
           setTotpChallenge(response.challengeToken);
           setPassword("");
           setPanel("mfa");
-        } else {
-          onLogin(response.accessToken, remember);
         }
       } else if (panel === "mfa") {
         const session = await postJson<AuthSession>("/api/v1/auth/totp/complete", {
