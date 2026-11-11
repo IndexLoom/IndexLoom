@@ -419,13 +419,20 @@ impl Store {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), StorageError> {
+        // Password replacement and session revocation must share a transaction.
+        let mut transaction = self.pool.begin().await?;
         sqlx::query("UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE id = ?")
             .bind(password_hash)
             .bind(epoch())
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await?;
-        self.revoke_all_sessions(user_id).await
+        sqlx::query("DELETE FROM auth_sessions WHERE user_id = ?")
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
     /// Stores a short-lived OIDC state, PKCE verifier and nonce.
