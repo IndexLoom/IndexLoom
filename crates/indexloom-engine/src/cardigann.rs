@@ -796,7 +796,7 @@ fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {
 fn retryable_search_error(error: &EngineError) -> bool {
     match error {
         EngineError::HttpClient(error) => error.is_timeout() || error.is_connect(),
-        EngineError::UnexpectedStatus(status) => *status == 429 || (500..=599).contains(status),
+        EngineError::UnexpectedStatus(status) => (500..=599).contains(status),
         _ => false,
     }
 }
@@ -1615,9 +1615,29 @@ mod tests {
     use url::Url;
 
     use super::{
-        RenderContext, apply_filters, complete_result_fields, info_hash_from_magnet,
-        normalize_contains_selector, normalized_result, render_search_inputs, render_template,
+        RenderContext, all_search_paths, apply_filters, complete_result_fields,
+        info_hash_from_magnet, normalize_contains_selector, normalized_result,
+        render_search_inputs, render_template, retryable_search_error,
     };
+
+    #[test]
+    fn validates_all_search_paths_and_retries_only_transient_server_failures() {
+        let source: YamlValue = serde_yaml::from_str(
+            "paths:\n  - path: /primary\n  - path: /fallback\n",
+        )
+        .expect("valid search paths");
+        let paths = all_search_paths(source.as_mapping().unwrap()).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(retryable_search_error(&crate::EngineError::UnexpectedStatus(503)));
+        assert!(!retryable_search_error(&crate::EngineError::UnexpectedStatus(429)));
+        assert!(!retryable_search_error(&crate::EngineError::UnexpectedStatus(403)));
+
+        let broken: YamlValue = serde_yaml::from_str(
+            "paths:\n  - path: /valid\n  - invalid",
+        )
+        .expect("valid YAML with invalid path shape");
+        assert!(all_search_paths(broken.as_mapping().unwrap()).is_err());
+    }
 
     #[test]
     fn exposes_keywords_in_root_and_cardigann_query_contexts() {
