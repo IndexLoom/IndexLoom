@@ -474,9 +474,9 @@ mod tests {
                 .unwrap(),
         ).await.unwrap();
         assert_eq!(bootstrap.status(), StatusCode::OK);
-        let reply: Value =
+        let bootstrap_result: Value =
             serde_json::from_slice(&to_bytes(bootstrap.into_body(), 4096).await.unwrap()).unwrap();
-        let first_token = reply["accessToken"].as_str().unwrap().to_owned();
+        let first_token = bootstrap_result["accessToken"].as_str().unwrap().to_owned();
 
         let begin = app
             .clone()
