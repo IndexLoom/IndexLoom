@@ -17,8 +17,8 @@ use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use zeroize::Zeroize;
 
-mod catalog;
 pub mod auth;
+mod catalog;
 mod routing;
 
 pub use catalog::{CatalogDefinitionInput, CatalogStatus, CatalogSyncReport};

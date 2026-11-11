@@ -6,8 +6,7 @@ use std::env;
 use anyhow::{Context, Result, bail};
 use indexloom_storage::{Store, auth::MailTemplate};
 use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, MultiPart, Tokio1Executor,
-    message::Mailbox,
+    AsyncSmtpTransport, AsyncTransport, Message, MultiPart, Tokio1Executor, message::Mailbox,
     transport::smtp::authentication::Credentials,
 };
 
@@ -20,8 +19,11 @@ pub struct MailSender {
 
 impl std::fmt::Debug for MailSender {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("MailSender").field("public_url", &self.public_url)
-            .field("credentials", &"<redacted>").finish()
+        formatter
+            .debug_struct("MailSender")
+            .field("public_url", &self.public_url)
+            .field("credentials", &"<redacted>")
+            .finish()
     }
 }
 
@@ -64,7 +66,8 @@ pub fn default_template(kind: &str) -> MailTemplate {
 pub fn render(source: &str, vars: &MailVariables<'_>, html: bool) -> String {
     let safe = |value: &str| {
         if html {
-            value.replace('&', "&amp;")
+            value
+                .replace('&', "&amp;")
                 .replace('<', "&lt;")
                 .replace('>', "&gt;")
                 .replace('"', "&quot;")
@@ -93,24 +96,36 @@ impl MailSender {
     /// SMTP is disabled unless explicitly configured. Invalid partial configs fail startup.
     pub fn from_env() -> Result<Option<Self>> {
         let enabled = env::var("INDEXLOOM_MAIL_MODE").unwrap_or_else(|_| "disabled".to_owned());
-        if enabled == "disabled" { return Ok(None); }
-        if enabled != "smtp" { bail!("INDEXLOOM_MAIL_MODE must be disabled or smtp"); }
+        if enabled == "disabled" {
+            return Ok(None);
+        }
+        if enabled != "smtp" {
+            bail!("INDEXLOOM_MAIL_MODE must be disabled or smtp");
+        }
 
         let host = env::var("INDEXLOOM_SMTP_HOST").context("INDEXLOOM_SMTP_HOST is required")?;
-        if host.is_empty() { bail!("SMTP hostname is empty"); }
+        if host.is_empty() {
+            bail!("SMTP hostname is empty");
+        }
         let port = env::var("INDEXLOOM_SMTP_PORT")
-            .unwrap_or_else(|_| "587".to_owned()).parse::<u16>()
+            .unwrap_or_else(|_| "587".to_owned())
+            .parse::<u16>()
             .context("INDEXLOOM_SMTP_PORT must be a port")?;
         let from: Mailbox = env::var("INDEXLOOM_SMTP_FROM")
             .context("INDEXLOOM_SMTP_FROM is required")?
-            .parse().context("INDEXLOOM_SMTP_FROM is invalid")?;
+            .parse()
+            .context("INDEXLOOM_SMTP_FROM is invalid")?;
         let public_url = env::var("INDEXLOOM_PUBLIC_URL")
             .context("INDEXLOOM_PUBLIC_URL is required for SMTP links")?;
         let url = url::Url::parse(&public_url).context("INDEXLOOM_PUBLIC_URL is invalid")?;
         if url.scheme() != "https" && !matches!(url.host_str(), Some("localhost" | "127.0.0.1")) {
             bail!("INDEXLOOM_PUBLIC_URL must be HTTPS outside localhost");
         }
-        if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() || url.password().is_some() {
+        if url.query().is_some()
+            || url.fragment().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
             bail!("INDEXLOOM_PUBLIC_URL must not contain credentials, query or fragment");
         }
         let mut transport = if port == 465 {
@@ -119,7 +134,8 @@ impl MailSender {
         } else {
             AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&host)
                 .context("SMTP STARTTLS configuration failed")?
-        }.port(port);
+        }
+        .port(port);
         let username = env::var("INDEXLOOM_SMTP_USERNAME").unwrap_or_default();
         let password = env::var("INDEXLOOM_SMTP_PASSWORD").unwrap_or_default();
         if !username.is_empty() || !password.is_empty() {
@@ -141,9 +157,15 @@ impl MailSender {
     }
 
     pub async fn send(
-        &self, store: &Store, kind: &str, recipient: &str, vars: MailVariables<'_>,
+        &self,
+        store: &Store,
+        kind: &str,
+        recipient: &str,
+        vars: MailVariables<'_>,
     ) -> Result<()> {
-        let template = store.mail_template(kind).await?
+        let template = store
+            .mail_template(kind)
+            .await?
             .unwrap_or_else(|| default_template(kind));
         let subject = render(&template.subject, &vars, false);
         if subject.chars().any(char::is_control) {
@@ -157,11 +179,17 @@ impl MailSender {
         let message = if template.html_body.is_empty() {
             message.body(text).context("failed to build email")?
         } else {
-            message.multipart(MultiPart::alternative_plain_html(
-                text, render(&template.html_body, &vars, true),
-            )).context("failed to build multipart email")?
+            message
+                .multipart(MultiPart::alternative_plain_html(
+                    text,
+                    render(&template.html_body, &vars, true),
+                ))
+                .context("failed to build multipart email")?
         };
-        self.transport.send(message).await.context("SMTP transport failure")?;
+        self.transport
+            .send(message)
+            .await
+            .context("SMTP transport failure")?;
         Ok(())
     }
 }
@@ -172,10 +200,16 @@ mod tests {
     #[test]
     fn escapes_placeholder_values_in_html_and_preserves_custom_markup() {
         let vars = MailVariables {
-            username: "<script>bad</script>", email: "user@example.org",
-            action_url: "https://example.org/verify?a=1&b=2", event: "verify",
+            username: "<script>bad</script>",
+            email: "user@example.org",
+            action_url: "https://example.org/verify?a=1&b=2",
+            event: "verify",
         };
-        let result = render("<strong>{{username}}</strong><a href=\"{{action_url}}\">Verify</a>", &vars, true);
+        let result = render(
+            "<strong>{{username}}</strong><a href=\"{{action_url}}\">Verify</a>",
+            &vars,
+            true,
+        );
         assert!(result.contains("&lt;script&gt;"));
         assert!(!result.contains("<script>"));
         assert!(result.contains("a=1&amp;b=2"));

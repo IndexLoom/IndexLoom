@@ -75,11 +75,18 @@ impl AppState {
     /// Runtime-selectable authentication and mail configuration.
     #[must_use]
     pub fn with_auth(
-        store: Store, vault: SecretVault, admin_token: Option<AdminToken>,
-        auth_settings: auth::AuthSettings, mail_sender: Option<auth::MailSender>,
+        store: Store,
+        vault: SecretVault,
+        admin_token: Option<AdminToken>,
+        auth_settings: auth::AuthSettings,
+        mail_sender: Option<auth::MailSender>,
     ) -> Self {
         Self {
-            store, vault, admin_token, auth_settings, mail_sender,
+            store,
+            vault,
+            admin_token,
+            auth_settings,
+            mail_sender,
             test_jobs: execution::TestJobRegistry::default(),
             executor_cache: execution::ExecutorCache::default(),
             search_permits: execution::search_permits(),
@@ -562,8 +569,13 @@ impl ApiError {
     }
 
     const fn conflict(message: &'static str) -> Self {
-        Self { status: StatusCode::CONFLICT,
-            body: ErrorBody { code: "CONFLICT", message } }
+        Self {
+            status: StatusCode::CONFLICT,
+            body: ErrorBody {
+                code: "CONFLICT",
+                message,
+            },
+        }
     }
 
     const fn bad_request(message: &'static str) -> Self {

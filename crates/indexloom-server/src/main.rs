@@ -45,7 +45,8 @@ async fn main() -> Result<()> {
             let result = AdminToken::new(&value).map_err(anyhow::Error::msg);
             value.zeroize();
             result
-        }).transpose()?;
+        })
+        .transpose()?;
     if matches!(auth_settings.mode, AuthMode::Token | AuthMode::Hybrid) && admin_token.is_none() {
         bail!("token and hybrid modes require INDEXLOOM_ADMIN_TOKEN");
     }
@@ -77,7 +78,13 @@ async fn main() -> Result<()> {
     let catalog_interval = env_or("INDEXLOOM_CATALOG_SYNC_SECONDS", "21600")
         .parse::<u64>()
         .context("INDEXLOOM_CATALOG_SYNC_SECONDS must be an integer")?;
-    let state = AppState::with_auth(store.clone(), vault, admin_token, auth_settings, mail_sender);
+    let state = AppState::with_auth(
+        store.clone(),
+        vault,
+        admin_token,
+        auth_settings,
+        mail_sender,
+    );
     if catalog_interval != 0 {
         if catalog_interval < 300 {
             anyhow::bail!("INDEXLOOM_CATALOG_SYNC_SECONDS must be 0 or at least 300");
