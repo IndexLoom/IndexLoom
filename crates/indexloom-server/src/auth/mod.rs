@@ -422,6 +422,14 @@ async fn issue_session(
     })
 }
 
+async fn audit_action(
+    state: &AppState, actor_id: Option<&str>, subject_id: Option<&str>, action: &str,
+) {
+    if let Err(error) = state.store.auth_audit(actor_id, subject_id, action).await {
+        tracing::warn!(%error, %action, "security audit entry was not recorded");
+    }
+}
+
 fn bearer(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::AUTHORIZATION)?
@@ -556,6 +564,7 @@ async fn bootstrap(
         .auth_user_by_id(&id)
         .await?
         .ok_or_else(ApiError::unauthorized)?;
+    audit_action(&state, None, Some(&id), "bootstrap-owner").await;
     Ok(Json(issue_session(&state, &user, false).await?))
 }
 
@@ -604,6 +613,7 @@ async fn login(
     };
     state.store.clear_login_failures(&key).await?;
     let session = issue_session(&state, &user, request.remember_me).await?;
+    audit_action(&state, Some(&user.id), Some(&user.id), "login-local").await;
     send_login_notification(&state, &user);
     Ok(Json(session))
 }
@@ -672,9 +682,11 @@ async fn user_for_bearer(state: &AppState, headers: &HeaderMap) -> Result<AuthUs
 }
 
 async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
+    let user_id = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
     if let Some(token) = bearer(&headers) {
         state.store.revoke_session(&digest(token)).await?;
     }
+    audit_action(&state, user_id.as_deref(), user_id.as_deref(), "logout").await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -702,6 +714,7 @@ async fn change_password(
     }
     let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
     state.store.change_password(&user.id, &hash).await?;
+    audit_action(&state, Some(&user.id), Some(&user.id), "password-changed").await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -774,6 +787,7 @@ async fn reset_password(
         .await?
         .ok_or_else(ApiError::unauthorized)?;
     state.store.change_password(&user_id, &hash).await?;
+    audit_action(&state, None, Some(&user_id), "password-reset").await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -826,6 +840,7 @@ async fn verify_email(
         .await?
         .ok_or_else(ApiError::unauthorized)?;
     state.store.verify_email(&user_id).await?;
+    audit_action(&state, None, Some(&user_id), "email-verified").await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -913,6 +928,7 @@ async fn complete_oidc(
             .ok_or_else(ApiError::unauthorized)?
     };
     let session = issue_session(&state, &user, request.remember_me).await?;
+    audit_action(&state, Some(&user.id), Some(&user.id), "login-oidc").await;
     send_login_notification(&state, &user);
     Ok(Json(session))
 }
@@ -1011,6 +1027,7 @@ async fn list_users(State(state): State<AppState>) -> Result<Json<Vec<AuthUserVi
 
 async fn add_user(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<AddUserInput>,
 ) -> Result<Json<AuthUserView>, ApiError> {
     if !state.auth_settings.mode.local() {
@@ -1045,6 +1062,8 @@ async fn add_user(
         .auth_user_by_id(&id)
         .await?
         .ok_or_else(ApiError::unauthorized)?;
+    let actor = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
+    audit_action(&state, actor.as_deref(), Some(&id), "account-created").await;
     if !verified {
         send_verification_for_user(&state, &user).await?;
     }
@@ -1054,6 +1073,7 @@ async fn add_user(
 async fn disable_user(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     Json(request): Json<DisabledInput>,
 ) -> Result<Json<AuthUserView>, ApiError> {
     if !state.store.set_user_disabled(&id, request.disabled).await? {
@@ -1066,6 +1086,8 @@ async fn disable_user(
         .auth_user_by_id(&id)
         .await?
         .ok_or_else(ApiError::unauthorized)?;
+    let actor = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
+    audit_action(&state, actor.as_deref(), Some(&id), if request.disabled { "account-disabled" } else { "account-enabled" }).await;
     Ok(Json(user.view()))
 }
 
@@ -1082,7 +1104,7 @@ async fn change_user_role(
         return Err(ApiError::bad_request("cannot change the last active owner or unknown account"));
     }
     let actor = user_for_bearer(&state, &headers).await.ok().map(|user| user.id);
-    state.store.auth_audit(actor.as_deref(), Some(&id), "role-changed").await?;
+    audit_action(&state, actor.as_deref(), Some(&id), "role-changed").await;
     let user = state.store.auth_user_by_id(&id).await?
         .ok_or_else(ApiError::unauthorized)?;
     Ok(Json(user.view()))
