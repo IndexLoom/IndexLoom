@@ -68,6 +68,9 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       if (remember) localStorage.setItem(PERSISTENT_KEY, next);
       else sessionStorage.setItem(KEY, next);
     } catch { /* Private browser mode: keep token in memory only. */ }
+    setConfig((current) =>
+      current?.bootstrapAvailable ? { ...current, bootstrapAvailable: false } : current
+    );
     setToken(next);
   }, []);
 
