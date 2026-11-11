@@ -122,14 +122,23 @@ jobs:
               bootstrapAvailable: false, oidcIssuer: null,
             }),
           }));
+
           await loginPage.route('**/api/v1/auth/login', (route) => route.fulfill({
             status: 200, contentType: 'application/json',
             body: JSON.stringify({
-              accessToken: 'test-token-with-at-least-forty-characters-long',
+              requiresTotp: true,
+              challengeToken: 'example-challenge-for-local-browser-tests-only',
+              expiresAt: 1900000000,
+            }),
+          }));
+          await loginPage.route('**/api/v1/auth/totp/complete', (route) => route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({
+              accessToken: 'example-authenticated-browser-test-session',
               expiresAt: 1900000000,
               user: {
-                id: 'test-user', username: 'alice', email: 'alice@example.org',
-                emailVerified: true,
+                id: 'test-user', username: 'alice',
+                email: 'alice@example.org', emailVerified: true, role: 'owner',
               },
             }),
           }));
@@ -158,6 +167,9 @@ jobs:
           await loginPage.getByLabel('Password', {exact: true}).fill('correct-horse-battery');
           await loginPage.screenshot({path:'/tmp/indexloom-screenshots/login-mobile.png'});
           await loginPage.getByRole('button', {name:'Sign in', exact:true}).click();
+          await loginPage.getByRole('heading', {name:'Verify second factor'}).waitFor();
+          await loginPage.getByLabel('Authenticator or recovery code').fill('123456');
+          await loginPage.getByRole('button', {name:'Verify and sign in'}).click();
           await loginPage.locator('nav[aria-label="Primary navigation"]').waitFor();
           await loginPage.getByRole('button', {name:'Sign out'}).click();
           await loginPage.getByRole('heading', {name:'Welcome back'}).waitFor();
