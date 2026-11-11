@@ -1,3 +1,4 @@
+use serde::Serialize;
 use uuid::Uuid;
 
 use super::{StorageError, Store, now};
@@ -23,7 +24,45 @@ pub struct CatalogSyncReport {
     pub updated: bool,
 }
 
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogStatus {
+    pub total_definitions: i64,
+    pub available_definitions: i64,
+    pub retired_definitions: i64,
+    pub latest_release_applied_at: Option<String>,
+    pub latest_release_fingerprint: Option<String>,
+}
+
 impl Store {
+    /// Read-only installed catalog statistics and the last applied release.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error if any of the SQLite queries fail.
+    pub async fn catalog_status(&self) -> Result<CatalogStatus, StorageError> {
+        let (total, available): (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*), COALESCE(SUM(catalog_available), 0) FROM indexer_definitions",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let last: Option<(String, String)> = sqlx::query_as(
+            "SELECT updated_at, manifest_sha256 FROM catalog_release_state ORDER BY updated_at DESC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        let (latest_release_applied_at, latest_release_fingerprint) =
+            last.map_or((None, None), |(at, fingerprint)| (Some(at), Some(fingerprint)));
+        Ok(CatalogStatus {
+            total_definitions: total,
+            available_definitions: available,
+            retired_definitions: total - available,
+            latest_release_applied_at,
+            latest_release_fingerprint,
+        })
+    }
+
     /// Counts definitions retained in the local catalog.
     ///
     /// # Errors

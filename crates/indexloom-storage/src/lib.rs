@@ -20,7 +20,7 @@ use zeroize::Zeroize;
 mod catalog;
 mod routing;
 
-pub use catalog::{CatalogDefinitionInput, CatalogSyncReport};
+pub use catalog::{CatalogDefinitionInput, CatalogStatus, CatalogSyncReport};
 pub use routing::{
     IndexerGroup, IndexerGroupInput, IndexerTestRecord, LastIndexerTest, OutboundProxy,
     OutboundProxyInput, ProxyKind, ProxyPasswordUpdate, ResolvedOutboundProxy,

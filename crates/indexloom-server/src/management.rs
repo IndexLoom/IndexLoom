@@ -7,7 +7,7 @@ use axum::{
     routing::{get, put},
 };
 use indexloom_storage::{
-    IndexerGroup, IndexerGroupInput, OutboundProxy, OutboundProxyInput, ProxyKind,
+    CatalogStatus, IndexerGroup, IndexerGroupInput, OutboundProxy, OutboundProxyInput, ProxyKind,
     ProxyPasswordUpdate,
 };
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ use super::{ApiError, AppState, IndexerView, indexer_view, validate_identifier};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
+        .route("/api/v1/catalog/status", get(catalog_status))
         .route("/api/v1/proxies", get(list_proxies))
         .route(
             "/api/v1/proxies/{id}",
@@ -81,6 +82,10 @@ struct IndexerOrganizationRequest {
     group_ids: Vec<String>,
     #[serde(default)]
     tags: Vec<String>,
+}
+
+async fn catalog_status(State(state): State<AppState>) -> Result<Json<CatalogStatus>, ApiError> {
+    Ok(Json(state.store.catalog_status().await?))
 }
 
 async fn list_proxies(State(state): State<AppState>) -> Result<Json<Vec<OutboundProxy>>, ApiError> {
