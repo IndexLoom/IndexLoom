@@ -276,12 +276,19 @@ impl Store {
         let enabled: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM auth_users WHERE disabled = 0")
             .fetch_one(&mut *transaction)
             .await?;
-        let target: Option<bool> =
-            sqlx::query_scalar("SELECT disabled FROM auth_users WHERE id = ?")
+        let target: Option<(bool, String)> =
+            sqlx::query_as("SELECT disabled, role FROM auth_users WHERE id = ?")
                 .bind(user_id)
                 .fetch_optional(&mut *transaction)
                 .await?;
-        if target.is_none() || (disabled && target == Some(false) && enabled <= 1) {
+        let active_owners: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM auth_users WHERE role = 'owner' AND disabled = 0",
+        ).fetch_one(&mut *transaction).await?;
+        if target.is_none()
+            || (disabled && target.as_ref().is_some_and(|(was_disabled, _)| !was_disabled)
+                && (enabled <= 1 || (active_owners <= 1
+                    && target.as_ref().is_some_and(|(_, role)| role == "owner"))))
+        {
             transaction.rollback().await?;
             return Ok(false);
         }
