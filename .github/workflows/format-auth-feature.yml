@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/format-auth-feature.yml"
       - "crates/indexloom-server/src/auth/**"
+      - "crates/indexloom-server/src/lib.rs"
       - "crates/indexloom-storage/src/auth.rs"
   workflow_dispatch:
 permissions:
