@@ -15,6 +15,21 @@ their environment explicitly opts into another policy.
 | `hybrid` | Operator token, local accounts and OIDC | Token and OIDC settings; accounts can be managed in Settings |
 | `disabled` | Public, unauthenticated access | `INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true` confirmation; never expose publicly |
 
+For OIDC-only deployments, use a Compose variant which does **not** mount
+any administrator token:
+
+```bash
+docker compose -f compose.no-operator.yaml up --build -d
+```
+
+Set `INDEXLOOM_AUTH_MODE=oidc` and the OIDC issuer/client/allowlist
+variables in `.env` first; the first explicitly allowlisted OIDC account
+becomes owner. The same file supports the intentionally dangerous public
+mode only after BOTH `INDEXLOOM_AUTH_MODE=disabled` and
+`INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true` are configured.
+The default `compose.yaml` remains compatible with token-based deployments
+and still requires the operator secret.
+
 In local/hybrid modes, first open the app and create the first named
 administrator using the operator token. Initial creation is a database-atomic
 single-use operation, preventing a second bootstrap. You can later create more

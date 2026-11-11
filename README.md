@@ -93,6 +93,15 @@ Open `http://127.0.0.1:8080`, enter the administrator token for the current
 browser tab, and configure only the indexers you intend to use. A reverse proxy
 can be added separately when remote access is required.
 
+For **OIDC-only** installation without an operator token, run
+`docker compose -f compose.no-operator.yaml up --build -d` with
+`INDEXLOOM_AUTH_MODE=oidc` and a configured HTTPS identity provider.
+The same file permits an isolated no-auth deployment if the explicit
+`INDEXLOOM_ALLOW_UNSAFE_NO_AUTH=true` acknowledgment is also set.
+Unlike the default Compose file, it does not require an administrator
+bearer token secret. Keep it loopback-bound or behind a trusted reverse
+proxy, and never expose the no-auth mode to the public Internet.
+
 The application also accepts `INDEXLOOM_ADMIN_TOKEN_FILE` and
 `INDEXLOOM_MASTER_KEY_FILE` in custom Docker or Kubernetes deployments. Each
 pair is mutually exclusive. Mounted secret files may end in one LF or CRLF;
