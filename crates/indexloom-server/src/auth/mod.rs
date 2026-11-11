@@ -8,7 +8,7 @@
 mod mail;
 mod oidc;
 
-use std::{env, io::Read, path::Path, sync::Arc};
+use std::{env, io::Read, path::Path as FsPath, sync::Arc};
 
 use argon2::Argon2;
 use axum::{
@@ -47,8 +47,8 @@ fn read_optional_secret(name: &str) -> anyhow::Result<Option<String>> {
         (Some(value), None) => Ok(Some(value)),
         (None, None) => Ok(None),
         (None, Some(file_path)) => {
-            let path = Path::new(&file_path);
-            let mut file = std::fs::File::open(path)?;
+            let path = FsPath::new(&file_path);
+            let file = std::fs::File::open(path)?;
             let metadata = file.metadata()?;
             if !metadata.is_file() || metadata.len() > 64 * 1024 {
                 anyhow::bail!("{name}_FILE must be a regular file no larger than 64 KiB");
