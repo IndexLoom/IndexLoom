@@ -524,6 +524,12 @@ pub enum EngineError {
     /// The HTTP method is not supported by this execution stage.
     #[error("unsupported Cardigann HTTP method: {0}")]
     UnsupportedHttpMethod(String),
+    /// The requested search mode is absent from the upstream definition.
+    #[error("indexer does not support search mode: {0}")]
+    UnsupportedSearchMode(String),
+    /// The requested category cannot be mapped to a native tracker category.
+    #[error("indexer does not support category: {0}")]
+    UnsupportedSearchCategory(String),
     /// The response format is not supported by this execution stage.
     #[error("unsupported Cardigann response type: {0}")]
     UnsupportedResponseType(String),
