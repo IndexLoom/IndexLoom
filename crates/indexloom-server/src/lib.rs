@@ -33,6 +33,7 @@ mod embedded_web {
 
 use url::Url;
 
+pub mod auth;
 pub mod catalog;
 mod execution;
 mod management;
@@ -47,7 +48,9 @@ const MAX_CONFIGURATION_FIELDS: usize = 128;
 pub struct AppState {
     store: Store,
     vault: SecretVault,
-    admin_token: AdminToken,
+    admin_token: Option<AdminToken>,
+    auth_settings: auth::AuthSettings,
+    mail_sender: Option<auth::MailSender>,
     test_jobs: execution::TestJobRegistry,
     executor_cache: execution::ExecutorCache,
     search_permits: Arc<tokio::sync::Semaphore>,
@@ -60,7 +63,23 @@ impl AppState {
         Self {
             store,
             vault,
-            admin_token,
+            admin_token: Some(admin_token),
+            auth_settings: auth::AuthSettings::legacy(),
+            mail_sender: None,
+            test_jobs: execution::TestJobRegistry::default(),
+            executor_cache: execution::ExecutorCache::default(),
+            search_permits: execution::search_permits(),
+        }
+    }
+
+    /// Runtime-selectable authentication and mail configuration.
+    #[must_use]
+    pub fn with_auth(
+        store: Store, vault: SecretVault, admin_token: Option<AdminToken>,
+        auth_settings: auth::AuthSettings, mail_sender: Option<auth::MailSender>,
+    ) -> Self {
+        Self {
+            store, vault, admin_token, auth_settings, mail_sender,
             test_jobs: execution::TestJobRegistry::default(),
             executor_cache: execution::ExecutorCache::default(),
             search_permits: execution::search_permits(),
@@ -128,11 +147,13 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         )
         .merge(management::routes())
         .merge(execution::routes())
+        .merge(auth::private_routes())
         .layer(DefaultBodyLimit::max(MAX_CONFIGURATION_BODY))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
 
     let api = Router::new()
         .route("/api/v1/health", get(health))
+        .merge(auth::public_routes())
         .merge(protected);
 
     #[cfg(feature = "headless")]
@@ -243,7 +264,7 @@ async fn health(
 }
 
 async fn require_admin(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    if !state.admin_token.authorizes(request.headers()) {
+    if !auth::authorize(&state, request.headers()).await {
         return ApiError::unauthorized().into_response();
     }
     let mut response = next.run(request).await;
@@ -535,9 +556,14 @@ impl ApiError {
             status: StatusCode::UNAUTHORIZED,
             body: ErrorBody {
                 code: "UNAUTHORIZED",
-                message: "a valid administrator bearer token is required",
+                message: "valid authentication is required",
             },
         }
+    }
+
+    const fn conflict(message: &'static str) -> Self {
+        Self { status: StatusCode::CONFLICT,
+            body: ErrorBody { code: "CONFLICT", message } }
     }
 
     const fn bad_request(message: &'static str) -> Self {
