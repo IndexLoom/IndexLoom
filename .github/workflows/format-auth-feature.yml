@@ -30,11 +30,24 @@ jobs:
           cargo fmt --all
           git diff --check
       - name: Commit formatted source to feature branch
+        shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet; then exit 0; fi
+          BRANCH=feature/auth-mail-pwa-20261112
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add crates/
-          git commit -m "style(auth): rustfmt all new authentication components"
-          git push origin HEAD:feature/auth-mail-pwa-20261112
+          # Work on the latest branch head, rather than losing a concurrent edit.
+          # Never force-push; retry only if someone pushed while formatting.
+          for attempt in 1 2 3 4; do
+            git fetch origin "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            cargo fmt --all
+            git diff --check
+            if git diff --quiet -- crates/; then exit 0; fi
+            git add crates/
+            git commit -m "style(auth): rustfmt all new authentication components"
+            if git push origin "HEAD:$BRANCH"; then exit 0; fi
+            sleep 1
+          done
+          echo "Could not push formatted changes without a race" >&2
+          exit 1
