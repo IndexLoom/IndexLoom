@@ -111,6 +111,24 @@ jobs:
             await page.getByRole('heading', {name: 'Настройки', exact: true}).waitFor();
             await page.getByRole('combobox', {name: 'Язык интерфейса'}).first().selectOption('en');
             await page.getByRole('heading', {name: 'Settings', exact: true}).waitFor();
+            if (size.width === 390) {
+              let sentGenre = null;
+              await page.route('**/api/v1/search/stream', async (route) => {
+                sentGenre = route.request().postDataJSON().filters.genre;
+                await route.fulfill({
+                  status: 200, contentType: 'application/x-ndjson',
+                  body: '{"type":"started","query":"example","total":0}\\n{"type":"finished","completed":0,"total":0,"resultCount":0}\\n',
+                });
+              });
+              await page.getByRole('combobox', {name: 'Interface language'}).first().selectOption('ru');
+              await page.locator('nav.navigation').getByRole('button', {name: 'Поиск', exact: true}).click();
+              await page.locator('.advanced-search summary').click();
+              await page.getByPlaceholder('Идентификатор или название жанра').fill('Комедия');
+              await page.getByPlaceholder('Фильм, сериал, игра, книга…').fill('example');
+              await page.locator('form.search-toolbar').getByRole('button', {name: 'Поиск'}).click();
+              await page.locator('.result-groups').waitFor();
+              if (sentGenre !== 'Comedy') throw new Error('Genre was not converted to canonical source value: ' + sentGenre);
+            }
             await context.close();
           }
           const page = await browser.newPage();
