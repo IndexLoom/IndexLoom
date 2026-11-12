@@ -30,6 +30,7 @@ type AuthContextType = {
   acceptToken: (token: string, remember?: boolean) => void;
   clearToken: () => void;
   config: AuthConfig | null;
+  historyScope: string | null;
 };
 
 const KEY = "indexloom.admin-token.v1";
@@ -65,6 +66,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
   useLocale(); // Ensure sign-in and recovery UI updates without losing form state.
   const [token, setToken] = useState(savedToken);
   const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [identity, setIdentity] = useState<{ token: string; scope: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -79,6 +81,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
     setConfig((current) =>
       current?.bootstrapAvailable ? { ...current, bootstrapAvailable: false } : current
     );
+    setIdentity(null);
     setToken(next);
   }, []);
 
@@ -94,6 +97,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       sessionStorage.removeItem(KEY);
       localStorage.removeItem(PERSISTENT_KEY);
     } catch { /* Storage can be unavailable. */ }
+    setIdentity(null);
     setToken("");
   }, [token]);
 
@@ -124,13 +128,23 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       cache: "no-store",
       headers: { Authorization: "Bearer " + token },
       signal: controller.signal,
-    }).then((response) => {
-      if (response.status !== 401 || controller.signal.aborted) return;
-      try {
-        sessionStorage.removeItem(KEY);
-        localStorage.removeItem(PERSISTENT_KEY);
-      } catch { /* Browser storage may be disabled. */ }
-      setToken("");
+    }).then(async (response) => {
+      if (controller.signal.aborted) return;
+      if (response.status === 401) {
+        try {
+          sessionStorage.removeItem(KEY);
+          localStorage.removeItem(PERSISTENT_KEY);
+        } catch { /* Browser storage may be disabled. */ }
+        setIdentity(null);
+        setToken("");
+        return;
+      }
+      if (!response.ok) return;
+      const me = await response.json() as { method: string; user: { id: string } | null };
+      if (controller.signal.aborted) return;
+      const scope = me.user?.id ? "user:" + me.user.id
+        : me.method === "legacy-token" ? "operator" : null;
+      if (scope) setIdentity({ token, scope });
     }).catch(() => { /* Keep the UI available during offline mode. */ });
     return () => controller.abort();
   }, [config, token]);
@@ -182,7 +196,9 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
   const context = useMemo<AuthContextType>(() => ({
     token: config?.mode === "disabled" ? "disabled" : token,
     acceptToken, clearToken, config,
-  }), [acceptToken, clearToken, config, token]);
+    historyScope: config?.mode === "disabled" ? "anonymous"
+      : identity?.token === token ? identity.scope : null,
+  }), [acceptToken, clearToken, config, token, identity]);
 
   if (loading) return (
     <main className="auth-page" aria-busy="true">
