@@ -91,19 +91,16 @@ async fn torznab(State(state): State<AppState>, Query(params): Query<QueryParams
                 .filter(|c| !c.is_empty())
                 .and_then(|c| c.split(',').next())
                 .map(str::to_owned);
-            let results =
-                match crate::execution::search_for_feed(&state, query.to_owned(), category, total)
+            let Ok(results) =
+                crate::execution::search_for_feed(&state, query.to_owned(), category, total)
                     .await
-                {
-                    Ok(results) => results,
-                    Err(_) => {
-                        return failure(
-                            StatusCode::BAD_REQUEST,
-                            202,
-                            "Search failed or no enabled indexers",
-                        );
-                    }
-                };
+            else {
+                return failure(
+                    StatusCode::BAD_REQUEST,
+                    202,
+                    "Search failed or no enabled indexers",
+                );
+            };
             xml(
                 StatusCode::OK,
                 rss(&results
@@ -222,7 +219,7 @@ fn xml_escape(value: &str) -> String {
             '\'' => output.push_str("&apos;"),
             '\u{9}' | '\u{A}' | '\u{D}' => output.push(character),
             '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..='\u{10FFFF}' => {
-                output.push(character)
+                output.push(character);
             }
             _ => {}
         }
