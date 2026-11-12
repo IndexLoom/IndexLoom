@@ -104,7 +104,7 @@ export function t(message: string, variables?: Record<string, string | number>, 
   const normalized = message.replace(/\s+/g, " ").trim();
   const locale = getLocaleFor(area);
   let translated = activeCustom[locale]?.[normalized]
-    ?? (locale === "ru" ? fallbackMessages[normalized] : extraLocaleMessages[locale]?.[normalized])
+    ?? (locale === "ru" ? (fallbackMessages[normalized] ?? extraLocaleMessages.ru?.[normalized]) : extraLocaleMessages[locale]?.[normalized])
     ?? message;
   if (variables) {
     for (const [name, value] of Object.entries(variables)) {
