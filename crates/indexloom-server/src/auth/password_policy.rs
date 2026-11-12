@@ -165,10 +165,12 @@ impl PasswordPolicy {
         ];
         for (rule, count, name) in requirements {
             if rule.enabled && count < rule.minimum {
-                return Err(ApiError::bad_request(format!(
-                    "password requires at least {} {name}",
-                    rule.minimum
-                )));
+                return Err(ApiError::bad_request(match name {
+                    "uppercase letters" => "password requires more uppercase letters",
+                    "lowercase letters" => "password requires more lowercase letters",
+                    "digits" => "password requires more digits",
+                    _ => "password requires more special characters",
+                }));
             }
         }
         if self.reject_whitespace && password.chars().any(char::is_whitespace) {
@@ -256,7 +258,7 @@ fn is_common_password(value: &str) -> bool {
 }
 
 fn has_repeated_run(value: &str, allowed: usize) -> bool {
-    let mut previous = None;
+    let mut previous: Option<char> = None;
     let mut run = 0;
     for ch in value.chars() {
         if Some(ch) == previous {
@@ -275,7 +277,7 @@ fn has_repeated_run(value: &str, allowed: usize) -> bool {
 fn has_sequence(value: &str, minimum: usize) -> bool {
     let mut rising = 1;
     let mut falling = 1;
-    let mut previous = None;
+    let mut previous: Option<char> = None;
     for ch in value.chars() {
         let now = ch.to_ascii_lowercase();
         if let Some(old) = previous {
