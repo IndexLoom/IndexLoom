@@ -541,6 +541,37 @@ async fn prepare_search(
     })
 }
 
+/// Shared bounded search for experimental Torznab/RSS consumers.
+/// Never bypasses selection, indexer egress, limits, or concurrency controls.
+pub(crate) async fn search_for_feed(
+    state: &AppState,
+    query: String,
+    category: Option<String>,
+    limit: usize,
+) -> Result<Vec<SearchResult>, ApiError> {
+    let request = SearchRequest {
+        query,
+        selection: IndexerSelection {
+            all: true,
+            indexer_ids: Vec::new(),
+            group_ids: Vec::new(),
+        },
+        limit_per_indexer: limit.clamp(1, 200),
+        filters: SearchParameters { category, ..Default::default() },
+        languages: Vec::new(),
+    };
+    let prepared = prepare_search(state, request).await?;
+    let mut tasks = spawn_search_tasks(state, &prepared);
+    let mut results = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        let batch = search_join_result(result);
+        results.extend(batch.results);
+    }
+    results.sort_by(|left, right| right.published_at.cmp(&left.published_at));
+    results.truncate(limit);
+    Ok(results)
+}
+
 fn spawn_search_tasks(state: &AppState, prepared: &PreparedSearch) -> JoinSet<SearchIndexerView> {
     let mut tasks = JoinSet::new();
     for indexer_id in &prepared.indexer_ids {
