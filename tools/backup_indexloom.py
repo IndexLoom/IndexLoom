@@ -5,6 +5,7 @@ Run on a host with Python 3.9+, not necessarily inside the minimal Rust containe
 Never includes INDEXLOOM_MASTER_KEY; store the key separately and securely.
 """
 import argparse
+from contextlib import closing
 import os
 from pathlib import Path
 import shutil
@@ -15,7 +16,7 @@ import tempfile
 
 def check_integrity(path: Path) -> None:
     # Use immutable mode only for complete offline snapshot files.
-    with sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as conn:
         result = conn.execute("PRAGMA integrity_check").fetchone()
         if result is None or result[0] != "ok":
             raise RuntimeError(f"SQLite integrity check failed: {result}")
@@ -31,7 +32,7 @@ def snapshot(database: Path, destination: Path) -> None:
         stage = Path(tmp.name)
     try:
         stage.chmod(0o600)
-        with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as src, sqlite3.connect(stage) as dst:
+        with closing(sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)) as src, closing(sqlite3.connect(stage)) as dst:
             src.backup(dst, pages=256, sleep=0.1)
         check_integrity(stage)
         if destination.exists():
