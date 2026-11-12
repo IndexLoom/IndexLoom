@@ -1,7 +1,11 @@
 mod extract;
 mod filters;
-use extract::*;
-use filters::*;
+use extract::{parse_html_results, parse_json_results};
+use filters::{
+    apply_case, apply_filters, browser_cookies, check_error_selectors, configuration_json,
+    element_text, json_template_value, key, mapping, normalize_contains_selector, parse_date,
+    parse_size, parse_u32, scalar, selector_matches,
+};
 
 use std::{
     collections::{BTreeMap, HashMap},
