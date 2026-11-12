@@ -37,6 +37,7 @@ pub mod auth;
 pub mod catalog;
 mod execution;
 mod management;
+mod torznab;
 
 const MAX_CONFIGURATION_BODY: usize = 128 * 1024;
 const MAX_USER_AGENT_BYTES: usize = 512;
@@ -161,6 +162,7 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
     let api = Router::new()
         .route("/api/v1/health", get(health))
         .merge(auth::public_routes())
+        .merge(torznab::routes())
         .merge(protected)
         .layer(middleware::from_fn(security_headers));
 
