@@ -24,6 +24,24 @@ See [Authentication and email](AUTHENTICATION.md) for setup and security.
 New catalog instances are disabled by default. Tests and search only select
 enabled instances.
 
+## Experimental Torznab / RSS
+
+`GET /api/v1/torznab?t=caps&apikey=<separate-key>` publishes a minimal
+Torznab-compatible capabilities document. `t=search&q=<UTF-8-query>`
+returns RSS 2.0 with Torznab attributes, escaped XML, search limits
+and optional one-category filtering. Other Torznab search modes are
+not yet supported, and the exact compatibility depends on enabled
+Cardigann definitions. This integration is experimental.
+
+The endpoint is **disabled by default**. Enable with a separate,
+random 32+-byte `INDEXLOOM_TORZNAB_API_KEY` in the server environment;
+the normal administrator bearer token is not accepted. Many
+Torznab clients include API keys in URL query strings: use HTTPS,
+mask the query in proxy logs, and do not expose the port publicly.
+The endpoint uses the existing bounded search engine and excludes
+disabled/retired indexers. Search errors are currently normalized to
+an XML error rather than reporting detailed per-indexer failures.
+
 ## Multilingual search
 
 Both `POST /search` and `POST /search/stream` accept the optional
