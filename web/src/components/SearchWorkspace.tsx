@@ -144,6 +144,8 @@ function AuthenticatedSearch({
     setSearching(true);
     setNotice(null);
     setSearchProgress(null);
+    // Replace stale results immediately; an empty streamed response still has a result area.
+    setResponse({ query: submittedQuery, indexers: [], resultCount: 0 });
     const indexers = new Map<string, SearchIndexerResults>();
     let resultCount = 0;
     try {
