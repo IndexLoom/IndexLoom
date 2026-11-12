@@ -2,8 +2,8 @@
 //! credentials or tracker traffic through the device running this binary.
 use axum::{
     Router,
-    extract::{State, Uri},
-    http::StatusCode,
+    extract::State,
+    http::{StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
 };
 use url::Url;

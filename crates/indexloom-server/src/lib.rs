@@ -35,6 +35,7 @@ use url::Url;
 
 pub mod auth;
 pub mod catalog;
+pub mod local;
 mod execution;
 mod management;
 pub mod remote;

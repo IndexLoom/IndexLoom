@@ -1,6 +1,6 @@
 //! SQLite-first persistence with encrypted indexer credentials.
 
-use std::{collections::BTreeMap, fmt, str::FromStr, time::Duration};
+use std::{collections::BTreeMap, fmt, path::Path, str::FromStr, time::Duration};
 
 use base64::prelude::{BASE64_STANDARD, Engine as _};
 use chacha20poly1305::{
@@ -354,6 +354,23 @@ impl Store {
             .connect_with(options)
             .await?;
 
+        sqlx::migrate!("../../migrations/sqlite").run(&pool).await?;
+        Ok(Self { pool })
+    }
+
+    /// Opens a native per-app SQLite file without interpreting its path as a URL.
+    /// Mobile sandbox paths may contain spaces or non-ASCII characters.
+    pub async fn connect_path(path: &Path) -> Result<Self, StorageError> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5))
+            .journal_mode(SqliteJournalMode::Wal);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect_with(options)
+            .await?;
         sqlx::migrate!("../../migrations/sqlite").run(&pool).await?;
         Ok(Self { pool })
     }
