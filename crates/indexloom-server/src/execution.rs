@@ -120,6 +120,8 @@ struct SearchRequest {
     limit_per_indexer: usize,
     #[serde(default)]
     filters: SearchParameters,
+    #[serde(default)]
+    languages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -490,12 +492,13 @@ async fn prepare_search(
         ));
     }
     validate_search_filters(&request.filters)?;
+    validate_search_languages(&request.languages)?;
     if !(1..=200).contains(&request.limit_per_indexer) {
         return Err(ApiError::bad_request(
             "limitPerIndexer must be between 1 and 200",
         ));
     }
-    let indexer_ids = state
+    let mut indexer_ids = state
         .store
         .select_indexer_ids(
             request.selection.all,
@@ -504,9 +507,25 @@ async fn prepare_search(
             true,
         )
         .await?;
+    if !request.languages.is_empty() {
+        let selected: std::collections::HashSet<_> = indexer_ids.into_iter().collect();
+        let requested: Vec<_> = request.languages.iter().map(|l| l.to_ascii_lowercase()).collect();
+        indexer_ids = state.store.list_indexers(&state.vault).await?
+            .into_iter()
+            .filter(|record| selected.contains(&record.id))
+            .filter(|record| {
+                let Ok(definition) = indexloom_definitions::parse_yaml(&record.definition_yaml) else {
+                    return false;
+                };
+                let tag = indexloom_definitions::capabilities::summarize(&definition).language.to_ascii_lowercase();
+                requested.iter().any(|code| tag == *code || tag.starts_with(&format!("{code}-")))
+            })
+            .map(|record| record.id)
+            .collect();
+    }
     if indexer_ids.is_empty() {
         return Err(ApiError::bad_request(
-            "selection contains no enabled indexers",
+            "selection contains no enabled indexers matching the requested languages",
         ));
     }
     if indexer_ids.len() > MAX_SEARCH_INDEXERS {
@@ -811,6 +830,17 @@ fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
         return Err(ApiError::bad_request(
             "search numeric filter is out of range",
         ));
+    }
+    Ok(())
+}
+
+fn validate_search_languages(languages: &[String]) -> Result<(), ApiError> {
+    if languages.len() > 16 || languages.iter().any(|language| {
+        language.len() < 2 || language.len() > 35
+            || !language.bytes().all(|character| character.is_ascii_alphanumeric() || character == b'-')
+            || language.starts_with('-') || language.ends_with('-')
+    }) {
+        return Err(ApiError::bad_request("invalid indexer language filter"));
     }
     Ok(())
 }
