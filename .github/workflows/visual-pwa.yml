@@ -81,6 +81,9 @@ jobs:
             await page.route('**/api/v1/indexers', (route) => route.fulfill({
               status: 200, contentType: 'application/json', body: '[]',
             }));
+            await page.route('**/api/v1/groups', (route) => route.fulfill({
+              status: 200, contentType: 'application/json', body: '[]',
+            }));
             await page.goto('http://127.0.0.1:4173/', {waitUntil: 'networkidle'});
             const nav = page.locator('nav[aria-label="Primary navigation"] button');
             if (await nav.count() !== 4) throw new Error('Missing navigation at ' + size.width);
