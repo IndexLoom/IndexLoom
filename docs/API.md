@@ -24,6 +24,16 @@ See [Authentication and email](AUTHENTICATION.md) for setup and security.
 New catalog instances are disabled by default. Tests and search only select
 enabled instances.
 
+## Runtime search metrics
+
+Authenticated `GET /api/v1/metrics` exports process-local Prometheus
+counter samples (`indexloom_search_requests_total`,
+`indexloom_search_completed_total`, `indexloom_search_results_total`).
+Counters reset on service restart and contain **no query text, indexer names,
+user identities or other high-cardinality labels**. API authentication and
+`Cache-Control: no-store` apply. Configure an authenticated scraper to monitor
+the endpoint; unauthenticated public exposure is not recommended.
+
 ## Experimental Torznab / RSS
 
 `GET /api/v1/torznab?t=caps&apikey=<separate-key>` publishes a minimal
