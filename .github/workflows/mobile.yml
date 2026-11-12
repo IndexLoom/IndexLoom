@@ -11,6 +11,10 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Xcode invokes the package manager again during its build phase.
+# CI=true prevents pnpm from requesting a TTY to refresh generated node_modules.
+env:
+  CI: "true"
 concurrency:
   group: native-mobile-${{ github.ref }}
   cancel-in-progress: true
