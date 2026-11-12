@@ -509,16 +509,28 @@ async fn prepare_search(
         .await?;
     if !request.languages.is_empty() {
         let selected: std::collections::HashSet<_> = indexer_ids.into_iter().collect();
-        let requested: Vec<_> = request.languages.iter().map(|l| l.to_ascii_lowercase()).collect();
-        indexer_ids = state.store.list_indexers(&state.vault).await?
+        let requested: Vec<_> = request
+            .languages
+            .iter()
+            .map(|l| l.to_ascii_lowercase())
+            .collect();
+        indexer_ids = state
+            .store
+            .list_indexers(&state.vault)
+            .await?
             .into_iter()
             .filter(|record| selected.contains(&record.id))
             .filter(|record| {
-                let Ok(definition) = indexloom_definitions::parse_yaml(&record.definition_yaml) else {
+                let Ok(definition) = indexloom_definitions::parse_yaml(&record.definition_yaml)
+                else {
                     return false;
                 };
-                let tag = indexloom_definitions::capabilities::summarize(&definition).language.to_ascii_lowercase();
-                requested.iter().any(|code| tag == *code || tag.starts_with(&format!("{code}-")))
+                let tag = indexloom_definitions::capabilities::summarize(&definition)
+                    .language
+                    .to_ascii_lowercase();
+                requested
+                    .iter()
+                    .any(|code| tag == *code || tag.starts_with(&format!("{code}-")))
             })
             .map(|record| record.id)
             .collect();
@@ -557,7 +569,10 @@ pub(crate) async fn search_for_feed(
             group_ids: Vec::new(),
         },
         limit_per_indexer: limit.clamp(1, 200),
-        filters: SearchParameters { category, ..Default::default() },
+        filters: SearchParameters {
+            category,
+            ..Default::default()
+        },
         languages: Vec::new(),
     };
     let prepared = prepare_search(state, request).await?;
@@ -866,11 +881,17 @@ fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
 }
 
 fn validate_search_languages(languages: &[String]) -> Result<(), ApiError> {
-    if languages.len() > 16 || languages.iter().any(|language| {
-        language.len() < 2 || language.len() > 35
-            || !language.bytes().all(|character| character.is_ascii_alphanumeric() || character == b'-')
-            || language.starts_with('-') || language.ends_with('-')
-    }) {
+    if languages.len() > 16
+        || languages.iter().any(|language| {
+            language.len() < 2
+                || language.len() > 35
+                || !language
+                    .bytes()
+                    .all(|character| character.is_ascii_alphanumeric() || character == b'-')
+                || language.starts_with('-')
+                || language.ends_with('-')
+        })
+    {
         return Err(ApiError::bad_request("invalid indexer language filter"));
     }
     Ok(())
@@ -917,10 +938,16 @@ mod tests {
 
     #[test]
     fn validates_international_indexer_language_tags() {
-        assert!(validate_search_languages(&["ru".to_owned(), "ja-JP".to_owned(), "zh-Hans".to_owned()]).is_ok());
+        assert!(
+            validate_search_languages(&["ru".to_owned(), "ja-JP".to_owned(), "zh-Hans".to_owned()])
+                .is_ok()
+        );
         assert!(validate_search_languages(&[]).is_ok());
         for invalid in ["", "a", "en_US", "../etc/passwd", "-ru", "fr-", "ру"] {
-            assert!(validate_search_languages(&[invalid.to_owned()]).is_err(), "{invalid} should be rejected");
+            assert!(
+                validate_search_languages(&[invalid.to_owned()]).is_err(),
+                "{invalid} should be rejected"
+            );
         }
         assert!(validate_search_languages(&vec!["de".to_owned(); 17]).is_err());
     }
