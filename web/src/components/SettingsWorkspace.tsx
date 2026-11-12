@@ -1,7 +1,7 @@
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
 
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
-import { LanguageSwitcher, t } from "../lib/i18n";
+import { LanguageSwitcher, formatDateTime, t } from "../lib/i18n";
 import { SecuritySettings } from "./SecuritySettings";
 import { EmailSettings } from "./EmailSettings";
 import { ApiError, type CatalogStatus, fetchCatalogStatus } from "../lib/api";
@@ -97,7 +97,7 @@ export function SettingsWorkspace() {
             onClick={() => setTab(key)}
             role="tab"
             type="button"
-          >{labels[key]}</button>
+          >{t(labels[key])}</button>
         ))}
       </div>
 
@@ -129,7 +129,7 @@ export function SettingsWorkspace() {
                       <i style={{ background: colors[2] }} />
                     </span>
                   </span>
-                  <span>{themes[theme].name}</span>
+                  <span>{t(themes[theme].name)}</span>
                 </button>
               );
             })}
@@ -141,10 +141,10 @@ export function SettingsWorkspace() {
           <div className="palette-grid">
             {paletteKeys.map((key) => (
               <label className="palette-editor" key={key}>
-                <span>{paletteLabels[key]}</span>
+                <span>{t(paletteLabels[key])}</span>
                 <span className="palette-input">
                   <input
-                    aria-label={paletteLabels[key]}
+                    aria-label={t(paletteLabels[key])}
                     onChange={(event) => set("colors", { ...preferences.colors, [key]: event.target.value })}
                     type="color"
                     value={palette[key]}
@@ -164,11 +164,11 @@ export function SettingsWorkspace() {
               </select>
             </label>
             <label>
-              <span>Corner radius: {preferences.radius}px</span>
+              <span>{t("Corner radius")}: {preferences.radius}px</span>
               <input max="24" min="0" onChange={(event) => set("radius", Number(event.target.value))} type="range" value={preferences.radius} />
             </label>
             <label>
-              <span>Text size: {Math.round(preferences.fontScale * 100)}%</span>
+              <span>{t("Text size")}: {Math.round(preferences.fontScale * 100)}%</span>
               <input max="1.3" min="0.85" onChange={(event) => set("fontScale", Number(event.target.value))} step="0.05" type="range" value={preferences.fontScale} />
             </label>
           </div>
@@ -190,16 +190,16 @@ export function SettingsWorkspace() {
               </select>
             </label>
             <label>
-              <span>Sidebar width: {preferences.sidebarWidth}px</span>
+              <span>{t("Sidebar width")}: {preferences.sidebarWidth}px</span>
               <input max="350" min="170" onChange={(event) => set("sidebarWidth", Number(event.target.value))} type="range" value={preferences.sidebarWidth} />
             </label>
             <label>
-              <span>Indexer list width: {preferences.indexerSplit}%</span>
+              <span>{t("Indexer list width")}: {preferences.indexerSplit}%</span>
               <input max="75" min="25" onChange={(event) => set("indexerSplit", Number(event.target.value))} type="range" value={preferences.indexerSplit} />
             </label>
           </div>
           <OrderEditor
-            items={navigationPages.map((name) => ({ id: name, label: name.charAt(0).toUpperCase() + name.slice(1) }))}
+            items={navigationPages.map((name) => ({ id: name, label: t(name.charAt(0).toUpperCase() + name.slice(1)) }))}
             onChange={(navigation) => set("navigation", navigation)}
             order={preferences.navigation}
           />
@@ -246,7 +246,7 @@ export function SettingsWorkspace() {
         </div>
         <button className="quiet-button" onClick={() => { reset(); setMessage("Appearance reset to Obsidian Violet."); }} type="button">{t("Reset appearance")}</button>
       </footer>
-      {message ? <p className="notice" role="status">{message}</p> : null}
+      {message ? <p className="notice" role="status">{t(message)}</p> : null}
     </section>
   );
 }
@@ -297,14 +297,14 @@ function OrderEditor({ items, order, hidden, onChange, onToggle }: {
             onDrop={dropped}
           >
             <span className="block-grip" aria-hidden="true">⠿</span>
-            <strong>{item.label}</strong>
+            <strong>{t(item.label)}</strong>
             {hidden && onToggle ? (
               <label className="visibility-check">
                 <input checked={!hidden.includes(id)} onChange={() => onToggle(id)} type="checkbox" />{t("Visible")}{" "}</label>
             ) : null}
             <span className="order-actions">
-              <button aria-label={"Move " + item.label + " up"} disabled={index === 0} onClick={() => onChange(move(order, id, order[index - 1] ?? id))} type="button">↑</button>
-              <button aria-label={"Move " + item.label + " down"} disabled={index === order.length - 1} onClick={() => onChange(move(order, id, order[index + 1] ?? id))} type="button">↓</button>
+              <button aria-label={t("Move") + " " + t(item.label) + " " + t("up")} disabled={index === 0} onClick={() => onChange(move(order, id, order[index - 1] ?? id))} type="button">↑</button>
+              <button aria-label={t("Move") + " " + t(item.label) + " " + t("down")} disabled={index === order.length - 1} onClick={() => onChange(move(order, id, order[index + 1] ?? id))} type="button">↓</button>
             </span>
           </div>
         );
@@ -344,12 +344,12 @@ function CatalogDiagnostics() {
           <div><dt>{t("Available")}</dt><dd>{status.availableDefinitions.toLocaleString()}</dd></div>
           <div><dt>{t("Retired")}</dt><dd>{status.retiredDefinitions.toLocaleString()}</dd></div>
           <div><dt>{t("Stored")}</dt><dd>{status.totalDefinitions.toLocaleString()}</dd></div>
-          <div><dt>{t("Last applied release")}</dt><dd>{status.latestReleaseAppliedAt ? new Date(status.latestReleaseAppliedAt).toLocaleString() : "Not yet recorded"}</dd></div>
+          <div><dt>{t("Last applied release")}</dt><dd>{status.latestReleaseAppliedAt ? formatDateTime(status.latestReleaseAppliedAt) : t("Not yet recorded")}</dd></div>
         </dl>
       ) : null}
-      {error ? <p className="inline-error" role="alert">{error}</p> : null}
+      {error ? <p className="inline-error" role="alert">{t(error)}</p> : null}
       <button className="quiet-button" disabled={loading} onClick={() => setRefreshKey((key) => key + 1)} type="button">
-        {loading ? "Checking…" : "Refresh status"}
+        {t(loading ? "Checking…" : "Refresh status")}
       </button>
       <button className="quiet-button" onClick={clearToken} type="button">{t("Lock database diagnostics")}</button>
       <p className="muted">Refresh reloads diagnostics only; the server handles database updates automatically.</p>
