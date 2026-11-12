@@ -2,6 +2,7 @@ import { formatDateTime, t } from "../lib/i18n";
 import { type FormEvent, useEffect, useState } from "react";
 import { useAdminSession } from "./AdminSession";
 import { TotpSettings } from "./TotpSettings";
+import { PasswordPolicyEditor, PasswordRequirements } from "./PasswordPolicySettings";
 
 type Role = "owner" | "admin" | "viewer";
 type AuditEvent = {id: number; occurredAt: number; actorId: string | null; subjectId: string | null; action: string};
@@ -165,7 +166,8 @@ export function SecuritySettings() {
           <div className="setting-heading"><h2>{t("Change password")}</h2></div>
           <form className="auth-form" onSubmit={(event) => { void changePassword(event); }}>
             <label>{t("Current password")}{" "}<input type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-            <label>{t("New password")}{" "}<input type="password" autoComplete="new-password" minLength={12} required value={replacement} onChange={(event) => setReplacement(event.target.value)} /></label>
+            <label>{t("New password")}{" "}<input type="password" autoComplete="new-password" minLength={8} required value={replacement} onChange={(event) => setReplacement(event.target.value)} /></label>
+            <PasswordRequirements value={replacement} username={me.user.username} email={me.user.email} />
             <button className="primary-button" disabled={busy} type="submit">{t("Update password and revoke sessions")}</button>
           </form>
           <TotpSettings />
@@ -174,6 +176,7 @@ export function SecuritySettings() {
 
       {canManage ? (
         <>
+          <PasswordPolicyEditor token={token} />
           <div className="setting-heading">
             <h2>{t("Users")}</h2>
             <p>{t("Owners manage accounts and security settings. Administrators configure indexers; viewers can search and inspect results without modifying configuration.")}</p>
@@ -217,13 +220,14 @@ export function SecuritySettings() {
               <form className="auth-form" onSubmit={(event) => { void addUser(event); }}>
                 <label>{t("Username")}{" "}<input value={newUsername} minLength={3} maxLength={48} required onChange={(event) => setNewUsername(event.target.value)} /></label>
                 <label>{t("Email")}{" "}<input type="email" value={newEmail} required onChange={(event) => setNewEmail(event.target.value)} /></label>
-                <label>{t("Temporary password")}{" "}<input type="password" minLength={12} autoComplete="new-password" value={newPassword} required onChange={(event) => setNewPassword(event.target.value)} /></label>
+                <label>{t("Temporary password")}{" "}<input type="password" minLength={8} autoComplete="new-password" value={newPassword} required onChange={(event) => setNewPassword(event.target.value)} /></label>
                 <label>{t("Initial role")}{" "}<select value={newRole} onChange={(event) => setNewRole(event.target.value as Role)}>
                     <option value="viewer">{t("Viewer — search and browse")}</option>
                     <option value="admin">{t("Admin — configure indexers")}</option>
                     <option value="owner">{t("Owner — accounts and security")}</option>
                   </select>
                 </label>
+                <PasswordRequirements value={newPassword} username={newUsername} email={newEmail} />
                 <button className="primary-button" type="submit" disabled={busy}>{t("Create account")}</button>
               </form>
             </>
