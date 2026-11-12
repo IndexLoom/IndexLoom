@@ -1,5 +1,6 @@
 name: Native Android / iOS builds
 on:
+  workflow_call:
   pull_request:
     paths:
       - "apps/native/**"
@@ -107,12 +108,15 @@ jobs:
           pnpm install --no-frozen-lockfile
           pnpm tauri icon app-icon.svg
           pnpm tauri ios init --ci
-      - name: Configure pnpm 11 for Xcode non-interactive build phases
+      - name: Verify local pnpm 11 non-interactive configuration
         working-directory: apps/native
+        shell: bash
         run: |
           set -euo pipefail
-          pnpm config set --global confirmModulesPurge false
-          pnpm config get confirmModulesPurge
+          grep -qx 'confirmModulesPurge: false' pnpm-workspace.yaml
+          # The generated Xcode phase executes its own non-interactive pnpm install.
+          # Keep all package-manager options inside this project workspace.
+          test -d node_modules
       - name: Compile unsigned iOS release archive
         working-directory: apps/native
         run: pnpm tauri ios build --ci --no-sign --archive-only -t aarch64

@@ -14,7 +14,7 @@ pub fn load_or_create(directory: &Path) -> Result<NativeSecrets, String> {
     fs::create_dir_all(directory).map_err(|_| "cannot create the private app directory")?;
     let master_path = directory.join("master.key");
     if directory.join("indexloom.db").exists() && !master_path.exists() {
-        return Err("local database exists but its master key is missing; restore the backup");
+        return Err("local database exists but its master key is missing; restore the backup".into());
     }
     let master_key = secret(&master_path, false)?;
     let operator_token = secret(&directory.join("operator.token"), true)?;
