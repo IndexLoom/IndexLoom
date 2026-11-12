@@ -1,7 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     convert::Infallible,
-    sync::{Arc, atomic::{AtomicU64, Ordering}},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -101,7 +104,10 @@ pub(crate) fn routes() -> Router<AppState> {
 async fn metrics() -> impl IntoResponse {
     (
         [
-            (header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8"),
+            (
+                header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            ),
             (header::CACHE_CONTROL, "private, no-store"),
         ],
         format!(
@@ -452,7 +458,10 @@ async fn search(
     }
     sort_search_indexers(&mut indexers);
     let result_count: usize = indexers.iter().map(|indexer| indexer.results.len()).sum();
-    SEARCH_RELEASES.fetch_add(u64::try_from(result_count).unwrap_or(u64::MAX), Ordering::Relaxed);
+    SEARCH_RELEASES.fetch_add(
+        u64::try_from(result_count).unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
     SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
     Ok(Json(SearchResponse {
         query: prepared.query,
@@ -612,7 +621,10 @@ pub(crate) async fn search_for_feed(
     }
     results.sort_by(|left, right| right.published_at.cmp(&left.published_at));
     results.truncate(limit);
-    SEARCH_RELEASES.fetch_add(u64::try_from(results.len()).unwrap_or(u64::MAX), Ordering::Relaxed);
+    SEARCH_RELEASES.fetch_add(
+        u64::try_from(results.len()).unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
     SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
     Ok(results)
 }
