@@ -7,6 +7,7 @@
 
 mod mail;
 mod oidc;
+mod password_policy;
 mod totp;
 
 use std::{env, io::Read, path::Path as FsPath, sync::Arc};
@@ -301,6 +302,7 @@ struct TestMailInput {
 pub fn public_routes() -> Router<AppState> {
     Router::new()
         .route("/api/v1/auth/config", get(public_config))
+        .route("/api/v1/auth/password-policy", get(get_password_policy))
         .route("/api/v1/auth/bootstrap", post(bootstrap))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/oidc/start", post(start_oidc))
@@ -317,6 +319,7 @@ pub fn private_routes() -> Router<AppState> {
         .route("/api/v1/auth/me", get(current_session))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/password", post(change_password))
+        .route("/api/v1/auth/password-policy/settings", put(update_password_policy))
         .route(
             "/api/v1/auth/email/request-verification",
             post(request_verification),
@@ -346,11 +349,54 @@ fn new_token() -> Result<String, ApiError> {
     Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-fn validate_password(password: &str) -> Result<(), ApiError> {
-    if !(12..=128).contains(&password.len()) || password.chars().any(char::is_control) {
-        return Err(ApiError::bad_request(
-            "password must be 12-128 bytes without control characters",
-        ));
+/// Public, read-only policy needed for bootstrap and recovery screens.
+async fn get_password_policy(
+    State(state): State<AppState>,
+) -> Result<Json<password_policy::PasswordPolicy>, ApiError> {
+    Ok(Json(password_policy::load(&state).await?))
+}
+
+/// Only the owner (or legacy operator token) can modify password rules.
+async fn update_password_policy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(policy): Json<password_policy::PasswordPolicy>,
+) -> Result<Json<password_policy::PasswordPolicy>, ApiError> {
+    policy.validate_configuration()?;
+    let json = serde_json::to_string(&policy)
+        .map_err(|_| ApiError::internal("password policy serialization failed"))?;
+    state.store.save_password_policy(&json).await?;
+    let actor = user_for_bearer(&state, &headers).await.ok().map(|u| u.id);
+    audit_action(&state, actor.as_deref(), None, "password-policy-updated").await;
+    Ok(Json(policy))
+}
+
+/// Validate fresh local passwords and optionally check the most recent hashes.
+/// Existing passwords still authenticate after a stricter policy is enabled.
+async fn validate_new_password(
+    state: &AppState,
+    password: &str,
+    username: Option<&str>,
+    email: Option<&str>,
+    user_id: Option<&str>,
+) -> Result<(), ApiError> {
+    let policy = password_policy::load(state).await?;
+    policy.validate_password(password, username, email)?;
+    if policy.history_enabled {
+        if let Some(id) = user_id {
+            let hashes = state.store.password_hash_history(id, policy.history_count).await?;
+            for hash in hashes {
+                if verify_password(
+                    password.to_owned(),
+                    hash,
+                    state.auth_settings.hash_permits.clone()
+                ).await {
+                    return Err(ApiError::bad_request(
+                        "new password must not match any of the recently used passwords"
+                    ));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -494,6 +540,7 @@ fn required_access(method: &Method, path: &str) -> AccessLevel {
     if path.starts_with("/api/v1/auth/users")
         || path.starts_with("/api/v1/auth/mail")
         || path == "/api/v1/auth/audit"
+        || path == "/api/v1/auth/password-policy/settings"
     {
         return AccessLevel::Owner;
     }
@@ -594,7 +641,9 @@ async fn bootstrap(
     }
     let username = normalize_username(&request.username)?;
     let email = normalize_email(&request.email)?;
-    validate_password(&request.password)?;
+    validate_new_password(
+        &state, &request.password, Some(&username), Some(&email), None
+    ).await?;
     let password_hash =
         hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
     let id = Uuid::now_v7().to_string();
@@ -759,7 +808,6 @@ async fn change_password(
     Json(request): Json<Credentials>,
 ) -> Result<StatusCode, ApiError> {
     let user = user_for_bearer(&state, &headers).await?;
-    validate_password(&request.password)?;
     // The current password is required for changes; reset links use a separate endpoint.
     if request.login.is_empty() {
         return Err(ApiError::bad_request(
@@ -768,13 +816,16 @@ async fn change_password(
     }
     if !verify_password(
         request.login,
-        user.password_hash.unwrap_or_default(),
+        user.password_hash.clone().unwrap_or_default(),
         state.auth_settings.hash_permits.clone(),
     )
     .await
     {
         return Err(ApiError::unauthorized());
     }
+    validate_new_password(
+        &state, &request.password, Some(&user.username), Some(&user.email), Some(&user.id)
+    ).await?;
     let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
     state.store.change_password(&user.id, &hash).await?;
     audit_action(&state, Some(&user.id), Some(&user.id), "password-changed").await;
@@ -839,16 +890,23 @@ async fn reset_password(
     if !state.auth_settings.mode.local() || state.mail_sender.is_none() {
         return Err(ApiError::not_found("email password recovery is disabled"));
     }
-    validate_password(&request.password)?;
     if request.token.len() < 40 || request.token.len() > 128 {
         return Err(ApiError::unauthorized());
     }
+    let token_digest = digest(&request.token);
+    let user_id = state.store.password_reset_user(&token_digest)
+        .await?.ok_or_else(ApiError::unauthorized)?;
+    let user = state.store.auth_user_by_id(&user_id)
+        .await?.ok_or_else(ApiError::unauthorized)?;
+    validate_new_password(
+        &state, &request.password, Some(&user.username), Some(&user.email), Some(&user_id)
+    ).await?;
     let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
-    let user_id = state
-        .store
-        .consume_one_time_token(&digest(&request.token), "reset-password")
-        .await?
-        .ok_or_else(ApiError::unauthorized)?;
+    let consumed = state.store.consume_one_time_token(&token_digest, "reset-password")
+        .await?.ok_or_else(ApiError::unauthorized)?;
+    if consumed != user_id {
+        return Err(ApiError::unauthorized());
+    }
     state.store.change_password(&user_id, &hash).await?;
     audit_action(&state, None, Some(&user_id), "password-reset").await;
     Ok(StatusCode::NO_CONTENT)
@@ -1103,7 +1161,9 @@ async fn add_user(
     }
     let username = normalize_username(&request.username)?;
     let email = normalize_email(&request.email)?;
-    validate_password(&request.password)?;
+    validate_new_password(
+        &state, &request.password, Some(&username), Some(&email), None
+    ).await?;
     if !matches!(request.role.as_str(), "owner" | "admin" | "viewer") {
         return Err(ApiError::bad_request("role must be owner, admin or viewer"));
     }
@@ -1253,8 +1313,8 @@ async fn send_user_verification(
 #[cfg(test)]
 mod tests {
     use super::{
-        AuthMode, digest, hash_password, normalize_email, normalize_username, validate_password,
-        verify_password,
+        AuthMode, digest, hash_password, normalize_email, normalize_username,
+        password_policy::PasswordPolicy, verify_password,
     };
     use std::sync::Arc;
     use tokio::sync::Semaphore;
@@ -1267,8 +1327,8 @@ mod tests {
             normalize_email(" Alice@Example.org ").unwrap(),
             "alice@example.org"
         );
-        assert!(validate_password("much-longer-password").is_ok());
-        assert!(validate_password("short").is_err());
+        assert!(PasswordPolicy::default().validate_password("much-longer-password", None, None).is_ok());
+        assert!(PasswordPolicy::default().validate_password("short", None, None).is_err());
         assert_ne!(digest("a"), digest("b"));
         assert_eq!(AuthMode::Disabled, AuthMode::Disabled);
     }
