@@ -105,7 +105,7 @@ async fn metrics() -> impl IntoResponse {
             (header::CACHE_CONTROL, "private, no-store"),
         ],
         format!(
-            "# HELP indexloom_search_requests_total Accepted federated search requests since process start\\n# TYPE indexloom_search_requests_total counter\\nindexloom_search_requests_total {}\\n# HELP indexloom_search_completed_total Completed searches since process start\\n# TYPE indexloom_search_completed_total counter\\nindexloom_search_completed_total {}\\n# HELP indexloom_search_results_total Result rows fetched since process start\\n# TYPE indexloom_search_results_total counter\\nindexloom_search_results_total {}\\n",
+            "# HELP indexloom_search_requests_total Accepted federated search requests since process start\n# TYPE indexloom_search_requests_total counter\nindexloom_search_requests_total {}\n# HELP indexloom_search_completed_total Completed searches since process start\n# TYPE indexloom_search_completed_total counter\nindexloom_search_completed_total {}\n# HELP indexloom_search_results_total Result rows fetched since process start\n# TYPE indexloom_search_results_total counter\nindexloom_search_results_total {}\n",
             SEARCH_REQUESTS.load(Ordering::Relaxed),
             SEARCH_COMPLETED.load(Ordering::Relaxed),
             SEARCH_RELEASES.load(Ordering::Relaxed)
