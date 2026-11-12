@@ -35,8 +35,8 @@ use url::Url;
 
 pub mod auth;
 pub mod catalog;
-pub mod local;
 mod execution;
+pub mod local;
 mod management;
 pub mod remote;
 mod torznab;
