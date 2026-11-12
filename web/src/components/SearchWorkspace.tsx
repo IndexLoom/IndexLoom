@@ -1,6 +1,6 @@
 import {
   translate, categoryLabel, canonicalGenre, canonicalGenres,
-  genreLabel, searchModeLabel, formatDateTime, formatNumber,
+  genreLabel, searchModeLabel, languageLabel, formatDateTime, formatNumber,
 } from "../lib/i18n";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -107,6 +107,11 @@ function AuthenticatedSearch({
   );
   const availableCategories = useMemo(
     () => [...new Set(enabledIndexers.flatMap((indexer) => indexer.capabilities.categories))].sort(),
+    [enabledIndexers],
+  );
+  const availableLanguages = useMemo(
+    () => [...new Set(enabledIndexers.map((indexer) => indexer.capabilities.language).filter(Boolean)
+      .map((language) => language.split(/[-_]/)[0].toLowerCase()))].sort(),
     [enabledIndexers],
   );
   const availableModes = useMemo(
@@ -267,6 +272,13 @@ function AuthenticatedSearch({
                 {availableCategories.map((category) => <option key={category} value={category}>{categoryLabel(category)}</option>)}
               </select>
             </label>
+            <label>{t("Indexer language")}{" "}
+              <select aria-label={t("Indexer language")} value={filters.languages?.[0] ?? ""}
+                onChange={(event) => setFilters((current) => ({ ...current, languages: event.target.value ? [event.target.value] : undefined }))}>
+                <option value="">{t("Any indexer language")}</option>
+                {availableLanguages.map((language) => <option key={language} value={language}>{languageLabel(language)}</option>)}
+              </select>
+            </label>
             <label>{t("Genre")}{" "}<input list="indexloom-genre-suggestions" value={filters.genre ?? ""} onChange={(event) => setFilters((current) => ({ ...current, genre: event.target.value || undefined }))} placeholder={t("Genre ID or name")} />
               <datalist id="indexloom-genre-suggestions">
                 {canonicalGenres.map((genre) => <option key={genre} value={genreLabel(genre)} />)}
@@ -283,7 +295,7 @@ function AuthenticatedSearch({
             <label>{t("TMDb ID")}{" "}<input value={filters.tmdbId ?? ""} placeholder="12345" onChange={(event) => setFilters((current) => ({ ...current, tmdbId: event.target.value || undefined }))} />
             </label>
           </div>
-          <p className="muted">{t("Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.")}</p>
+          <p className="muted">{t("Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.")} {t("Restricts tracker selection; it does not translate the search query.")}</p>
           <button className="quiet-button" onClick={() => setFilters({})} type="button">{t("Clear filters")}</button>
         </details>
       </form>
