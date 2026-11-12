@@ -38,3 +38,5 @@ jobs:
           done
           echo "Concurrent changes prevented safe format push" >&2
           exit 1
+
+# Follow-up run after CLI and Cardigann module extraction.
