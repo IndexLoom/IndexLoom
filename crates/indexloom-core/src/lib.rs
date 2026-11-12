@@ -1,5 +1,8 @@
 //! Domain types shared by `IndexLoom` components.
 
+pub mod deployment;
+pub mod platform;
+
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
