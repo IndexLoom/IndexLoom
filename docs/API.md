@@ -24,6 +24,28 @@ See [Authentication and email](AUTHENTICATION.md) for setup and security.
 New catalog instances are disabled by default. Tests and search only select
 enabled instances.
 
+## Multilingual search
+
+Both `POST /search` and `POST /search/stream` accept the optional
+top-level `languages` array (for example `["ru", "ja"]`). This narrows
+**configured indexers** by their definition's BCP 47 language tag after
+normal group/instance selection. A language matches its exact tag or
+regional variants (`ru` matches `ru-RU`). No title or query translation is
+performed. The `query` field accepts UTF-8 text in any script.
+
+```json
+{
+  "query": "千と千尋",
+  "selection": {"all": true, "groupIds": [], "indexerIds": []},
+  "languages": ["ja"],
+  "limitPerIndexer": 50,
+  "filters": {}
+}
+```
+
+Invalid language tags or no matching enabled indexers produce HTTP 400.
+This restriction is separate from native Cardigann category/genre parameters.
+
 ## Routing and groups
 
 - `GET /proxies`, `PUT /proxies/{id}`, `DELETE /proxies/{id}` manage named
