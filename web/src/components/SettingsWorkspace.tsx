@@ -1,7 +1,8 @@
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
 
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
-import { LanguageSwitcher, formatDateTime, t } from "../lib/i18n";
+import { LanguageSwitcher, SelectiveLocalizationEditor, formatDateTime, translate } from "../lib/i18n";
+const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "settings");
 import { SecuritySettings } from "./SecuritySettings";
 import { EmailSettings } from "./EmailSettings";
 import { ApiError, type CatalogStatus, fetchCatalogStatus } from "../lib/api";
@@ -107,6 +108,7 @@ export function SettingsWorkspace() {
             <h2>{t("Interface language")}</h2>
             <p>{t("Choose the language used for controls, messages, categories and genres.")}</p>
             <LanguageSwitcher />
+            <SelectiveLocalizationEditor />
           </div>
           <div className="setting-heading">
             <h2>{t("Theme")}</h2>
