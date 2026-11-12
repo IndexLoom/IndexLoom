@@ -382,11 +382,10 @@ async fn validate_new_password(
     username: Option<&str>,
     email: Option<&str>,
     user_id: Option<&str>,
-) -> Result<(), ApiError> {
+) -> Result<bool, ApiError> {
     let policy = password_policy::load(state).await?;
     policy.validate_password(password, username, email)?;
-    if policy.history_enabled {
-        if let Some(id) = user_id {
+    if let (true, Some(id)) = (policy.history_enabled, user_id) {
             let hashes = state
                 .store
                 .password_hash_history(id, policy.history_count)
@@ -404,9 +403,8 @@ async fn validate_new_password(
                     ));
                 }
             }
-        }
     }
-    Ok(())
+    Ok(policy.history_enabled)
 }
 
 fn normalize_username(name: &str) -> Result<String, ApiError> {
@@ -836,7 +834,7 @@ async fn change_password(
     {
         return Err(ApiError::unauthorized());
     }
-    validate_new_password(
+    let history_enabled = validate_new_password(
         &state,
         &request.password,
         Some(&user.username),
@@ -845,7 +843,7 @@ async fn change_password(
     )
     .await?;
     let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
-    state.store.change_password(&user.id, &hash).await?;
+    state.store.change_password_with_history(&user.id, &hash, history_enabled).await?;
     audit_action(&state, Some(&user.id), Some(&user.id), "password-changed").await;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -922,7 +920,7 @@ async fn reset_password(
         .auth_user_by_id(&user_id)
         .await?
         .ok_or_else(ApiError::unauthorized)?;
-    validate_new_password(
+    let history_enabled = validate_new_password(
         &state,
         &request.password,
         Some(&user.username),
@@ -939,7 +937,7 @@ async fn reset_password(
     if consumed != user_id {
         return Err(ApiError::unauthorized());
     }
-    state.store.change_password(&user_id, &hash).await?;
+    state.store.change_password_with_history(&user_id, &hash, history_enabled).await?;
     audit_action(&state, None, Some(&user_id), "password-reset").await;
     Ok(StatusCode::NO_CONTENT)
 }
