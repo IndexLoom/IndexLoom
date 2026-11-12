@@ -493,9 +493,9 @@ async fn search_stream(
             yield Ok(ndjson_line(&SearchStreamEvent::Indexer { indexer }));
         }
         SEARCH_RELEASES.fetch_add(
-        u64::try_from(result_count).unwrap_or(u64::MAX),
-        Ordering::Relaxed,
-    );
+            u64::try_from(result_count).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
         SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
         yield Ok(ndjson_line(&SearchStreamEvent::Finished {
             query,
