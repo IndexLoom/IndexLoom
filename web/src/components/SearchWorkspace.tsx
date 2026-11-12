@@ -378,9 +378,9 @@ function AuthenticatedSearch({
               : ""}
           </span>
         </div>
-        {response ? (
-          <div className="result-groups">
-            {response.indexers.map((indexer) => (
+        <div className="result-groups" aria-live="polite">
+          {!response ? <p className="panel-empty">{t("Search results will be grouped here by indexer. Every group can be collapsed independently.")}</p> : null}
+          {response?.indexers.map((indexer) => (
               <details
                 className="result-indexer"
                 key={indexer.indexerInstanceId}
@@ -470,11 +470,8 @@ function AuthenticatedSearch({
                   <p className="panel-empty">{t("No matching releases.")}</p>
                 ) : null}
               </details>
-            ))}
-          </div>
-        ) : (
-          <div className="panel-empty">{t("Search results will be grouped here by indexer. Every group can be collapsed independently.")}{" "}</div>
-        )}
+          ))}
+        </div>
       </section>
     </section>
   );
