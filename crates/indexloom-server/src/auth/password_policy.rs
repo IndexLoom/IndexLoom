@@ -343,10 +343,22 @@ mod tests {
     #[test]
     fn requirements_are_individually_switchable() {
         let mut policy = PasswordPolicy {
-            uppercase: CountRule { enabled: true, minimum: 2 },
-            lowercase: CountRule { enabled: true, minimum: 2 },
-            digits: CountRule { enabled: true, minimum: 2 },
-            symbols: CountRule { enabled: true, minimum: 2 },
+            uppercase: CountRule {
+                enabled: true,
+                minimum: 2,
+            },
+            lowercase: CountRule {
+                enabled: true,
+                minimum: 2,
+            },
+            digits: CountRule {
+                enabled: true,
+                minimum: 2,
+            },
+            symbols: CountRule {
+                enabled: true,
+                minimum: 2,
+            },
             reject_whitespace: true,
             ..Default::default()
         };
@@ -403,7 +415,10 @@ mod tests {
     }
     #[test]
     fn does_not_allow_absurd_or_conflicting_policies() {
-        let mut policy = PasswordPolicy { maximum_length: 8, ..Default::default() };
+        let mut policy = PasswordPolicy {
+            maximum_length: 8,
+            ..Default::default()
+        };
         assert!(policy.validate_configuration().is_err());
         policy.minimum_length_enabled = false;
         policy.uppercase = CountRule {
