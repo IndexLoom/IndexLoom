@@ -1,4 +1,4 @@
-import { t } from "../lib/i18n";
+import { t, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../lib/i18n";
 import {
   type FormEvent,
   useDeferredValue,
@@ -336,8 +336,8 @@ function IndexersManager({
             onClick={() => setManagementView(item.id)}
             type="button"
           >
-            <strong>{item.label}</strong>
-            <span>{item.description}</span>
+            <strong>{t(item.label)}</strong>
+            <span>{t(item.description)}</span>
           </button>
         ))}
       </nav>
@@ -412,7 +412,7 @@ function OverviewMetric({
 }) {
   return (
     <div className={`overview-metric ${tone}`}>
-      <strong>{value.toLocaleString()}</strong>
+      <strong>{formatNumber(value)}</strong>
       <span>{label}</span>
     </div>
   );
@@ -503,7 +503,7 @@ function ProxyPanel({
   async function remove(id: string) {
     if (
       !window.confirm(
-        "Delete this outbound proxy? Global, group and indexer assignments will fall back automatically.",
+        t("Delete this outbound proxy? Global, group and indexer assignments will fall back automatically."),
       )
     )
       return;
@@ -697,7 +697,7 @@ function ProxyPanel({
             />{t("Enabled")}{" "}</label>
           <div className="form-actions wide-field">
             <button className="primary-button" disabled={saving} type="submit">
-              {saving ? "Saving…" : editing ? "Update proxy" : "Add proxy"}
+              {t(saving ? "Saving…" : editing ? "Update proxy" : "Add proxy")}
             </button>
             {editing ? (
               <button className="quiet-button" onClick={reset} type="button">{t("Cancel")}{" "}</button>
@@ -705,7 +705,7 @@ function ProxyPanel({
           </div>
           {status ? (
             <p className="form-status wide-field" role="status">
-              {status}
+              {t(status)}
             </p>
           ) : null}
         </form>
@@ -772,7 +772,7 @@ function GroupPanel({
   async function remove(id: string) {
     if (
       !window.confirm(
-        "Delete this group? Indexers stay installed and only membership is removed.",
+        t("Delete this group? Indexers stay installed and only membership is removed."),
       )
     )
       return;
@@ -917,7 +917,7 @@ function GroupPanel({
           </div>
           {status ? (
             <p className="form-status wide-field" role="status">
-              {status}
+              {t(status)}
             </p>
           ) : null}
         </form>
@@ -1005,7 +1005,7 @@ function IndexerTestPanel({
           <p>{t("Test every enabled indexer, selected groups, or individual definitions with bounded parallelism.")}{" "}</p>
         </div>
         <span className="muted">
-          {job ? `${job.completed}/${job.total} ${job.status}` : "idle"}
+          {job ? `${formatNumber(job.completed)}/${formatNumber(job.total)} ${t(job.status)}` : t("idle")}
         </span>
       </div>
       <div className="test-panel">
@@ -1070,7 +1070,7 @@ function IndexerTestPanel({
         </details>
         {status ? (
           <p className="form-status" role="status">
-            {status}
+            {t(status)}
           </p>
         ) : null}
         {job?.results.length ? (
@@ -1187,7 +1187,7 @@ function IndexerConfigurationPanel({
           <p>{t("Select one definition to configure it. Credentials remain encrypted and are never returned by the API.")}{" "}</p>
         </div>
         <span className="muted">
-          Showing {filtered.length} of {indexers.length}
+          {t("Showing")} {formatNumber(filtered.length)} {t("of")} {formatNumber(indexers.length)}
         </span>
       </div>
       <div className="indexer-toolbar">
@@ -1232,21 +1232,21 @@ function IndexerConfigurationPanel({
           <span>{t("Language")}</span>
           <select value={languageFilter} onChange={(event) => { setLanguageFilter(event.target.value); setLimit(60); }}>
             <option value="all">{t("All languages")}</option>
-            {languages.map((language) => <option key={language} value={language}>{language}</option>)}
+            {languages.map((language) => <option key={language} value={language}>{languageLabel(language)}</option>)}
           </select>
         </label>
         <label className="catalog-filter">
           <span>{t("Category")}</span>
           <select value={categoryFilter} onChange={(event) => { setCategoryFilter(event.target.value); setLimit(60); }}>
             <option value="all">{t("All categories")}</option>
-            {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+            {categories.map((category) => <option key={category} value={category}>{categoryLabel(category)}</option>)}
           </select>
         </label>
         <label className="catalog-filter">
           <span>{t("Search mode")}</span>
           <select value={modeFilter} onChange={(event) => { setModeFilter(event.target.value); setLimit(60); }}>
             <option value="all">{t("Any mode")}</option>
-            {modes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+            {modes.map((mode) => <option key={mode} value={mode}>{searchModeLabel(mode)}</option>)}
           </select>
         </label>
       </div>
@@ -1272,11 +1272,11 @@ function IndexerConfigurationPanel({
               >
                 <span className="indexer-list-copy">
                   <strong>{indexer.displayName}</strong>
-                  <small>{indexer.definitionId} · {indexer.capabilities.language} · {indexer.capabilities.source === "jackett" ? "Jackett" : "Prowlarr"}</small>
+                  <small>{indexer.definitionId} · {languageLabel(indexer.capabilities.language)} · {indexer.capabilities.source === "jackett" ? "Jackett" : "Prowlarr"}</small>
                 </span>
                 <span className="indexer-list-meta">
-                  <span className={`privacy-pill ${indexer.privacy}`}>
-                    {indexer.privacy}
+                  <span className={`privacy-pill ${t(indexer.privacy)}`}>
+                    {t(indexer.privacy)}
                   </span>
                   <span
                     className={
@@ -1285,11 +1285,11 @@ function IndexerConfigurationPanel({
                         : "status-pill"
                     }
                   >
-                    {!indexer.catalogAvailable
+                    {t(!indexer.catalogAvailable
                       ? "unavailable"
                       : indexer.enabled
                         ? "enabled"
-                        : "disabled"}
+                        : "disabled")}
                   </span>
                 </span>
               </button>
@@ -1301,7 +1301,7 @@ function IndexerConfigurationPanel({
                   onClick={() => setLimit((current) => current + 60)}
                   type="button"
                 >
-                  Show {Math.min(60, filtered.length - visible.length)} more
+                  {t("Show")} {formatNumber(Math.min(60, filtered.length - visible.length))} {t("more")}
                 </button>
               </div>
             ) : null}
@@ -1404,7 +1404,7 @@ function FlareSolverrPanel({
   async function remove(id: string) {
     if (
       !window.confirm(
-        "Delete this FlareSolverr connector? Assigned indexers will return to direct mode.",
+        t("Delete this FlareSolverr connector? Assigned indexers will return to direct mode."),
       )
     ) {
       return;
@@ -1438,7 +1438,7 @@ function FlareSolverrPanel({
           <h2 id="flaresolverr-heading">{t("FlareSolverr connectors")}</h2>
           <p>{t("Use a browser solver only for definitions that need challenge handling.")}{" "}</p>
         </div>
-        <span className="muted">{connectors.length} configured</span>
+        <span className="muted">{formatNumber(connectors.length)} {t("configured")}</span>
       </div>
       <div className="connector-layout">
         <div className="connector-list">
@@ -1456,7 +1456,7 @@ function FlareSolverrPanel({
                   connector.enabled ? "status-pill healthy" : "status-pill"
                 }
               >
-                {connector.enabled ? "enabled" : "disabled"}
+                {t(connector.enabled ? "enabled" : "disabled")}
               </span>
               <button
                 className="text-button"
@@ -1546,7 +1546,7 @@ function FlareSolverrPanel({
           </div>
           {status ? (
             <p className="form-status wide-field" role="status">
-              {status}
+              {t(status)}
             </p>
           ) : null}
         </form>
@@ -1692,8 +1692,8 @@ function IndexerEditor({
         </div>
         <div className="editor-header-actions">
           <div className="card-badges">
-            <span className={`privacy-pill ${indexer.privacy}`}>
-              {indexer.privacy}
+            <span className={`privacy-pill ${t(indexer.privacy)}`}>
+              {t(indexer.privacy)}
             </span>
             <span
               className={
@@ -1702,11 +1702,11 @@ function IndexerEditor({
                   : "status-pill"
               }
             >
-              {!indexer.catalogAvailable
+              {t(!indexer.catalogAvailable
                 ? "unavailable (retired from catalog)"
                 : enabled
                   ? "enabled"
-                  : "disabled"}
+                  : "disabled")}
             </span>
           </div>
           <button
@@ -1822,11 +1822,11 @@ function IndexerEditor({
       </div>
       <div className="form-actions">
         <button className="primary-button" disabled={saving} type="submit">
-          {saving ? "Saving changes…" : "Save changes"}
+          {t(saving ? "Saving changes…" : "Save changes")}
         </button>
         {status ? (
           <p className="form-status" role="status">
-            {status}
+            {t(status)}
           </p>
         ) : null}
       </div>
@@ -1851,21 +1851,21 @@ function PublicField({
           onChange={(event) => onChange(field, event.target.checked)}
           type="checkbox"
         />
-        {field.label}
+        {t(categoryLabel(field.label))}
       </label>
     );
   }
   if (field.kind === "select") {
     return (
       <label>
-        {field.label}
+        {t(categoryLabel(field.label))}
         <select
           onChange={(event) => onChange(field, event.target.value)}
           value={value === undefined ? "" : String(value)}
         >
           {field.options.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label}
+              {t(categoryLabel(option.label))}
             </option>
           ))}
         </select>
@@ -1874,7 +1874,7 @@ function PublicField({
   }
   return (
     <label>
-      {field.label}
+      {t(categoryLabel(field.label))}
       <input
         onChange={(event) => onChange(field, event.target.value)}
         value={value === undefined ? "" : String(value)}
@@ -1902,11 +1902,11 @@ function SecretField({
     <div className="secret-field wide-field">
       <label>
         <span>
-          {field.label}
+          {t(categoryLabel(field.label))}
           <small
             className={configured ? "secret-state configured" : "secret-state"}
           >
-            {configured ? "configured" : "not configured"}
+            {t(configured ? "configured" : "not configured")}
           </small>
         </span>
         <input
@@ -1915,8 +1915,8 @@ function SecretField({
           onChange={(event) => onValue(field.name, event.target.value)}
           placeholder={
             configured
-              ? "Leave blank to keep current value"
-              : "Enter secret value"
+              ? t("Leave blank to keep current value")
+              : t("Enter secret value")
           }
           type="password"
           value={value}
@@ -1959,33 +1959,33 @@ function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
       <summary>
         <span>{t("Definition details")}</span>
         <span className="muted">
-          {caps.source === "jackett" ? "Jackett" : "Prowlarr"} · {caps.language}
-          {" · "}{caps.categoryMappings.length} mappings
+          {caps.source === "jackett" ? "Jackett" : "Prowlarr"} · {languageLabel(caps.language)}
+          {" · "}{formatNumber(caps.categoryMappings.length)} {t("mappings")}
         </span>
       </summary>
       <div className="capability-details">
         {caps.description ? <p>{caps.description}</p> : null}
         <dl className="capability-facts">
           <div><dt>{t("Source")}</dt><dd>{caps.source}</dd></div>
-          <div><dt>{t("Language")}</dt><dd>{caps.language}</dd></div>
+          <div><dt>{t("Language")}</dt><dd>{languageLabel(caps.language)}</dd></div>
           <div><dt>{t("Search paths")}</dt><dd>{caps.searchPaths}</dd></div>
           <div><dt>{t("Alternative URLs")}</dt><dd>{caps.alternateUrls}</dd></div>
-          <div><dt>{t("Authentication")}</dt><dd>{caps.authentication ? "Defined" : "None declared"}</dd></div>
-          <div><dt>{t("CAPTCHA")}</dt><dd>{caps.captcha ? "Declared" : "Not declared"}</dd></div>
-          <div><dt>{t("Download handler")}</dt><dd>{caps.downloadHandler ? "Declared" : "None declared"}</dd></div>
-          <div><dt>{t("Genre query")}</dt><dd>{caps.genreSearch ? "Available in definition" : "Not declared"}</dd></div>
+          <div><dt>{t("Authentication")}</dt><dd>{t(caps.authentication ? "Defined" : "None declared")}</dd></div>
+          <div><dt>{t("CAPTCHA")}</dt><dd>{t(caps.captcha ? "Declared" : "Not declared")}</dd></div>
+          <div><dt>{t("Download handler")}</dt><dd>{t(caps.downloadHandler ? "Declared" : "None declared")}</dd></div>
+          <div><dt>{t("Genre query")}</dt><dd>{t(caps.genreSearch ? "Available in definition" : "Not declared")}</dd></div>
         </dl>
         <h4>{t("Search modes")}</h4>
         {caps.searchModes.length ? (
           <div className="capability-chip-list">
             {caps.searchModes.map((mode) => (
               <span className="capability-chip" key={mode.name} title={mode.parameters.join(", ")}>
-                {mode.name} <small>{mode.parameters.join(" · ")}</small>
+                {searchModeLabel(mode.name)} <small>{mode.parameters.join(" · ")}</small>
               </span>
             ))}
           </div>
         ) : <p className="muted">{t("No search modes declared.")}</p>}
-        <h4>Categories ({caps.categoryMappings.length})</h4>
+        <h4>{t("Categories")} ({formatNumber(caps.categoryMappings.length)})</h4>
         {caps.categoryMappings.length ? (
           <div className="capability-table">
             <table>
@@ -1993,8 +1993,8 @@ function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
               <tbody>{caps.categoryMappings.map((category, index) => (
                 <tr key={category.id + ":" + index}>
                   <td><code>{category.id}</code></td>
-                  <td>{category.category}{category.default ? " (default)" : ""}</td>
-                  <td>{category.description ?? "—"}</td>
+                  <td>{categoryLabel(category.category)}{category.default ? ` (${t("default")})` : ""}</td>
+                  <td>{category.description ? categoryLabel(category.description) : "—"}</td>
                 </tr>
               ))}</tbody>
             </table>
