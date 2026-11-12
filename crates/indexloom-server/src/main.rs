@@ -44,20 +44,26 @@ async fn main() -> Result<()> {
         }
         runtime_args::Command::Start(deployment) => deployment,
     };
-    // External binaries are lightweight launchers. They never open SQLite,
-    // read master keys, initialize credentials or perform torrent searches.
     if deployment.mode == RuntimeMode::External {
-        let remote = deployment.remote.expect("validated external URL");
-        let listener = TcpListener::bind(bind)
-            .await
-            .with_context(|| format!("failed to bind {bind}"))?;
-        tracing::info!(%bind, endpoint = %remote, "IndexLoom external mode");
-        axum::serve(listener, indexloom_server::remote::router(remote))
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-            .context("IndexLoom external gateway failed")?;
-        return Ok(());
+        return serve_external(bind, deployment.remote.expect("validated external URL")).await;
     }
+    serve_autonomous(bind).await
+}
+
+async fn serve_external(bind: SocketAddr, remote: url::Url) -> Result<()> {
+    // This mode does not read or create a local database, catalog or secret.
+    let listener = TcpListener::bind(bind)
+        .await
+        .with_context(|| format!("failed to bind {bind}"))?;
+    tracing::info!(%bind, endpoint = %remote, "IndexLoom external mode");
+    axum::serve(listener, indexloom_server::remote::router(remote))
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .context("IndexLoom external gateway failed")?;
+    Ok(())
+}
+
+async fn serve_autonomous(bind: SocketAddr) -> Result<()> {
     let database_url = env_or(
         "INDEXLOOM_DATABASE_URL",
         "sqlite:///data/indexloom.db?mode=rwc",
@@ -147,7 +153,7 @@ async fn main() -> Result<()> {
         .context("IndexLoom HTTP server failed")?;
 
     Ok(())
-}
+
 
 async fn synchronize_catalog_or_retain(store: &Store, source: &CatalogSource) -> Result<()> {
     match synchronize(store, source).await {
