@@ -15,6 +15,7 @@ use crate::{
 };
 use indexloom_storage::{SecretVault, Store};
 
+#[derive(Debug)]
 pub struct LocalInstance {
     pub endpoint: SocketAddr,
     server: JoinHandle<()>,
@@ -35,7 +36,7 @@ impl Drop for LocalInstance {
     }
 }
 
-/// Starts a fully local IndexLoom HTTP/API server in the calling app's Tokio
+/// Starts a fully local `IndexLoom` HTTP/API server in the calling app's Tokio
 /// runtime. The listener is ALWAYS loopback-only and uses an ephemeral port.
 /// The caller manages per-app credential files and foreground lifecycle.
 ///
