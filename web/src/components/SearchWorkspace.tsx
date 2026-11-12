@@ -1,5 +1,5 @@
 import {
-  t, categoryLabel, canonicalGenre, canonicalGenres,
+  translate, categoryLabel, canonicalGenre, canonicalGenres,
   genreLabel, searchModeLabel, formatDateTime, formatNumber,
 } from "../lib/i18n";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import {
   searchIndexersStream,
 } from "../lib/api";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
+const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "search");
 
 type WorkspaceState =
   | { kind: "loading" }
@@ -251,7 +252,7 @@ function AuthenticatedSearch({
           selection={selection}
         />
         <button className="primary-button" disabled={searching} type="submit">
-          {searching ? "Searching…" : "Search"}
+          {searching ? t("Searching…") : t("Search")}
         </button>
         <details className="advanced-search" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
           <summary>{t("Advanced search filters")}</summary>
