@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { type FormEvent, useEffect, useState } from "react";
 import { useAdminSession } from "./AdminSession";
 
@@ -113,17 +114,17 @@ export function EmailSettings() {
   return (
     <section className="appearance-content email-settings" role="tabpanel">
       <div className="setting-heading">
-        <h2>Email delivery</h2>
-        <p>SMTP delivery can be disabled independently of local and OIDC authentication.</p>
+        <h2>{t("Email delivery")}</h2>
+        <p>{t("SMTP delivery can be disabled independently of local and OIDC authentication.")}</p>
       </div>
       <dl className="capability-facts">
-        <div><dt>SMTP</dt><dd>{panel?.enabled ? "Connected configuration" : "Disabled"}</dd></div>
-        <div><dt>Authentication mode</dt><dd>{config?.mode}</dd></div>
+        <div><dt>{t("SMTP")}</dt><dd>{panel?.enabled ? "Connected configuration" : "Disabled"}</dd></div>
+        <div><dt>{t("Authentication mode")}</dt><dd>{config?.mode}</dd></div>
       </dl>
       {!panel?.enabled ? (
-        <p className="notice">Email is off. Configure INDEXLOOM_MAIL_MODE=smtp and SMTP credentials on the server to enable delivery. Templates can still be edited.</p>
+        <p className="notice">{t("Email is off. Configure INDEXLOOM_MAIL_MODE=smtp and SMTP credentials on the server to enable delivery. Templates can still be edited.")}</p>
       ) : null}
-      <div className="setting-heading"><h2>Notification events</h2></div>
+      <div className="setting-heading"><h2>{t("Notification events")}</h2></div>
       <div className="notification-events">
         {panel?.events.map((event) => (
           <label key={event.kind} className="notification-event">
@@ -133,38 +134,34 @@ export function EmailSettings() {
         ))}
       </div>
       <div className="setting-heading">
-        <h2>Notification templates</h2>
+        <h2>{t("Notification templates")}</h2>
         <p>Fully customize the subject, plain-text body and optional HTML markup. Allowed variables: {"{{app}}"}, {"{{username}}"}, {"{{email}}"}, {"{{action_url}}"}, {"{{event}}"}, {"{{time}}"}.</p>
       </div>
       {draft ? (
         <form className="mail-template-form" onSubmit={(event) => { void saveTemplate(event); }}>
-          <label>Template
-            <select value={kind} onChange={(event) => choose(event.target.value)}>
+          <label>{t("Template")}{" "}<select value={kind} onChange={(event) => choose(event.target.value)}>
               {Object.entries(kinds).map(([id, title]) => <option key={id} value={id}>{title}</option>)}
             </select>
           </label>
-          <label>Subject
-            <input maxLength={250} required value={draft.subject}
+          <label>{t("Subject")}{" "}<input maxLength={250} required value={draft.subject}
               onChange={(event) => setDraft((value) => value && ({ ...value, subject: event.target.value }))} />
           </label>
-          <label>Plain text
-            <textarea rows={8} maxLength={20000} value={draft.textBody}
+          <label>{t("Plain text")}{" "}<textarea rows={8} maxLength={20000} value={draft.textBody}
               onChange={(event) => setDraft((value) => value && ({ ...value, textBody: event.target.value }))} />
           </label>
-          <label>HTML (optional)
-            <textarea rows={10} spellCheck={false} maxLength={50000} value={draft.htmlBody}
+          <label>{t("HTML (optional)")}{" "}<textarea rows={10} spellCheck={false} maxLength={50000} value={draft.htmlBody}
               onChange={(event) => setDraft((value) => value && ({ ...value, htmlBody: event.target.value }))} />
           </label>
-          <p className="muted">HTML is rendered only inside outgoing emails, not inside the admin page. Include a plain-text equivalent for clients that block HTML.</p>
-          <button className="primary-button" disabled={busy} type="submit">Save template</button>
+          <p className="muted">{t("HTML is rendered only inside outgoing emails, not inside the admin page. Include a plain-text equivalent for clients that block HTML.")}</p>
+          <button className="primary-button" disabled={busy} type="submit">{t("Save template")}</button>
         </form>
-      ) : <p className="muted">Loading templates…</p>}
+      ) : <p className="muted">{t("Loading templates…")}</p>}
       {panel?.enabled ? (
         <>
-          <div className="setting-heading"><h2>Send SMTP test</h2></div>
+          <div className="setting-heading"><h2>{t("Send SMTP test")}</h2></div>
           <form className="mail-test-form" onSubmit={(event) => { void sendTest(event); }}>
-            <label>Recipient <input type="email" required value={testTo} onChange={(event) => setTestTo(event.target.value)} /></label>
-            <button className="quiet-button" disabled={busy} type="submit">Send test email</button>
+            <label>{t("Recipient")}{" "}<input type="email" required value={testTo} onChange={(event) => setTestTo(event.target.value)} /></label>
+            <button className="quiet-button" disabled={busy} type="submit">{t("Send test email")}</button>
           </form>
         </>
       ) : null}

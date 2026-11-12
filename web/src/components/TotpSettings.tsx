@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useAdminSession } from "./AdminSession";
 
@@ -95,72 +96,68 @@ export function TotpSettings() {
   }
 
   return (
-    <section className="totp-settings" aria-label="Two-factor authentication">
+    <section className="totp-settings" aria-label={t("Two-factor authentication")}>
       <div className="setting-heading">
-        <h2>Two-factor authentication</h2>
+        <h2>{t("Two-factor authentication")}</h2>
         <p>Use one-time codes from an authenticator app with SHA-256 TOTP (30-second intervals), plus offline recovery codes.</p>
       </div>
 
       {status ? <dl className="capability-facts">
-        <div><dt>Authenticator</dt><dd>{status.enabled ? "Enabled" : "Not enabled"}</dd></div>
-        <div><dt>Recovery codes remaining</dt><dd>{status.recoveryCodesRemaining}</dd></div>
+        <div><dt>{t("Authenticator")}</dt><dd>{status.enabled ? "Enabled" : "Not enabled"}</dd></div>
+        <div><dt>{t("Recovery codes remaining")}</dt><dd>{status.recoveryCodesRemaining}</dd></div>
       </dl> : null}
 
       {backupCodes.length ? (
         <div className="totp-recovery">
-          <h3>Save your recovery codes</h3>
-          <p>Each code is valid once. This is your only opportunity to see them. Do not save them in a public note or screenshot.</p>
+          <h3>{t("Save your recovery codes")}</h3>
+          <p>{t("Each code is valid once. This is your only opportunity to see them. Do not save them in a public note or screenshot.")}</p>
           <div className="totp-recovery-grid">
             {backupCodes.map((value) => <code key={value}>{value}</code>)}
           </div>
           <div className="user-actions">
-            <button className="quiet-button" type="button" onClick={() => { void copyCodes(); }}>Copy codes</button>
+            <button className="quiet-button" type="button" onClick={() => { void copyCodes(); }}>{t("Copy codes")}</button>
             <button className="primary-button" type="button" onClick={() => {
               setBackupCodes([]);
               clearToken();
-            }}>I've saved my codes — sign in again</button>
+            }}>{t("I've saved my codes — sign in again")}</button>
           </div>
         </div>
       ) : !status?.enabled && setup ? (
         <>
           <div className="totp-provisioning">
-            <strong>Authenticator setup key</strong>
+            <strong>{t("Authenticator setup key")}</strong>
             <code>{setup.secret}</code>
-            <p>Enter the key manually in your authenticator app, or open the provisioning link on your phone.</p>
-            <a href={setup.otpauthUri}>Open in authenticator</a>
+            <p>{t("Enter the key manually in your authenticator app, or open the provisioning link on your phone.")}</p>
+            <a href={setup.otpauthUri}>{t("Open in authenticator")}</a>
           </div>
           <form className="auth-form" onSubmit={(event) => { void confirm(event); }}>
-            <label>Six-digit code from the app
-              <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
+            <label>{t("Six-digit code from the app")}{" "}<input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
                 minLength={6} maxLength={6} value={code} required
                 onChange={(event) => setCode(event.target.value)} />
             </label>
-            <button className="primary-button" type="submit" disabled={busy}>Enable authenticator</button>
+            <button className="primary-button" type="submit" disabled={busy}>{t("Enable authenticator")}</button>
           </form>
           <button className="quiet-button" type="button" onClick={() => {
             setSetup(null); setCode("");
-          }}>Cancel enrollment</button>
+          }}>{t("Cancel enrollment")}</button>
         </>
       ) : status?.enabled ? (
         <form className="auth-form" onSubmit={(event) => { void disable(event); }}>
-          <p className="muted">To disable two-factor authentication, confirm your password and enter a current authenticator or one-time recovery code.</p>
-          <label>Current password
-            <input type="password" autoComplete="current-password" value={password} required
+          <p className="muted">{t("To disable two-factor authentication, confirm your password and enter a current authenticator or one-time recovery code.")}</p>
+          <label>{t("Current password")}{" "}<input type="password" autoComplete="current-password" value={password} required
               onChange={(event) => setPassword(event.target.value)} />
           </label>
-          <label>Authenticator or recovery code
-            <input type="text" autoComplete="one-time-code" value={code} required maxLength={48}
+          <label>{t("Authenticator or recovery code")}{" "}<input type="text" autoComplete="one-time-code" value={code} required maxLength={48}
               onChange={(event) => setCode(event.target.value)} />
           </label>
-          <button className="quiet-button" type="submit" disabled={busy}>Disable two-factor authentication</button>
+          <button className="quiet-button" type="submit" disabled={busy}>{t("Disable two-factor authentication")}</button>
         </form>
       ) : (
         <form className="auth-form" onSubmit={(event) => { void start(event); }}>
-          <label>Current password
-            <input type="password" autoComplete="current-password" value={password} required
+          <label>{t("Current password")}{" "}<input type="password" autoComplete="current-password" value={password} required
               onChange={(event) => setPassword(event.target.value)} />
           </label>
-          <button className="primary-button" type="submit" disabled={busy}>Set up authenticator</button>
+          <button className="primary-button" type="submit" disabled={busy}>{t("Set up authenticator")}</button>
         </form>
       )}
 

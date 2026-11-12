@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -194,14 +195,14 @@ function AuthenticatedSearch({
   if (workspace.kind === "loading") {
     return (
       <WorkspaceMessage
-        title="Loading search"
+        title={t("Loading search")}
         body="Synchronizing indexers and groups."
       />
     );
   }
   if (workspace.kind === "error") {
     return (
-      <WorkspaceMessage title="Search unavailable" body={workspace.message} />
+      <WorkspaceMessage title={t("Search unavailable")} body={workspace.message} />
     );
   }
 
@@ -209,41 +210,34 @@ function AuthenticatedSearch({
     <section className="search-view" aria-labelledby="search-heading">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Federated torrent search</p>
-          <h1 id="search-heading">Search</h1>
-          <p className="page-description">
-            Query every enabled source at once and inspect results as each
-            indexer responds.
-          </p>
+          <p className="eyebrow">{t("Federated torrent search")}</p>
+          <h1 id="search-heading">{t("Search")}</h1>
+          <p className="page-description">{t("Query every enabled source at once and inspect results as each indexer responds.")}{" "}</p>
         </div>
-        <button className="quiet-button" onClick={onUnauthorized} type="button">
-          Lock
-        </button>
+        <button className="quiet-button" onClick={onUnauthorized} type="button">{t("Lock")}{" "}</button>
       </div>
 
-      <div className="overview-grid search-overview" aria-label="Search overview" data-ui-section="overview">
+      <div className="overview-grid search-overview" aria-label={t("Search overview")} data-ui-section="overview">
         <div className="overview-metric healthy">
           <strong>{enabledIndexers.length.toLocaleString()}</strong>
-          <span>Enabled indexers</span>
+          <span>{t("Enabled indexers")}</span>
         </div>
         <div className="overview-metric">
           <strong>{workspace.groups.filter((group) => group.enabled).length}</strong>
-          <span>Active groups</span>
+          <span>{t("Active groups")}</span>
         </div>
         <div className="overview-metric">
           <strong>{response?.resultCount ?? 0}</strong>
-          <span>Current results</span>
+          <span>{t("Current results")}</span>
         </div>
       </div>
 
       <form className="search-toolbar" data-ui-section="query" onSubmit={submitSearch}>
-        <label className="sr-only" htmlFor="query">
-          Search across indexers
-        </label>
+        <label className="sr-only" htmlFor="query">{t("Search across indexers")}{" "}</label>
         <input
           id="query"
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Movie, series, game, book…"
+          placeholder={t("Movie, series, game, book…")}
           type="search"
           value={query}
         />
@@ -257,41 +251,33 @@ function AuthenticatedSearch({
           {searching ? "Searching…" : "Search"}
         </button>
         <details className="advanced-search" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
-          <summary>Advanced search filters</summary>
+          <summary>{t("Advanced search filters")}</summary>
           <div className="advanced-search-grid">
-            <label>Mode
-              <select value={filters.mode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value || undefined }))}>
-                <option value="">Default search</option>
+            <label>{t("Mode")}{" "}<select value={filters.mode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value || undefined }))}>
+                <option value="">{t("Default search")}</option>
                 {availableModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
               </select>
             </label>
-            <label>Category
-              <select value={filters.category ?? ""} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value || undefined }))}>
-                <option value="">All categories</option>
+            <label>{t("Category")}{" "}<select value={filters.category ?? ""} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value || undefined }))}>
+                <option value="">{t("All categories")}</option>
                 {availableCategories.map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </label>
-            <label>Genre
-              <input value={filters.genre ?? ""} onChange={(event) => setFilters((current) => ({ ...current, genre: event.target.value || undefined }))} placeholder="Genre ID or name" />
+            <label>{t("Genre")}{" "}<input value={filters.genre ?? ""} onChange={(event) => setFilters((current) => ({ ...current, genre: event.target.value || undefined }))} placeholder={t("Genre ID or name")} />
             </label>
-            <label>Year
-              <input min={1800} max={2100} type="number" value={filters.year ?? ""} onChange={(event) => setFilters((current) => ({ ...current, year: event.target.value ? Number(event.target.value) : undefined }))} />
+            <label>{t("Year")}{" "}<input min={1800} max={2100} type="number" value={filters.year ?? ""} onChange={(event) => setFilters((current) => ({ ...current, year: event.target.value ? Number(event.target.value) : undefined }))} />
             </label>
-            <label>Season
-              <input min={0} max={1000} type="number" value={filters.season ?? ""} onChange={(event) => setFilters((current) => ({ ...current, season: event.target.value ? Number(event.target.value) : undefined }))} />
+            <label>{t("Season")}{" "}<input min={0} max={1000} type="number" value={filters.season ?? ""} onChange={(event) => setFilters((current) => ({ ...current, season: event.target.value ? Number(event.target.value) : undefined }))} />
             </label>
-            <label>Episode
-              <input min={0} max={10000} type="number" value={filters.episode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, episode: event.target.value ? Number(event.target.value) : undefined }))} />
+            <label>{t("Episode")}{" "}<input min={0} max={10000} type="number" value={filters.episode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, episode: event.target.value ? Number(event.target.value) : undefined }))} />
             </label>
-            <label>IMDb ID
-              <input value={filters.imdbId ?? ""} placeholder="tt1234567" onChange={(event) => setFilters((current) => ({ ...current, imdbId: event.target.value || undefined }))} />
+            <label>{t("IMDb ID")}{" "}<input value={filters.imdbId ?? ""} placeholder="tt1234567" onChange={(event) => setFilters((current) => ({ ...current, imdbId: event.target.value || undefined }))} />
             </label>
-            <label>TMDb ID
-              <input value={filters.tmdbId ?? ""} placeholder="12345" onChange={(event) => setFilters((current) => ({ ...current, tmdbId: event.target.value || undefined }))} />
+            <label>{t("TMDb ID")}{" "}<input value={filters.tmdbId ?? ""} placeholder="12345" onChange={(event) => setFilters((current) => ({ ...current, tmdbId: event.target.value || undefined }))} />
             </label>
           </div>
-          <p className="muted">Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.</p>
-          <button className="quiet-button" onClick={() => setFilters({})} type="button">Clear filters</button>
+          <p className="muted">{t("Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.")}</p>
+          <button className="quiet-button" onClick={() => setFilters({})} type="button">{t("Clear filters")}</button>
         </details>
       </form>
 
@@ -303,26 +289,24 @@ function AuthenticatedSearch({
 
       <section className="data-section" data-ui-section="status" aria-labelledby="status-heading">
         <div className="section-heading">
-          <h2 id="status-heading">Indexer status</h2>
+          <h2 id="status-heading">{t("Indexer status")}</h2>
           <RuntimeStatus health={workspace.health} />
         </div>
         <div className="table-frame compact-status-table">
           <table>
             <thead>
               <tr>
-                <th>Indexer</th>
-                <th>State</th>
-                <th>Groups</th>
-                <th>Last test</th>
-                <th>Response</th>
+                <th>{t("Indexer")}</th>
+                <th>{t("State")}</th>
+                <th>{t("Groups")}</th>
+                <th>{t("Last test")}</th>
+                <th>{t("Response")}</th>
               </tr>
             </thead>
             <tbody>
               {enabledIndexers.length === 0 ? (
                 <tr className="empty-row">
-                  <td colSpan={5}>
-                    Enable at least one indexer in the Indexers workspace.
-                  </td>
+                  <td colSpan={5}>{t("Enable at least one indexer in the Indexers workspace.")}{" "}</td>
                 </tr>
               ) : (
                 enabledIndexers.map((indexer) => (
@@ -361,7 +345,7 @@ function AuthenticatedSearch({
 
       <section className="data-section" data-ui-section="results" aria-labelledby="results-heading">
         <div className="section-heading">
-          <h2 id="results-heading">Results by indexer</h2>
+          <h2 id="results-heading">{t("Results by indexer")}</h2>
           <span className="muted">
             {response?.resultCount ?? 0} items
             {searchProgress
@@ -402,12 +386,12 @@ function AuthenticatedSearch({
                     <table>
                       <thead>
                         <tr>
-                          <th>Title</th>
-                          <th>Category</th>
-                          <th>Age</th>
-                          <th>Size</th>
-                          <th>Seeders</th>
-                          <th>Links</th>
+                          <th>{t("Title")}</th>
+                          <th>{t("Category")}</th>
+                          <th>{t("Age")}</th>
+                          <th>{t("Size")}</th>
+                          <th>{t("Seeders")}</th>
+                          <th>{t("Links")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -442,12 +426,10 @@ function AuthenticatedSearch({
                                     href={result.downloadUrl}
                                     rel="noreferrer"
                                     target="_blank"
-                                  >
-                                    Download
-                                  </a>
+                                  >{t("Download")}{" "}</a>
                                 ) : null}
                                 {result.magnetUrl ? (
-                                  <a href={result.magnetUrl}>Magnet</a>
+                                  <a href={result.magnetUrl}>{t("Magnet")}</a>
                                 ) : null}
                                 {!result.downloadUrl && !result.magnetUrl
                                   ? "—"
@@ -460,16 +442,13 @@ function AuthenticatedSearch({
                     </table>
                   </div>
                 ) : !indexer.error ? (
-                  <p className="panel-empty">No matching releases.</p>
+                  <p className="panel-empty">{t("No matching releases.")}</p>
                 ) : null}
               </details>
             ))}
           </div>
         ) : (
-          <div className="panel-empty">
-            Search results will be grouped here by indexer. Every group can be
-            collapsed independently.
-          </div>
+          <div className="panel-empty">{t("Search results will be grouped here by indexer. Every group can be collapsed independently.")}{" "}</div>
         )}
       </section>
     </section>
@@ -535,10 +514,8 @@ function SelectionMenu({
               })
             }
             type="checkbox"
-          />
-          All enabled indexers
-        </label>
-        <strong>Groups</strong>
+          />{t("All enabled indexers")}{" "}</label>
+        <strong>{t("Groups")}</strong>
         {groups
           .filter((group) => group.enabled)
           .map((group) => (
@@ -554,7 +531,7 @@ function SelectionMenu({
               {group.name} <small>{group.memberCount}</small>
             </label>
           ))}
-        <strong>Individual indexers</strong>
+        <strong>{t("Individual indexers")}</strong>
         <div className="selection-indexers">
           {enabledIndexers.map((indexer) => (
             <label className="checkbox-field" key={indexer.id}>

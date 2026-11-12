@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import {
   type FormEvent,
   useDeferredValue,
@@ -177,7 +178,7 @@ function IndexersManager({
   if (state.kind === "loading") {
     return (
       <WorkspaceMessage
-        title="Loading indexers"
+        title={t("Loading indexers")}
         body="Reading redacted configuration state."
       />
     );
@@ -185,7 +186,7 @@ function IndexersManager({
   if (state.kind === "error") {
     return (
       <WorkspaceMessage
-        title="Configuration unavailable"
+        title={t("Configuration unavailable")}
         body={state.message}
       />
     );
@@ -309,19 +310,14 @@ function IndexersManager({
     <section className="settings-view" data-layout-kind="indexers" aria-labelledby="indexers-heading">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">Indexer control center</p>
-          <h1 id="indexers-heading">Indexers</h1>
-          <p className="page-description">
-            Configure sources, routing, credentials, and health checks without
-            leaving this workspace.
-          </p>
+          <p className="eyebrow">{t("Indexer control center")}</p>
+          <h1 id="indexers-heading">{t("Indexers")}</h1>
+          <p className="page-description">{t("Configure sources, routing, credentials, and health checks without leaving this workspace.")}{" "}</p>
         </div>
-        <button className="quiet-button" onClick={onUnauthorized} type="button">
-          Lock
-        </button>
+        <button className="quiet-button" onClick={onUnauthorized} type="button">{t("Lock")}{" "}</button>
       </div>
 
-      <div className="overview-grid" data-ui-section="overview" aria-label="Indexer overview">
+      <div className="overview-grid" data-ui-section="overview" aria-label={t("Indexer overview")}>
         <OverviewMetric label="Definitions" value={state.indexers.length} />
         <OverviewMetric label="Enabled" tone="healthy" value={enabledCount} />
         <OverviewMetric label="Groups" value={state.groups.length} />
@@ -331,7 +327,7 @@ function IndexersManager({
         />
       </div>
 
-      <nav className="management-tabs" data-ui-section="tools" aria-label="Indexer management">
+      <nav className="management-tabs" data-ui-section="tools" aria-label={t("Indexer management")}>
         {managementNavigation.map((item) => (
           <button
             aria-pressed={managementView === item.id}
@@ -540,19 +536,14 @@ function ProxyPanel({
     <section className="configuration-section" aria-labelledby="proxy-heading">
       <div className="section-heading stacked-heading">
         <div>
-          <h2 id="proxy-heading">Outbound proxies</h2>
-          <p>
-            HTTP, SOCKS4a and SOCKS5h routes can be assigned globally, by group,
-            or to one indexer.
-          </p>
+          <h2 id="proxy-heading">{t("Outbound proxies")}</h2>
+          <p>{t("HTTP, SOCKS4a and SOCKS5h routes can be assigned globally, by group, or to one indexer.")}{" "}</p>
         </div>
-        <label className="inline-select">
-          Global route
-          <select
+        <label className="inline-select">{t("Global route")}{" "}<select
             onChange={(event) => void changeGlobal(event.target.value)}
             value={routing.globalProxyId ?? ""}
           >
-            <option value="">Direct</option>
+            <option value="">{t("Direct")}</option>
             {proxies
               .filter((proxy) => proxy.enabled)
               .map((proxy) => (
@@ -566,7 +557,7 @@ function ProxyPanel({
       <div className="connector-layout">
         <div className="connector-list">
           {proxies.length === 0 ? (
-            <p className="panel-empty">No outbound proxies configured.</p>
+            <p className="panel-empty">{t("No outbound proxies configured.")}</p>
           ) : null}
           {proxies.map((proxy) => (
             <article className="connector-row" key={proxy.id}>
@@ -588,23 +579,17 @@ function ProxyPanel({
                 className="text-button"
                 onClick={() => edit(proxy)}
                 type="button"
-              >
-                Edit
-              </button>
+              >{t("Edit")}{" "}</button>
               <button
                 className="text-button danger"
                 onClick={() => void remove(proxy.id)}
                 type="button"
-              >
-                Delete
-              </button>
+              >{t("Delete")}{" "}</button>
             </article>
           ))}
         </div>
         <form className="connector-form" onSubmit={submit}>
-          <label>
-            Proxy ID
-            <input
+          <label>{t("Proxy ID")}{" "}<input
               disabled={editing}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, id: event.target.value }))
@@ -615,9 +600,7 @@ function ProxyPanel({
               value={draft.id}
             />
           </label>
-          <label>
-            Name
-            <input
+          <label>{t("Name")}{" "}<input
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -628,9 +611,7 @@ function ProxyPanel({
               value={draft.name}
             />
           </label>
-          <label>
-            Protocol
-            <select
+          <label>{t("Protocol")}{" "}<select
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -644,9 +625,7 @@ function ProxyPanel({
               <option value="socks5">SOCKS5h</option>
             </select>
           </label>
-          <label>
-            Port
-            <input
+          <label>{t("Port")}{" "}<input
               max={65535}
               min={1}
               onChange={(event) =>
@@ -660,9 +639,7 @@ function ProxyPanel({
               value={draft.port}
             />
           </label>
-          <label className="wide-field">
-            Host
-            <input
+          <label className="wide-field">{t("Host")}{" "}<input
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -674,9 +651,7 @@ function ProxyPanel({
               value={draft.host}
             />
           </label>
-          <label>
-            Username
-            <input
+          <label>{t("Username")}{" "}<input
               autoComplete="off"
               onChange={(event) =>
                 setDraft((current) => ({
@@ -687,9 +662,7 @@ function ProxyPanel({
               value={draft.username ?? ""}
             />
           </label>
-          <label>
-            Password
-            <input
+          <label>{t("Password")}{" "}<input
               autoComplete="new-password"
               disabled={draft.clearPassword}
               onChange={(event) => setPassword(event.target.value)}
@@ -709,9 +682,7 @@ function ProxyPanel({
                   }))
                 }
                 type="checkbox"
-              />
-              Clear saved password
-            </label>
+              />{t("Clear saved password")}{" "}</label>
           ) : null}
           <label className="checkbox-field">
             <input
@@ -723,17 +694,13 @@ function ProxyPanel({
                 }))
               }
               type="checkbox"
-            />
-            Enabled
-          </label>
+            />{t("Enabled")}{" "}</label>
           <div className="form-actions wide-field">
             <button className="primary-button" disabled={saving} type="submit">
               {saving ? "Saving…" : editing ? "Update proxy" : "Add proxy"}
             </button>
             {editing ? (
-              <button className="quiet-button" onClick={reset} type="button">
-                Cancel
-              </button>
+              <button className="quiet-button" onClick={reset} type="button">{t("Cancel")}{" "}</button>
             ) : null}
           </div>
           {status ? (
@@ -824,18 +791,15 @@ function GroupPanel({
     <section className="configuration-section" aria-labelledby="group-heading">
       <div className="section-heading stacked-heading">
         <div>
-          <h2 id="group-heading">Indexer groups</h2>
-          <p>
-            One indexer can belong to several groups. Higher-priority enabled
-            groups provide the inherited proxy.
-          </p>
+          <h2 id="group-heading">{t("Indexer groups")}</h2>
+          <p>{t("One indexer can belong to several groups. Higher-priority enabled groups provide the inherited proxy.")}{" "}</p>
         </div>
         <span className="muted">{groups.length} groups</span>
       </div>
       <div className="connector-layout">
         <div className="connector-list">
           {groups.length === 0 ? (
-            <p className="panel-empty">No groups configured.</p>
+            <p className="panel-empty">{t("No groups configured.")}</p>
           ) : null}
           {groups.map((group) => (
             <article className="connector-row" key={group.id}>
@@ -857,23 +821,17 @@ function GroupPanel({
                 className="text-button"
                 onClick={() => edit(group)}
                 type="button"
-              >
-                Edit
-              </button>
+              >{t("Edit")}{" "}</button>
               <button
                 className="text-button danger"
                 onClick={() => void remove(group.id)}
                 type="button"
-              >
-                Delete
-              </button>
+              >{t("Delete")}{" "}</button>
             </article>
           ))}
         </div>
         <form className="connector-form" onSubmit={submit}>
-          <label>
-            Group ID
-            <input
+          <label>{t("Group ID")}{" "}<input
               disabled={editing}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, id: event.target.value }))
@@ -884,9 +842,7 @@ function GroupPanel({
               value={draft.id}
             />
           </label>
-          <label>
-            Name
-            <input
+          <label>{t("Name")}{" "}<input
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -897,9 +853,7 @@ function GroupPanel({
               value={draft.name}
             />
           </label>
-          <label>
-            Priority
-            <input
+          <label>{t("Priority")}{" "}<input
               max={10000}
               min={-10000}
               onChange={(event) =>
@@ -913,9 +867,7 @@ function GroupPanel({
               value={draft.priority}
             />
           </label>
-          <label>
-            Inherited proxy
-            <select
+          <label>{t("Inherited proxy")}{" "}<select
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -924,7 +876,7 @@ function GroupPanel({
               }
               value={draft.proxyId ?? ""}
             >
-              <option value="">Inherit global</option>
+              <option value="">{t("Inherit global")}</option>
               {proxies
                 .filter((proxy) => proxy.enabled)
                 .map((proxy) => (
@@ -934,9 +886,7 @@ function GroupPanel({
                 ))}
             </select>
           </label>
-          <label className="wide-field">
-            Description
-            <input
+          <label className="wide-field">{t("Description")}{" "}<input
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -956,17 +906,13 @@ function GroupPanel({
                 }))
               }
               type="checkbox"
-            />
-            Enabled
-          </label>
+            />{t("Enabled")}{" "}</label>
           <div className="form-actions wide-field">
             <button className="primary-button" type="submit">
               {editing ? "Update group" : "Add group"}
             </button>
             {editing ? (
-              <button className="quiet-button" onClick={reset} type="button">
-                Cancel
-              </button>
+              <button className="quiet-button" onClick={reset} type="button">{t("Cancel")}{" "}</button>
             ) : null}
           </div>
           {status ? (
@@ -1055,11 +1001,8 @@ function IndexerTestPanel({
     <section className="configuration-section" aria-labelledby="test-heading">
       <div className="section-heading stacked-heading">
         <div>
-          <h2 id="test-heading">Indexer tests</h2>
-          <p>
-            Test every enabled indexer, selected groups, or individual
-            definitions with bounded parallelism.
-          </p>
+          <h2 id="test-heading">{t("Indexer tests")}</h2>
+          <p>{t("Test every enabled indexer, selected groups, or individual definitions with bounded parallelism.")}{" "}</p>
         </div>
         <span className="muted">
           {job ? `${job.completed}/${job.total} ${job.status}` : "idle"}
@@ -1074,9 +1017,7 @@ function IndexerTestPanel({
               void start({ all: true, indexerIds: [], groupIds: [] })
             }
             type="button"
-          >
-            Test all enabled
-          </button>
+          >{t("Test all enabled")}{" "}</button>
           <button
             className="quiet-button"
             disabled={
@@ -1086,15 +1027,13 @@ function IndexerTestPanel({
             }
             onClick={() => void start(selection)}
             type="button"
-          >
-            Test selection
-          </button>
+          >{t("Test selection")}{" "}</button>
         </div>
         <details className="test-selection">
-          <summary>Choose groups and indexers</summary>
+          <summary>{t("Choose groups and indexers")}</summary>
           <div className="test-choice-grid">
             <fieldset>
-              <legend>Groups</legend>
+              <legend>{t("Groups")}</legend>
               {groups.map((group) => (
                 <label className="checkbox-field" key={group.id}>
                   <input
@@ -1109,7 +1048,7 @@ function IndexerTestPanel({
               ))}
             </fieldset>
             <fieldset>
-              <legend>Indexers</legend>
+              <legend>{t("Indexers")}</legend>
               <div className="test-indexer-list">
                 {indexers
                   .filter((indexer) => indexer.enabled && indexer.catalogAvailable)
@@ -1139,10 +1078,10 @@ function IndexerTestPanel({
             <table>
               <thead>
                 <tr>
-                  <th>Indexer</th>
-                  <th>Result</th>
-                  <th>Response</th>
-                  <th>Message</th>
+                  <th>{t("Indexer")}</th>
+                  <th>{t("Result")}</th>
+                  <th>{t("Response")}</th>
+                  <th>{t("Message")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1244,11 +1183,8 @@ function IndexerConfigurationPanel({
     >
       <div className="section-heading stacked-heading">
         <div>
-          <h2 id="tracker-config-heading">Indexer catalog</h2>
-          <p>
-            Select one definition to configure it. Credentials remain encrypted
-            and are never returned by the API.
-          </p>
+          <h2 id="tracker-config-heading">{t("Indexer catalog")}</h2>
+          <p>{t("Select one definition to configure it. Credentials remain encrypted and are never returned by the API.")}{" "}</p>
         </div>
         <span className="muted">
           Showing {filtered.length} of {indexers.length}
@@ -1256,19 +1192,19 @@ function IndexerConfigurationPanel({
       </div>
       <div className="indexer-toolbar">
         <label className="catalog-filter">
-          <span>Find an indexer</span>
+          <span>{t("Find an indexer")}</span>
           <input
             onChange={(event) => {
               setFilter(event.target.value);
               setLimit(60);
             }}
-            placeholder="Name, definition, or tag"
+            placeholder={t("Name, definition, or tag")}
             type="search"
             value={filter}
           />
         </label>
         <label className="catalog-filter status-filter">
-          <span>Status</span>
+          <span>{t("Status")}</span>
           <select
             onChange={(event) => {
               setStatusFilter(
@@ -1278,54 +1214,49 @@ function IndexerConfigurationPanel({
             }}
             value={statusFilter}
           >
-            <option value="all">All indexers</option>
-            <option value="enabled">Enabled</option>
-            <option value="disabled">Disabled</option>
-            <option value="unavailable">Retired</option>
+            <option value="all">{t("All indexers")}</option>
+            <option value="enabled">{t("Enabled")}</option>
+            <option value="disabled">{t("Disabled")}</option>
+            <option value="unavailable">{t("Retired")}</option>
           </select>
         </label>
         <label className="catalog-filter">
-          <span>Source</span>
+          <span>{t("Source")}</span>
           <select value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value); setLimit(60); }}>
-            <option value="all">Both upstreams</option>
+            <option value="all">{t("Both upstreams")}</option>
             <option value="jackett">Jackett</option>
             <option value="prowlarr-indexers">Prowlarr</option>
           </select>
         </label>
         <label className="catalog-filter">
-          <span>Language</span>
+          <span>{t("Language")}</span>
           <select value={languageFilter} onChange={(event) => { setLanguageFilter(event.target.value); setLimit(60); }}>
-            <option value="all">All languages</option>
+            <option value="all">{t("All languages")}</option>
             {languages.map((language) => <option key={language} value={language}>{language}</option>)}
           </select>
         </label>
         <label className="catalog-filter">
-          <span>Category</span>
+          <span>{t("Category")}</span>
           <select value={categoryFilter} onChange={(event) => { setCategoryFilter(event.target.value); setLimit(60); }}>
-            <option value="all">All categories</option>
+            <option value="all">{t("All categories")}</option>
             {categories.map((category) => <option key={category} value={category}>{category}</option>)}
           </select>
         </label>
         <label className="catalog-filter">
-          <span>Search mode</span>
+          <span>{t("Search mode")}</span>
           <select value={modeFilter} onChange={(event) => { setModeFilter(event.target.value); setLimit(60); }}>
-            <option value="all">Any mode</option>
+            <option value="all">{t("Any mode")}</option>
             {modes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
           </select>
         </label>
       </div>
       {indexers.length === 0 ? (
-        <div className="panel-empty">
-          No indexer instances are installed yet. Catalog synchronization
-          installs definitions disabled by default.
-        </div>
+        <div className="panel-empty">{t("No indexer instances are installed yet. Catalog synchronization installs definitions disabled by default.")}{" "}</div>
       ) : (
         <div className="indexer-browser">
-          <div className="indexer-directory" aria-label="Available indexers">
+          <div className="indexer-directory" aria-label={t("Available indexers")}>
             {visible.length === 0 ? (
-              <p className="panel-empty">
-                No indexers match the current filters.
-              </p>
+              <p className="panel-empty">{t("No indexers match the current filters.")}{" "}</p>
             ) : null}
             {visible.map((indexer) => (
               <button
@@ -1394,11 +1325,8 @@ function IndexerConfigurationPanel({
                 <span className="editor-empty-mark" aria-hidden="true">
                   +
                 </span>
-                <h3>Select an indexer</h3>
-                <p>
-                  Choose a definition from the catalog to enable it, assign
-                  routing, or add credentials.
-                </p>
+                <h3>{t("Select an indexer")}</h3>
+                <p>{t("Choose a definition from the catalog to enable it, assign routing, or add credentials.")}{" "}</p>
               </div>
             )}
           </div>
@@ -1507,18 +1435,15 @@ function FlareSolverrPanel({
     >
       <div className="section-heading stacked-heading">
         <div>
-          <h2 id="flaresolverr-heading">FlareSolverr connectors</h2>
-          <p>
-            Use a browser solver only for definitions that need challenge
-            handling.
-          </p>
+          <h2 id="flaresolverr-heading">{t("FlareSolverr connectors")}</h2>
+          <p>{t("Use a browser solver only for definitions that need challenge handling.")}{" "}</p>
         </div>
         <span className="muted">{connectors.length} configured</span>
       </div>
       <div className="connector-layout">
         <div className="connector-list">
           {connectors.length === 0 ? (
-            <p className="panel-empty">No connectors configured.</p>
+            <p className="panel-empty">{t("No connectors configured.")}</p>
           ) : null}
           {connectors.map((connector) => (
             <article className="connector-row" key={connector.id}>
@@ -1537,23 +1462,17 @@ function FlareSolverrPanel({
                 className="text-button"
                 onClick={() => edit(connector)}
                 type="button"
-              >
-                Edit
-              </button>
+              >{t("Edit")}{" "}</button>
               <button
                 className="text-button danger"
                 onClick={() => void remove(connector.id)}
                 type="button"
-              >
-                Delete
-              </button>
+              >{t("Delete")}{" "}</button>
             </article>
           ))}
         </div>
         <form className="connector-form" onSubmit={submit}>
-          <label>
-            Connector ID
-            <input
+          <label>{t("Connector ID")}{" "}<input
               disabled={editing}
               onChange={(event) =>
                 setDraft((current) => ({ ...current, id: event.target.value }))
@@ -1564,23 +1483,19 @@ function FlareSolverrPanel({
               value={draft.id}
             />
           </label>
-          <label>
-            Name
-            <input
+          <label>{t("Name")}{" "}<input
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
                   name: event.target.value,
                 }))
               }
-              placeholder="Local FlareSolverr"
+              placeholder={t("Local FlareSolverr")}
               required
               value={draft.name}
             />
           </label>
-          <label className="wide-field">
-            Endpoint
-            <input
+          <label className="wide-field">{t("Endpoint")}{" "}<input
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -1592,9 +1507,7 @@ function FlareSolverrPanel({
               value={draft.endpoint}
             />
           </label>
-          <label>
-            Timeout, seconds
-            <input
+          <label>{t("Timeout, seconds")}{" "}<input
               max={300}
               min={5}
               onChange={(event) =>
@@ -1618,9 +1531,7 @@ function FlareSolverrPanel({
                 }))
               }
               type="checkbox"
-            />
-            Enabled
-          </label>
+            />{t("Enabled")}{" "}</label>
           <div className="form-actions wide-field">
             <button className="primary-button" disabled={saving} type="submit">
               {saving
@@ -1630,9 +1541,7 @@ function FlareSolverrPanel({
                   : "Add connector"}
             </button>
             {editing ? (
-              <button className="quiet-button" onClick={reset} type="button">
-                Cancel
-              </button>
+              <button className="quiet-button" onClick={reset} type="button">{t("Cancel")}{" "}</button>
             ) : null}
           </div>
           {status ? (
@@ -1777,7 +1686,7 @@ function IndexerEditor({
     <form className="indexer-card" onSubmit={submit}>
       <header>
         <div>
-          <p className="eyebrow">Indexer configuration</p>
+          <p className="eyebrow">{t("Indexer configuration")}</p>
           <h3>{displayName}</h3>
           <p>{indexer.definitionId}</p>
         </div>
@@ -1801,7 +1710,7 @@ function IndexerEditor({
             </span>
           </div>
           <button
-            aria-label="Close indexer configuration"
+            aria-label={t("Close indexer configuration")}
             className="icon-button"
             onClick={onClose}
             type="button"
@@ -1812,14 +1721,10 @@ function IndexerEditor({
       </header>
       <IndexerCapabilitiesPanel indexer={indexer} />
       {indexer.configurationSchema.flaresolverrRecommended ? (
-        <p className="recommendation">
-          This definition recommends FlareSolverr challenge handling.
-        </p>
+        <p className="recommendation">{t("This definition recommends FlareSolverr challenge handling.")}{" "}</p>
       ) : null}
       <div className="field-grid">
-        <label className="wide-field">
-          Display name
-          <input
+        <label className="wide-field">{t("Display name")}{" "}<input
             onChange={(event) => setDisplayName(event.target.value)}
             required
             value={displayName}
@@ -1830,22 +1735,18 @@ function IndexerEditor({
             checked={enabled}
             onChange={(event) => setEnabled(event.target.checked)}
             type="checkbox"
-          />
-          Enabled for tests and search
-        </label>
-        <label className="wide-field">
-          Tags (comma separated)
-          <input
+          />{t("Enabled for tests and search")}{" "}</label>
+        <label className="wide-field">{t("Tags (comma separated)")}{" "}<input
             onChange={(event) => setTags(event.target.value)}
             placeholder="anime, private"
             value={tags}
           />
         </label>
         <fieldset className="group-membership wide-field">
-          <legend>Groups</legend>
+          <legend>{t("Groups")}</legend>
           <div>
             {groups.length === 0 ? (
-              <small>No groups configured.</small>
+              <small>{t("No groups configured.")}</small>
             ) : (
               groups.map((group) => (
                 <label className="checkbox-field" key={group.id}>
@@ -1862,13 +1763,11 @@ function IndexerEditor({
             )}
           </div>
         </fieldset>
-        <label className="wide-field">
-          Outbound proxy
-          <select
+        <label className="wide-field">{t("Outbound proxy")}{" "}<select
             onChange={(event) => setProxyId(event.target.value)}
             value={proxyId}
           >
-            <option value="">Inherit group or global route</option>
+            <option value="">{t("Inherit group or global route")}</option>
             {proxies
               .filter((proxy) => proxy.enabled)
               .map((proxy) => (
@@ -1878,21 +1777,17 @@ function IndexerEditor({
               ))}
           </select>
         </label>
-        <label className="wide-field">
-          User-Agent override
-          <input
+        <label className="wide-field">{t("User-Agent override")}{" "}<input
             onChange={(event) => setUserAgent(event.target.value)}
-            placeholder="Inherit the IndexLoom default"
+            placeholder={t("Inherit the IndexLoom default")}
             value={userAgent}
           />
         </label>
-        <label className="wide-field">
-          Browser challenge route
-          <select
+        <label className="wide-field">{t("Browser challenge route")}{" "}<select
             onChange={(event) => setConnectorId(event.target.value)}
             value={connectorId}
           >
-            <option value="">No FlareSolverr</option>
+            <option value="">{t("No FlareSolverr")}</option>
             {connectors
               .filter((connector) => connector.enabled)
               .map((connector) => (
@@ -2033,9 +1928,7 @@ function SecretField({
             checked={clear}
             onChange={(event) => onClear(field.name, event.target.checked)}
             type="checkbox"
-          />
-          Clear saved value
-        </label>
+          />{t("Clear saved value")}{" "}</label>
       ) : null}
     </div>
   );
@@ -2064,7 +1957,7 @@ function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
   return (
     <details className="capability-disclosure">
       <summary>
-        <span>Definition details</span>
+        <span>{t("Definition details")}</span>
         <span className="muted">
           {caps.source === "jackett" ? "Jackett" : "Prowlarr"} · {caps.language}
           {" · "}{caps.categoryMappings.length} mappings
@@ -2073,16 +1966,16 @@ function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
       <div className="capability-details">
         {caps.description ? <p>{caps.description}</p> : null}
         <dl className="capability-facts">
-          <div><dt>Source</dt><dd>{caps.source}</dd></div>
-          <div><dt>Language</dt><dd>{caps.language}</dd></div>
-          <div><dt>Search paths</dt><dd>{caps.searchPaths}</dd></div>
-          <div><dt>Alternative URLs</dt><dd>{caps.alternateUrls}</dd></div>
-          <div><dt>Authentication</dt><dd>{caps.authentication ? "Defined" : "None declared"}</dd></div>
-          <div><dt>CAPTCHA</dt><dd>{caps.captcha ? "Declared" : "Not declared"}</dd></div>
-          <div><dt>Download handler</dt><dd>{caps.downloadHandler ? "Declared" : "None declared"}</dd></div>
-          <div><dt>Genre query</dt><dd>{caps.genreSearch ? "Available in definition" : "Not declared"}</dd></div>
+          <div><dt>{t("Source")}</dt><dd>{caps.source}</dd></div>
+          <div><dt>{t("Language")}</dt><dd>{caps.language}</dd></div>
+          <div><dt>{t("Search paths")}</dt><dd>{caps.searchPaths}</dd></div>
+          <div><dt>{t("Alternative URLs")}</dt><dd>{caps.alternateUrls}</dd></div>
+          <div><dt>{t("Authentication")}</dt><dd>{caps.authentication ? "Defined" : "None declared"}</dd></div>
+          <div><dt>{t("CAPTCHA")}</dt><dd>{caps.captcha ? "Declared" : "Not declared"}</dd></div>
+          <div><dt>{t("Download handler")}</dt><dd>{caps.downloadHandler ? "Declared" : "None declared"}</dd></div>
+          <div><dt>{t("Genre query")}</dt><dd>{caps.genreSearch ? "Available in definition" : "Not declared"}</dd></div>
         </dl>
-        <h4>Search modes</h4>
+        <h4>{t("Search modes")}</h4>
         {caps.searchModes.length ? (
           <div className="capability-chip-list">
             {caps.searchModes.map((mode) => (
@@ -2091,12 +1984,12 @@ function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
               </span>
             ))}
           </div>
-        ) : <p className="muted">No search modes declared.</p>}
+        ) : <p className="muted">{t("No search modes declared.")}</p>}
         <h4>Categories ({caps.categoryMappings.length})</h4>
         {caps.categoryMappings.length ? (
           <div className="capability-table">
             <table>
-              <thead><tr><th>Tracker ID</th><th>Category</th><th>Description</th></tr></thead>
+              <thead><tr><th>{t("Tracker ID")}</th><th>{t("Category")}</th><th>{t("Description")}</th></tr></thead>
               <tbody>{caps.categoryMappings.map((category, index) => (
                 <tr key={category.id + ":" + index}>
                   <td><code>{category.id}</code></td>
@@ -2106,8 +1999,8 @@ function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
               ))}</tbody>
             </table>
           </div>
-        ) : <p className="muted">No explicit category mappings; some definitions use category maps instead.</p>}
-        <p className="muted">These are declared capabilities, not a guarantee that every feature is currently supported by IndexLoom's Cardigann executor.</p>
+        ) : <p className="muted">{t("No explicit category mappings; some definitions use category maps instead.")}</p>}
+        <p className="muted">{t("These are declared capabilities, not a guarantee that every feature is currently supported by IndexLoom's Cardigann executor.")}</p>
       </div>
     </details>
   );

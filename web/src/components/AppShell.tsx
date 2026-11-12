@@ -42,16 +42,14 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
   );
   return (
     <div className="app-shell modern-shell">
-      <a className="skip-link" href="#main-workspace">
-        Skip to workspace
-      </a>
+      <a className="skip-link" href="#main-workspace">{t("Skip to workspace")}{" "}</a>
       <aside className="sidebar">
         <div className="brand" aria-label="IndexLoom">
           <span className="brand-mark" aria-hidden="true">IL</span>
           <span>IndexLoom</span>
         </div>
 
-        <nav className="navigation" aria-label="Primary navigation">
+        <nav className="navigation" aria-label={t("Primary navigation")}>
           {orderedNavigation.map((item) => (
             <button
               aria-current={item.id === activeView ? "page" : undefined}
@@ -70,23 +68,21 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
         <div className="sidebar-footer">
           <span className="sidebar-footnote">IndexLoom · v0.3</span>
           <button
-            aria-label="Customize interface"
+            aria-label={t("Customize interface")}
             className="sidebar-appearance"
             onClick={() => onNavigate("settings")}
             type="button"
-          >
-            Customize
-          </button>
+          >{t("Customize")}{" "}</button>
         </div>
       </aside>
       <main className="workspace" id="main-workspace" tabIndex={-1}>
         <div className="workspace-topbar">
-          <span className="topbar-location">Workspace <span>/</span> {t(navigation.find((item) => item.id === activeView)?.label ?? "")}</span>
+          <span className="topbar-location">{t("Workspace")}{" "}<span>/</span> {t(navigation.find((item) => item.id === activeView)?.label ?? "")}</span>
           <div className="topbar-actions">
             <LanguageSwitcher compact />
-            {installPrompt ? <button className="topbar-settings" onClick={install} type="button">Install app</button> : null}
-            <button className="topbar-settings" onClick={() => onNavigate("settings")} type="button">Appearance</button>
-            {config?.mode !== "disabled" ? <button className="topbar-settings" onClick={clearToken} type="button">Sign out</button> : null}
+            {installPrompt ? <button className="topbar-settings" onClick={install} type="button">{t("Install app")}</button> : null}
+            <button className="topbar-settings" onClick={() => onNavigate("settings")} type="button">{t("Appearance")}</button>
+            {config?.mode !== "disabled" ? <button className="topbar-settings" onClick={clearToken} type="button">{t("Sign out")}</button> : null}
           </div>
         </div>
         {children}

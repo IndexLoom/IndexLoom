@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { type FormEvent, useEffect, useState } from "react";
 import { useAdminSession } from "./AdminSession";
 import { TotpSettings } from "./TotpSettings";
@@ -143,29 +144,29 @@ export function SecuritySettings() {
   return (
     <section className="appearance-content security-settings" role="tabpanel">
       <div className="setting-heading">
-        <h2>Authentication</h2>
-        <p>Credentials, sessions and account administration. Authorization rules are enforced server-side.</p>
+        <h2>{t("Authentication")}</h2>
+        <p>{t("Credentials, sessions and account administration. Authorization rules are enforced server-side.")}</p>
       </div>
       <dl className="capability-facts">
-        <div><dt>Mode</dt><dd>{config?.mode ?? "unknown"}</dd></div>
-        <div><dt>Current identity</dt><dd>{me?.user?.username ?? (config?.mode === "disabled" ? "Anonymous" : "Operator token")}</dd></div>
-        <div><dt>Current role</dt><dd>{me?.user?.role ?? (canManage ? "owner" : "—")}</dd></div>
+        <div><dt>{t("Mode")}</dt><dd>{config?.mode ?? "unknown"}</dd></div>
+        <div><dt>{t("Current identity")}</dt><dd>{me?.user?.username ?? (config?.mode === "disabled" ? "Anonymous" : "Operator token")}</dd></div>
+        <div><dt>{t("Current role")}</dt><dd>{me?.user?.role ?? (canManage ? "owner" : "—")}</dd></div>
         <div><dt>OIDC</dt><dd>{config?.oidcEnabled ? "Enabled" : "Off"}</dd></div>
         <div><dt>Mail</dt><dd>{config?.mailEnabled ? "Enabled" : "Off"}</dd></div>
-        <div><dt>Email verification</dt><dd>{config?.emailVerificationRequired ? "Required" : "Optional"}</dd></div>
+        <div><dt>{t("Email verification")}</dt><dd>{config?.emailVerificationRequired ? "Required" : "Optional"}</dd></div>
       </dl>
-      <p className="muted">Mode and identity provider settings are controlled by environment variables. Disabling protection requires two explicit server settings and should never be used on an Internet-facing deployment.</p>
+      <p className="muted">{t("Mode and identity provider settings are controlled by environment variables. Disabling protection requires two explicit server settings and should never be used on an Internet-facing deployment.")}</p>
       {config?.mode !== "disabled" ? (
-        <button className="quiet-button" onClick={clearToken} type="button">Revoke current session / sign out</button>
+        <button className="quiet-button" onClick={clearToken} type="button">{t("Revoke current session / sign out")}</button>
       ) : null}
 
       {me?.user?.hasPassword ? (
         <>
-          <div className="setting-heading"><h2>Change password</h2></div>
+          <div className="setting-heading"><h2>{t("Change password")}</h2></div>
           <form className="auth-form" onSubmit={(event) => { void changePassword(event); }}>
-            <label>Current password <input type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
-            <label>New password <input type="password" autoComplete="new-password" minLength={12} required value={replacement} onChange={(event) => setReplacement(event.target.value)} /></label>
-            <button className="primary-button" disabled={busy} type="submit">Update password and revoke sessions</button>
+            <label>{t("Current password")}{" "}<input type="password" autoComplete="current-password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+            <label>{t("New password")}{" "}<input type="password" autoComplete="new-password" minLength={12} required value={replacement} onChange={(event) => setReplacement(event.target.value)} /></label>
+            <button className="primary-button" disabled={busy} type="submit">{t("Update password and revoke sessions")}</button>
           </form>
           <TotpSettings />
         </>
@@ -174,8 +175,8 @@ export function SecuritySettings() {
       {canManage ? (
         <>
           <div className="setting-heading">
-            <h2>Users</h2>
-            <p>Owners manage accounts and security settings. Administrators configure indexers; viewers can search and inspect results without modifying configuration.</p>
+            <h2>{t("Users")}</h2>
+            <p>{t("Owners manage accounts and security settings. Administrators configure indexers; viewers can search and inspect results without modifying configuration.")}</p>
           </div>
           <div className="user-directory">
             {users.map((user) => (
@@ -191,9 +192,9 @@ export function SecuritySettings() {
                     <select value={user.role} disabled={busy || user.id === me?.user?.id}
                       aria-label={"Role for " + user.username}
                       onChange={(event) => { void changeRole(user, event.target.value as Role); }}>
-                      <option value="viewer">Viewer</option>
-                      <option value="admin">Admin</option>
-                      <option value="owner">Owner</option>
+                      <option value="viewer">{t("Viewer")}</option>
+                      <option value="admin">{t("Admin")}</option>
+                      <option value="owner">{t("Owner")}</option>
                     </select>
                   </label>
                   {!user.emailVerified && config?.mailEnabled ? (
@@ -201,7 +202,7 @@ export function SecuritySettings() {
                       void request<void>(token, "/api/v1/auth/users/" + encodeURIComponent(user.id) + "/verify-email", { method: "POST" })
                         .then(() => setFeedback("Verification email sent."))
                         .catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Delivery failed"));
-                    }}>Send verification</button>
+                    }}>{t("Send verification")}</button>
                   ) : null}
                   <button className="quiet-button" type="button" disabled={busy || user.id === me?.user?.id} onClick={() => { void toggleUser(user); }}>
                     {user.disabled ? "Enable" : "Disable"}
@@ -212,28 +213,27 @@ export function SecuritySettings() {
           </div>
           {config?.localEnabled ? (
             <>
-              <div className="setting-heading"><h2>Create local account</h2></div>
+              <div className="setting-heading"><h2>{t("Create local account")}</h2></div>
               <form className="auth-form" onSubmit={(event) => { void addUser(event); }}>
-                <label>Username <input value={newUsername} minLength={3} maxLength={48} required onChange={(event) => setNewUsername(event.target.value)} /></label>
-                <label>Email <input type="email" value={newEmail} required onChange={(event) => setNewEmail(event.target.value)} /></label>
-                <label>Temporary password <input type="password" minLength={12} autoComplete="new-password" value={newPassword} required onChange={(event) => setNewPassword(event.target.value)} /></label>
-                <label>Initial role
-                  <select value={newRole} onChange={(event) => setNewRole(event.target.value as Role)}>
-                    <option value="viewer">Viewer — search and browse</option>
-                    <option value="admin">Admin — configure indexers</option>
-                    <option value="owner">Owner — accounts and security</option>
+                <label>{t("Username")}{" "}<input value={newUsername} minLength={3} maxLength={48} required onChange={(event) => setNewUsername(event.target.value)} /></label>
+                <label>{t("Email")}{" "}<input type="email" value={newEmail} required onChange={(event) => setNewEmail(event.target.value)} /></label>
+                <label>{t("Temporary password")}{" "}<input type="password" minLength={12} autoComplete="new-password" value={newPassword} required onChange={(event) => setNewPassword(event.target.value)} /></label>
+                <label>{t("Initial role")}{" "}<select value={newRole} onChange={(event) => setNewRole(event.target.value as Role)}>
+                    <option value="viewer">{t("Viewer — search and browse")}</option>
+                    <option value="admin">{t("Admin — configure indexers")}</option>
+                    <option value="owner">{t("Owner — accounts and security")}</option>
                   </select>
                 </label>
-                <button className="primary-button" type="submit" disabled={busy}>Create account</button>
+                <button className="primary-button" type="submit" disabled={busy}>{t("Create account")}</button>
               </form>
             </>
           ) : null}
           <div className="setting-heading">
-            <h2>Security history</h2>
-            <p>Most recent account actions without passwords, access tokens or recovery links.</p>
+            <h2>{t("Security history")}</h2>
+            <p>{t("Most recent account actions without passwords, access tokens or recovery links.")}</p>
           </div>
           <div className="security-audit-list">
-            {audit.length === 0 ? <p className="muted">No recorded security events yet.</p> : audit.map((event) => (
+            {audit.length === 0 ? <p className="muted">{t("No recorded security events yet.")}</p> : audit.map((event) => (
               <div className="security-audit-event" key={event.id}>
                 <strong>{event.action}</strong>
                 <small>{new Date(event.occurredAt * 1000).toLocaleString()}</small>
@@ -244,7 +244,7 @@ export function SecuritySettings() {
         </>
       ) : null}
       {feedback ? <p className="notice" role="status">{feedback}</p> : null}
-      {loading ? <p className="muted">Loading account information…</p> : null}
+      {loading ? <p className="muted">{t("Loading account information…")}</p> : null}
     </section>
   );
 }

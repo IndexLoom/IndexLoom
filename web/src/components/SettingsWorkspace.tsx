@@ -83,12 +83,12 @@ export function SettingsWorkspace() {
     <section className="settings-view appearance-settings">
       <header className="page-heading">
         <div>
-          <p className="eyebrow">Personal workspace</p>
-          <h1>Settings</h1>
-          <p className="page-description">Make IndexLoom look and behave the way you want.</p>
+          <p className="eyebrow">{t("Personal workspace")}</p>
+          <h1>{t("Settings")}</h1>
+          <p className="page-description">{t("Make IndexLoom look and behave the way you want.")}</p>
         </div>
       </header>
-      <div className="appearance-tabs" role="tablist" aria-label="Settings sections">
+      <div className="appearance-tabs" role="tablist" aria-label={t("Settings sections")}>
         {(Object.keys(labels) as Tab[]).filter((key) => key !== "email" || canManageMail).map((key) => (
           <button
             aria-selected={key === tab}
@@ -109,8 +109,8 @@ export function SettingsWorkspace() {
             <LanguageSwitcher />
           </div>
           <div className="setting-heading">
-            <h2>Theme</h2>
-            <p>Choose a starting point. Every color can be overridden independently.</p>
+            <h2>{t("Theme")}</h2>
+            <p>{t("Choose a starting point. Every color can be overridden independently.")}</p>
           </div>
           <div className="theme-grid">
             {(Object.keys(themes) as Array<keyof typeof themes>).map((theme) => {
@@ -135,8 +135,8 @@ export function SettingsWorkspace() {
             })}
           </div>
           <div className="setting-heading">
-            <h2>Custom palette</h2>
-            <p>Change individual tones without editing a stylesheet.</p>
+            <h2>{t("Custom palette")}</h2>
+            <p>{t("Change individual tones without editing a stylesheet.")}</p>
           </div>
           <div className="palette-grid">
             {paletteKeys.map((key) => (
@@ -154,13 +154,13 @@ export function SettingsWorkspace() {
               </label>
             ))}
           </div>
-          <div className="setting-heading"><h2>Shape and spacing</h2></div>
+          <div className="setting-heading"><h2>{t("Shape and spacing")}</h2></div>
           <div className="appearance-controls">
             <label>
-              <span>Density</span>
+              <span>{t("Density")}</span>
               <select onChange={(event) => set("density", event.target.value as UiPreferences["density"])} value={preferences.density}>
-                <option value="comfortable">Comfortable</option>
-                <option value="compact">Compact</option>
+                <option value="comfortable">{t("Comfortable")}</option>
+                <option value="compact">{t("Compact")}</option>
               </select>
             </label>
             <label>
@@ -178,15 +178,15 @@ export function SettingsWorkspace() {
       {tab === "layout" ? (
         <div className="appearance-content" role="tabpanel">
           <div className="setting-heading">
-            <h2>Navigation</h2>
-            <p>Move the sidebar and reorder pages using drag and drop or arrow buttons.</p>
+            <h2>{t("Navigation")}</h2>
+            <p>{t("Move the sidebar and reorder pages using drag and drop or arrow buttons.")}</p>
           </div>
           <div className="appearance-controls">
-            <label><span>Sidebar position</span>
+            <label><span>{t("Sidebar position")}</span>
               <select onChange={(event) => set("sidebar", event.target.value as UiPreferences["sidebar"])} value={preferences.sidebar}>
-                <option value="left">Left</option>
-                <option value="right">Right</option>
-                <option value="top">Top</option>
+                <option value="left">{t("Left")}</option>
+                <option value="right">{t("Right")}</option>
+                <option value="top">{t("Top")}</option>
               </select>
             </label>
             <label>
@@ -204,13 +204,13 @@ export function SettingsWorkspace() {
             order={preferences.navigation}
           />
           <div className="setting-heading">
-            <h2>Search workspace</h2>
-            <p>Arrange or hide the statistics, search controls, source status and results.</p>
+            <h2>{t("Search workspace")}</h2>
+            <p>{t("Arrange or hide the statistics, search controls, source status and results.")}</p>
           </div>
           <WorkspaceEditor kind="search" labels={searchBlocks.map((id) => ({ id, label: { overview: "Statistics", query: "Search controls", status: "Indexer status", results: "Search results" }[id] }))} />
           <div className="setting-heading">
-            <h2>Indexer workspace</h2>
-            <p>Rearrange the overview, management tabs and active panel. Your indexer data stays unchanged.</p>
+            <h2>{t("Indexer workspace")}</h2>
+            <p>{t("Rearrange the overview, management tabs and active panel. Your indexer data stays unchanged.")}</p>
           </div>
           <WorkspaceEditor kind="indexers" labels={indexerBlocks.map((id) => ({ id, label: { overview: "Statistics", tools: "Management tabs", panel: "Active panel" }[id] }))} />
         </div>
@@ -219,11 +219,11 @@ export function SettingsWorkspace() {
       {tab === "css" ? (
         <div className="appearance-content" role="tabpanel">
           <div className="setting-heading">
-            <h2>Your own CSS</h2>
-            <p>Overrides are applied to this browser only. Import or export a profile to move the design to another device.</p>
+            <h2>{t("Your own CSS")}</h2>
+            <p>{t("Overrides are applied to this browser only. Import or export a profile to move the design to another device.")}</p>
           </div>
           <label className="custom-css-editor">
-            <span>Custom stylesheet</span>
+            <span>{t("Custom stylesheet")}</span>
             <textarea
               onChange={(event) => set("customCss", event.target.value)}
               placeholder={".sidebar { border-right: 0; }\n.result-indexer { border-radius: 2px; }"}
@@ -231,7 +231,7 @@ export function SettingsWorkspace() {
               value={preferences.customCss}
             />
           </label>
-          <p className="muted">Use CSS variables such as <code>--accent</code>, <code>--surface</code>, and <code>--ui-radius</code>. Custom CSS can make controls inaccessible or load remote resources; only import trusted profiles.</p>
+          <p className="muted">{t("Use CSS variables such as")}{" "}<code>--accent</code>, <code>--surface</code>, and <code>--ui-radius</code>. Custom CSS can make controls inaccessible or load remote resources; only import trusted profiles.</p>
         </div>
       ) : null}
 
@@ -240,11 +240,11 @@ export function SettingsWorkspace() {
       {tab === "email" && canManageMail ? <EmailSettings /> : null}
       <footer className="appearance-footer">
         <div>
-          <button className="quiet-button" onClick={exportProfile} type="button">Export profile</button>
-          <button className="quiet-button" onClick={() => importInput.current?.click()} type="button">Import profile</button>
-          <input accept=".json,application/json" aria-label="Import appearance profile" onChange={(event) => { void importFile(event); }} ref={importInput} style={{ display: "none" }} type="file" />
+          <button className="quiet-button" onClick={exportProfile} type="button">{t("Export profile")}</button>
+          <button className="quiet-button" onClick={() => importInput.current?.click()} type="button">{t("Import profile")}</button>
+          <input accept=".json,application/json" aria-label={t("Import appearance profile")} onChange={(event) => { void importFile(event); }} ref={importInput} style={{ display: "none" }} type="file" />
         </div>
-        <button className="quiet-button" onClick={() => { reset(); setMessage("Appearance reset to Obsidian Violet."); }} type="button">Reset appearance</button>
+        <button className="quiet-button" onClick={() => { reset(); setMessage("Appearance reset to Obsidian Violet."); }} type="button">{t("Reset appearance")}</button>
       </footer>
       {message ? <p className="notice" role="status">{message}</p> : null}
     </section>
@@ -300,9 +300,7 @@ function OrderEditor({ items, order, hidden, onChange, onToggle }: {
             <strong>{item.label}</strong>
             {hidden && onToggle ? (
               <label className="visibility-check">
-                <input checked={!hidden.includes(id)} onChange={() => onToggle(id)} type="checkbox" />
-                Visible
-              </label>
+                <input checked={!hidden.includes(id)} onChange={() => onToggle(id)} type="checkbox" />{t("Visible")}{" "}</label>
             ) : null}
             <span className="order-actions">
               <button aria-label={"Move " + item.label + " up"} disabled={index === 0} onClick={() => onChange(move(order, id, order[index - 1] ?? id))} type="button">↑</button>
@@ -338,22 +336,22 @@ function CatalogDiagnostics() {
   return (
     <section className="appearance-content" role="tabpanel">
       <div className="setting-heading">
-        <h2>Indexer database</h2>
-        <p>Installed catalog statistics and the last successful background synchronization.</p>
+        <h2>{t("Indexer database")}</h2>
+        <p>{t("Installed catalog statistics and the last successful background synchronization.")}</p>
       </div>
       {status ? (
         <dl className="catalog-stats">
-          <div><dt>Available</dt><dd>{status.availableDefinitions.toLocaleString()}</dd></div>
-          <div><dt>Retired</dt><dd>{status.retiredDefinitions.toLocaleString()}</dd></div>
-          <div><dt>Stored</dt><dd>{status.totalDefinitions.toLocaleString()}</dd></div>
-          <div><dt>Last applied release</dt><dd>{status.latestReleaseAppliedAt ? new Date(status.latestReleaseAppliedAt).toLocaleString() : "Not yet recorded"}</dd></div>
+          <div><dt>{t("Available")}</dt><dd>{status.availableDefinitions.toLocaleString()}</dd></div>
+          <div><dt>{t("Retired")}</dt><dd>{status.retiredDefinitions.toLocaleString()}</dd></div>
+          <div><dt>{t("Stored")}</dt><dd>{status.totalDefinitions.toLocaleString()}</dd></div>
+          <div><dt>{t("Last applied release")}</dt><dd>{status.latestReleaseAppliedAt ? new Date(status.latestReleaseAppliedAt).toLocaleString() : "Not yet recorded"}</dd></div>
         </dl>
       ) : null}
       {error ? <p className="inline-error" role="alert">{error}</p> : null}
       <button className="quiet-button" disabled={loading} onClick={() => setRefreshKey((key) => key + 1)} type="button">
         {loading ? "Checking…" : "Refresh status"}
       </button>
-      <button className="quiet-button" onClick={clearToken} type="button">Lock database diagnostics</button>
+      <button className="quiet-button" onClick={clearToken} type="button">{t("Lock database diagnostics")}</button>
       <p className="muted">Refresh reloads diagnostics only; the server handles database updates automatically.</p>
     </section>
   );
