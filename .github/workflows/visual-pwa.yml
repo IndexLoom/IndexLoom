@@ -101,6 +101,13 @@ jobs:
             await page.getByRole('button', {name: 'Settings', exact: true}).click();
             await page.getByRole('tab', {name: 'Security & users'}).waitFor();
             await page.screenshot({path: '/tmp/indexloom-screenshots/settings-' + size.width + '.png'});
+            await page.getByRole('combobox', {name: 'Interface language'}).first().selectOption('ru');
+            await page.getByRole('heading', {name: 'Настройки', exact: true}).waitFor();
+            await page.screenshot({path: '/tmp/indexloom-screenshots/settings-ru-' + size.width + '.png'});
+            await page.reload({waitUntil: 'networkidle'});
+            await page.getByRole('heading', {name: 'Настройки', exact: true}).waitFor();
+            await page.getByRole('combobox', {name: 'Язык интерфейса'}).first().selectOption('en');
+            await page.getByRole('heading', {name: 'Settings', exact: true}).waitFor();
             await context.close();
           }
           const page = await browser.newPage();
