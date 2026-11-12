@@ -1,4 +1,7 @@
-import { t } from "../lib/i18n";
+import {
+  t, categoryLabel, canonicalGenre, canonicalGenres,
+  genreLabel, searchModeLabel, formatDateTime, formatNumber,
+} from "../lib/i18n";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -175,7 +178,7 @@ function AuthenticatedSearch({
         },
         controller.signal,
         50,
-        filters,
+        { ...filters, genre: filters.genre ? canonicalGenre(filters.genre) : undefined },
       );
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -202,7 +205,7 @@ function AuthenticatedSearch({
   }
   if (workspace.kind === "error") {
     return (
-      <WorkspaceMessage title={t("Search unavailable")} body={workspace.message} />
+      <WorkspaceMessage title={t("Search unavailable")} body={t(workspace.message)} />
     );
   }
 
@@ -219,7 +222,7 @@ function AuthenticatedSearch({
 
       <div className="overview-grid search-overview" aria-label={t("Search overview")} data-ui-section="overview">
         <div className="overview-metric healthy">
-          <strong>{enabledIndexers.length.toLocaleString()}</strong>
+          <strong>{formatNumber(enabledIndexers.length)}</strong>
           <span>{t("Enabled indexers")}</span>
         </div>
         <div className="overview-metric">
@@ -255,15 +258,18 @@ function AuthenticatedSearch({
           <div className="advanced-search-grid">
             <label>{t("Mode")}{" "}<select value={filters.mode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value || undefined }))}>
                 <option value="">{t("Default search")}</option>
-                {availableModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+                {availableModes.map((mode) => <option key={mode} value={mode}>{searchModeLabel(mode)}</option>)}
               </select>
             </label>
             <label>{t("Category")}{" "}<select value={filters.category ?? ""} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value || undefined }))}>
                 <option value="">{t("All categories")}</option>
-                {availableCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                {availableCategories.map((category) => <option key={category} value={category}>{categoryLabel(category)}</option>)}
               </select>
             </label>
-            <label>{t("Genre")}{" "}<input value={filters.genre ?? ""} onChange={(event) => setFilters((current) => ({ ...current, genre: event.target.value || undefined }))} placeholder={t("Genre ID or name")} />
+            <label>{t("Genre")}{" "}<input list="indexloom-genre-suggestions" value={filters.genre ?? ""} onChange={(event) => setFilters((current) => ({ ...current, genre: event.target.value || undefined }))} placeholder={t("Genre ID or name")} />
+              <datalist id="indexloom-genre-suggestions">
+                {canonicalGenres.map((genre) => <option key={genre} value={genreLabel(genre)} />)}
+              </datalist>
             </label>
             <label>{t("Year")}{" "}<input min={1800} max={2100} type="number" value={filters.year ?? ""} onChange={(event) => setFilters((current) => ({ ...current, year: event.target.value ? Number(event.target.value) : undefined }))} />
             </label>
@@ -283,7 +289,7 @@ function AuthenticatedSearch({
 
       {notice ? (
         <p className="notice" role="status">
-          {notice}
+          {t(notice)}
         </p>
       ) : null}
 
@@ -319,7 +325,7 @@ function AuthenticatedSearch({
                       <span
                         className={`status-pill ${indexer.lastTest?.status === "success" ? "healthy" : ""}`}
                       >
-                        {indexer.lastTest?.status ?? "not tested"}
+                        {t(indexer.lastTest?.status ?? "not tested")}
                       </span>
                     </td>
                     <td>
@@ -347,7 +353,7 @@ function AuthenticatedSearch({
         <div className="section-heading">
           <h2 id="results-heading">{t("Results by indexer")}</h2>
           <span className="muted">
-            {response?.resultCount ?? 0} items
+            {formatNumber(response?.resultCount ?? 0)} {t("items")}
             {searchProgress
               ? ` · ${searchProgress.completed}/${searchProgress.total} indexers`
               : ""}
@@ -374,12 +380,12 @@ function AuthenticatedSearch({
                   </span>
                   <span className="muted">
                     {indexer.error
-                      ? "error"
-                      : `${indexer.results.length} results · ${indexer.responseTimeMs} ms`}
+                      ? t("error")
+                      : `${formatNumber(indexer.results.length)} ${t("results")} · ${indexer.responseTimeMs} ms`}
                   </span>
                 </summary>
                 {indexer.error ? (
-                  <p className="inline-error">{indexer.error}</p>
+                  <p className="inline-error">{t(indexer.error)}</p>
                 ) : null}
                 {indexer.results.length > 0 ? (
                   <div className="table-frame results-frame">
@@ -415,7 +421,7 @@ function AuthenticatedSearch({
                                 </small>
                               ) : null}
                             </td>
-                            <td>{result.category ?? "—"}</td>
+                            <td>{categoryLabel(result.category)}</td>
                             <td>{formatDate(result.publishedAt)}</td>
                             <td>{formatBytes(result.size)}</td>
                             <td>{result.seeders ?? "—"}</td>
@@ -478,8 +484,8 @@ function SelectionMenu({
   onChange: (selection: IndexerSelection) => void;
 }) {
   const label = selection.all
-    ? `All enabled (${enabledIndexers.length})`
-    : `${selection.groupIds.length} groups · ${selection.indexerIds.length} indexers`;
+    ? `${t("All enabled")} (${formatNumber(enabledIndexers.length)})`
+    : `${formatNumber(selection.groupIds.length)} ${t("Groups").toLocaleLowerCase()} · ${formatNumber(selection.indexerIds.length)} ${t("Indexers").toLocaleLowerCase()}`;
 
   function toggle(
     collection: "groupIds" | "indexerIds",
@@ -555,7 +561,7 @@ function SelectionMenu({
 function RuntimeStatus({ health }: { health: Health }) {
   return (
     <span className="runtime-status healthy">
-      API {health.version} · database {health.database}
+      API {health.version} · {t("database")} {t(health.database)}
     </span>
   );
 }
@@ -584,5 +590,5 @@ function formatBytes(value: number | null): string {
 function formatDate(value: string | undefined | null): string {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString();
+  return Number.isNaN(date.valueOf()) ? value : formatDateTime(value);
 }
