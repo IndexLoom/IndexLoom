@@ -1027,6 +1027,17 @@ mod tests {
         assert_eq!(recent[1], "hash-11");
         assert_eq!(recent[10], "hash-2");
         assert!(!recent.contains(&"hash-0".to_owned()));
+        // Turning off password history must also delete retained hashes.
+        store.save_password_policy(r#"{"historyEnabled":false}"#).await.unwrap();
+        assert_eq!(
+            store.password_hash_history("policy-owner", 10).await.unwrap(),
+            vec!["hash-12".to_owned()]
+        );
+        store.change_password("policy-owner", "hash-13").await.unwrap();
+        assert_eq!(
+            store.password_hash_history("policy-owner", 10).await.unwrap(),
+            vec!["hash-13".to_owned()]
+        );
         assert_eq!(
             store
                 .password_hash_history("policy-owner", 0)
