@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use indexloom_core::deployment::{Deployment, RuntimeMode};
 use indexloom_server::{
     AdminToken, AppState,
     auth::{AuthMode, AuthSettings, MailSender},
@@ -33,6 +34,21 @@ async fn main() -> Result<()> {
     let bind = env_or("INDEXLOOM_BIND", "0.0.0.0:8080")
         .parse::<SocketAddr>()
         .context("INDEXLOOM_BIND must be a socket address")?;
+    let deployment = Deployment::from_env().map_err(anyhow::Error::msg)?;
+    // External binaries are lightweight launchers. They never open SQLite,
+    // read master keys, initialize credentials or perform torrent searches.
+    if deployment.mode == RuntimeMode::External {
+        let remote = deployment.remote.expect("validated external URL");
+        let listener = TcpListener::bind(bind)
+            .await
+            .with_context(|| format!("failed to bind {bind}"))?;
+        tracing::info!(%bind, endpoint = %remote, "IndexLoom external mode");
+        axum::serve(listener, indexloom_server::remote::router(remote))
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .context("IndexLoom external gateway failed")?;
+        return Ok(());
+    }
     let database_url = env_or(
         "INDEXLOOM_DATABASE_URL",
         "sqlite:///data/indexloom.db?mode=rwc",
