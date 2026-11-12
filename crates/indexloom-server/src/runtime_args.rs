@@ -42,7 +42,11 @@ where
     )
 }
 
-fn parse<I>(arguments: I, env_mode: Option<&str>, env_remote: Option<&str>) -> Result<Command, String>
+fn parse<I>(
+    arguments: I,
+    env_mode: Option<&str>,
+    env_remote: Option<&str>,
+) -> Result<Command, String>
 where
     I: IntoIterator<Item = String>,
 {
@@ -84,14 +88,13 @@ where
     };
 
     match selected {
-        RuntimeMode::Autonomous if remote.is_none() => {
-            Ok(Command::Start(Deployment::autonomous()))
-        }
+        RuntimeMode::Autonomous if remote.is_none() => Ok(Command::Start(Deployment::autonomous())),
         RuntimeMode::Autonomous => Err("--remote is not valid with autonomous mode".into()),
         RuntimeMode::External => {
-            let url = remote.as_deref().or(env_remote).ok_or(
-                "external mode requires --remote URL or INDEXLOOM_REMOTE_URL",
-            )?;
+            let url = remote
+                .as_deref()
+                .or(env_remote)
+                .ok_or("external mode requires --remote URL or INDEXLOOM_REMOTE_URL")?;
             Deployment::external(url).map(Command::Start)
         }
     }
@@ -102,7 +105,11 @@ mod tests {
     use super::{Command, parse};
     use indexloom_core::deployment::RuntimeMode;
 
-    fn args(raw: &[&str], env_mode: Option<&str>, env_url: Option<&str>) -> Result<Command, String> {
+    fn args(
+        raw: &[&str],
+        env_mode: Option<&str>,
+        env_url: Option<&str>,
+    ) -> Result<Command, String> {
         parse(raw.iter().map(|v| (*v).to_owned()), env_mode, env_url)
     }
 
@@ -119,15 +126,19 @@ mod tests {
         let Command::Start(deployment) = args(
             &["--remote", "https://example.org/"],
             Some("autonomous"),
-            None
-        ).unwrap() else {
+            None,
+        )
+        .unwrap() else {
             panic!("expected runtime");
         };
         assert_eq!(deployment.mode, RuntimeMode::External);
         assert_eq!(deployment.remote.unwrap().as_str(), "https://example.org/");
         let Command::Start(deployment) = args(
-            &["--mode", "autonomous"], Some("external"), Some("https://other.org/")
-        ).unwrap() else {
+            &["--mode", "autonomous"],
+            Some("external"),
+            Some("https://other.org/"),
+        )
+        .unwrap() else {
             panic!("expected runtime");
         };
         assert_eq!(deployment.mode, RuntimeMode::Autonomous);
@@ -136,7 +147,14 @@ mod tests {
     #[test]
     fn requires_strict_modes_and_https_root_urls() {
         assert!(args(&["--mode", "external"], None, None).is_err());
-        assert!(args(&["--mode", "autonomous", "--remote", "https://example.org"], None, None).is_err());
+        assert!(
+            args(
+                &["--mode", "autonomous", "--remote", "https://example.org"],
+                None,
+                None
+            )
+            .is_err()
+        );
         assert!(args(&["--remote", "http://example.org"], None, None).is_err());
         assert!(args(&["--remote", "https://user:pass@example.org"], None, None).is_err());
         assert!(args(&["--mode"], None, None).is_err());
@@ -145,7 +163,10 @@ mod tests {
 
     #[test]
     fn help_and_bad_arguments_do_not_start_a_server() {
-        assert!(matches!(args(&["--help"], None, None).unwrap(), Command::Help));
+        assert!(matches!(
+            args(&["--help"], None, None).unwrap(),
+            Command::Help
+        ));
         assert!(args(&["--help", "--remote", "https://example.org"], None, None).is_err());
         assert!(args(&["--unknown"], None, None).is_err());
     }
