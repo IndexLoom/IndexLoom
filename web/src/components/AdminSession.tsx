@@ -193,7 +193,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
     <main className="auth-page">
       <div className="auth-card">
         <h1>{t("Connection unavailable")}</h1>
-        <p>{error || "Check the server connection."}</p>
+        <p>{t(error || "Check the server connection.")}</p>
         <button className="primary-button" onClick={() => { void loadConfig(); }} type="button">{t("Retry")}</button>
       </div>
     </main>
@@ -333,15 +333,15 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
           <div className="auth-brand"><span>IL</span><strong>IndexLoom</strong></div>
           <LanguageSwitcher compact />
           <p className="eyebrow">{t("Private workspace")}</p>
-          <h1>{panel === "bootstrap" ? "Set up your administrator" : panel === "reset" ? "New password" : panel === "recover" ? "Recover access" : panel === "mfa" ? "Verify second factor" : "Welcome back"}</h1>
-          <p>{panel === "bootstrap"
+          <h1>{t(panel === "bootstrap" ? "Set up your administrator" : panel === "reset" ? "New password" : panel === "recover" ? "Recover access" : panel === "mfa" ? "Verify second factor" : "Welcome back")}</h1>
+          <p>{t(panel === "bootstrap"
             ? "Initialize local login with the independent operator secret. This can only be done once."
             : panel === "token"
               ? "Sign in with your administrator access token."
               : panel === "recover" ? "Enter your account email to request a password reset."
                 : panel === "reset" ? "Create a new password with at least 12 characters."
                   : panel === "mfa" ? "Enter the six-digit authenticator code or a saved recovery code."
-                  : "Sign in to your indexers, searches and settings."}</p>
+                  : "Sign in to your indexers, searches and settings.")}</p>
         </header>
         <form className="auth-form" onSubmit={(event) => { void submit(event); }}>
           {panel === "bootstrap" ? (
@@ -371,7 +371,7 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             <label className="auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />{t("Keep me signed in on this device")}</label>
           ) : null}
           <button className="primary-button" disabled={busy} type="submit">
-            {busy ? "Working…" : panel === "bootstrap" ? "Create administrator" : panel === "recover" ? "Send recovery link" : panel === "reset" ? "Update password" : panel === "mfa" ? "Verify and sign in" : "Sign in"}
+            {t(busy ? "Working…" : panel === "bootstrap" ? "Create administrator" : panel === "recover" ? "Send recovery link" : panel === "reset" ? "Update password" : panel === "mfa" ? "Verify and sign in" : "Sign in")}
           </button>
         </form>
         {config.oidcEnabled && panel !== "reset" && panel !== "mfa" ? (
@@ -392,8 +392,8 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             <button type="button" onClick={() => setPanel("login")}>{t("Back to sign in")}</button>
           ) : null}
         </nav>
-        {localError || error ? <p className="auth-error" role="alert">{localError || error}</p> : null}
-        {notice ? <p className="auth-notice" role="status">{notice}</p> : null}
+        {localError || error ? <p className="auth-error" role="alert">{t(localError || error)}</p> : null}
+        {notice ? <p className="auth-notice" role="status">{t(notice)}</p> : null}
       </div>
       <footer className="auth-footer">{t("IndexLoom · self-hosted indexer workspace")}</footer>
     </main>

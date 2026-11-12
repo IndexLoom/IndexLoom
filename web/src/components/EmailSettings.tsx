@@ -118,7 +118,7 @@ export function EmailSettings() {
         <p>{t("SMTP delivery can be disabled independently of local and OIDC authentication.")}</p>
       </div>
       <dl className="capability-facts">
-        <div><dt>{t("SMTP")}</dt><dd>{panel?.enabled ? "Connected configuration" : "Disabled"}</dd></div>
+        <div><dt>{t("SMTP")}</dt><dd>{t(panel?.enabled ? "Connected configuration" : "Disabled")}</dd></div>
         <div><dt>{t("Authentication mode")}</dt><dd>{config?.mode}</dd></div>
       </dl>
       {!panel?.enabled ? (
@@ -128,7 +128,7 @@ export function EmailSettings() {
       <div className="notification-events">
         {panel?.events.map((event) => (
           <label key={event.kind} className="notification-event">
-            <div><strong>{kinds[event.kind] ?? event.kind}</strong><small>{event.enabled ? "Enabled" : "Disabled"}</small></div>
+            <div><strong>{t(kinds[event.kind] ?? event.kind)}</strong><small>{t(event.enabled ? "Enabled" : "Disabled")}</small></div>
             <input type="checkbox" disabled={busy || !panel.enabled} checked={event.enabled} onChange={() => { void toggleEvent(event); }} />
           </label>
         ))}
@@ -165,7 +165,7 @@ export function EmailSettings() {
           </form>
         </>
       ) : null}
-      {status ? <p className="notice" role="status">{status}</p> : null}
+      {status ? <p className="notice" role="status">{t(status)}</p> : null}
     </section>
   );
 }

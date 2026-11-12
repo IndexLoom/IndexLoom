@@ -75,7 +75,7 @@ export function TotpSettings() {
 
   async function disable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!window.confirm("Disable two-factor authentication and revoke all sessions?")) return;
+    if (!window.confirm(t("Disable two-factor authentication and revoke all sessions?"))) return;
     setBusy(true); setMessage("");
     try {
       await api<void>(token, "/api/v1/auth/totp/disable", { password, code });
@@ -103,7 +103,7 @@ export function TotpSettings() {
       </div>
 
       {status ? <dl className="capability-facts">
-        <div><dt>{t("Authenticator")}</dt><dd>{status.enabled ? "Enabled" : "Not enabled"}</dd></div>
+        <div><dt>{t("Authenticator")}</dt><dd>{t(status.enabled ? "Enabled" : "Not enabled")}</dd></div>
         <div><dt>{t("Recovery codes remaining")}</dt><dd>{status.recoveryCodesRemaining}</dd></div>
       </dl> : null}
 
@@ -161,7 +161,7 @@ export function TotpSettings() {
         </form>
       )}
 
-      {message ? <p className="notice" role="status">{message}</p> : null}
+      {message ? <p className="notice" role="status">{t(message)}</p> : null}
     </section>
   );
 }

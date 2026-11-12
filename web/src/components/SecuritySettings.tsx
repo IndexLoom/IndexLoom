@@ -1,4 +1,4 @@
-import { t } from "../lib/i18n";
+import { formatDateTime, t } from "../lib/i18n";
 import { type FormEvent, useEffect, useState } from "react";
 import { useAdminSession } from "./AdminSession";
 import { TotpSettings } from "./TotpSettings";
@@ -98,7 +98,7 @@ export function SecuritySettings() {
   }
 
   async function toggleUser(user: User) {
-    if (!window.confirm((user.disabled ? "Enable " : "Disable ") + user.username + "?")) return;
+    if (!window.confirm(t(user.disabled ? "Enable" : "Disable") + " " + user.username + "?")) return;
     setBusy(true); setFeedback("");
     try {
       await request<User>(token, "/api/v1/auth/users/" + encodeURIComponent(user.id) + "/disabled", {
@@ -112,7 +112,7 @@ export function SecuritySettings() {
 
   async function changeRole(user: User, role: Role) {
     if (role === user.role) return;
-    if (!window.confirm("Change " + user.username + " from " + user.role + " to " + role + "?")) return;
+    if (!window.confirm(t("Change") + " " + user.username + " " + t("from") + " " + t(user.role) + " " + t("to") + " " + t(role) + "?")) return;
     setBusy(true); setFeedback("");
     try {
       await request<User>(token, "/api/v1/auth/users/" + encodeURIComponent(user.id) + "/role", {
@@ -148,12 +148,12 @@ export function SecuritySettings() {
         <p>{t("Credentials, sessions and account administration. Authorization rules are enforced server-side.")}</p>
       </div>
       <dl className="capability-facts">
-        <div><dt>{t("Mode")}</dt><dd>{config?.mode ?? "unknown"}</dd></div>
+        <div><dt>{t("Mode")}</dt><dd>{t(config?.mode ?? "unknown")}</dd></div>
         <div><dt>{t("Current identity")}</dt><dd>{me?.user?.username ?? (config?.mode === "disabled" ? "Anonymous" : "Operator token")}</dd></div>
-        <div><dt>{t("Current role")}</dt><dd>{me?.user?.role ?? (canManage ? "owner" : "—")}</dd></div>
-        <div><dt>OIDC</dt><dd>{config?.oidcEnabled ? "Enabled" : "Off"}</dd></div>
-        <div><dt>Mail</dt><dd>{config?.mailEnabled ? "Enabled" : "Off"}</dd></div>
-        <div><dt>{t("Email verification")}</dt><dd>{config?.emailVerificationRequired ? "Required" : "Optional"}</dd></div>
+        <div><dt>{t("Current role")}</dt><dd>{t(me?.user?.role ?? (canManage ? "owner" : "—"))}</dd></div>
+        <div><dt>OIDC</dt><dd>{t(config?.oidcEnabled ? "Enabled" : "Off")}</dd></div>
+        <div><dt>Mail</dt><dd>{t(config?.mailEnabled ? "Enabled" : "Off")}</dd></div>
+        <div><dt>{t("Email verification")}</dt><dd>{t(config?.emailVerificationRequired ? "Required" : "Optional")}</dd></div>
       </dl>
       <p className="muted">{t("Mode and identity provider settings are controlled by environment variables. Disabling protection requires two explicit server settings and should never be used on an Internet-facing deployment.")}</p>
       {config?.mode !== "disabled" ? (
@@ -184,13 +184,13 @@ export function SecuritySettings() {
                 <div>
                   <strong>{user.username}</strong>
                   <small>{user.email}</small>
-                  <span className="muted">{user.hasOidc ? "OIDC" : "Password"} · {user.emailVerified ? "Email verified" : "Unverified"} · {user.disabled ? "Disabled" : "Active"} · {user.role}</span>
+                  <span className="muted">{t(user.hasOidc ? "OIDC" : "Password")} · {t(user.emailVerified ? "Email verified" : "Unverified")} · {t(user.disabled ? "Disabled" : "Active")} · {t(user.role)}</span>
                 </div>
                 <div className="user-actions">
                   <label className="security-role-select">
                     <span className="visually-hidden">Role for {user.username}</span>
                     <select value={user.role} disabled={busy || user.id === me?.user?.id}
-                      aria-label={"Role for " + user.username}
+                      aria-label={t("Role for") + " " + user.username}
                       onChange={(event) => { void changeRole(user, event.target.value as Role); }}>
                       <option value="viewer">{t("Viewer")}</option>
                       <option value="admin">{t("Admin")}</option>
@@ -205,7 +205,7 @@ export function SecuritySettings() {
                     }}>{t("Send verification")}</button>
                   ) : null}
                   <button className="quiet-button" type="button" disabled={busy || user.id === me?.user?.id} onClick={() => { void toggleUser(user); }}>
-                    {user.disabled ? "Enable" : "Disable"}
+                    {t(user.disabled ? "Enable" : "Disable")}
                   </button>
                 </div>
               </div>
@@ -235,15 +235,15 @@ export function SecuritySettings() {
           <div className="security-audit-list">
             {audit.length === 0 ? <p className="muted">{t("No recorded security events yet.")}</p> : audit.map((event) => (
               <div className="security-audit-event" key={event.id}>
-                <strong>{event.action}</strong>
-                <small>{new Date(event.occurredAt * 1000).toLocaleString()}</small>
+                <strong>{t(event.action)}</strong>
+                <small>{formatDateTime(event.occurredAt * 1000)}</small>
                 {event.subjectId ? <small>Account {event.subjectId.slice(0, 12)}</small> : null}
               </div>
             ))}
           </div>
         </>
       ) : null}
-      {feedback ? <p className="notice" role="status">{feedback}</p> : null}
+      {feedback ? <p className="notice" role="status">{t(feedback)}</p> : null}
       {loading ? <p className="muted">{t("Loading account information…")}</p> : null}
     </section>
   );
