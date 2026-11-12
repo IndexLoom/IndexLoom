@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useMemo, useSta
 import { ruMessages } from "./messages.ru";
 import { ruExtra } from "./messages.ru.extra";
 import { canonicalGenres, categoryRu, genreRu, newznabCategoryNames } from "./taxonomy";
+export { canonicalGenres } from "./taxonomy";
 
 export type Locale = "en" | "ru";
 export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "ru"];
