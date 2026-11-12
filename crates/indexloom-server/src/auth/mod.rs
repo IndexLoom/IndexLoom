@@ -319,7 +319,10 @@ pub fn private_routes() -> Router<AppState> {
         .route("/api/v1/auth/me", get(current_session))
         .route("/api/v1/auth/logout", post(logout))
         .route("/api/v1/auth/password", post(change_password))
-        .route("/api/v1/auth/password-policy/settings", put(update_password_policy))
+        .route(
+            "/api/v1/auth/password-policy/settings",
+            put(update_password_policy),
+        )
         .route(
             "/api/v1/auth/email/request-verification",
             post(request_verification),
@@ -384,15 +387,20 @@ async fn validate_new_password(
     policy.validate_password(password, username, email)?;
     if policy.history_enabled {
         if let Some(id) = user_id {
-            let hashes = state.store.password_hash_history(id, policy.history_count).await?;
+            let hashes = state
+                .store
+                .password_hash_history(id, policy.history_count)
+                .await?;
             for hash in hashes {
                 if verify_password(
                     password.to_owned(),
                     hash,
-                    state.auth_settings.hash_permits.clone()
-                ).await {
+                    state.auth_settings.hash_permits.clone(),
+                )
+                .await
+                {
                     return Err(ApiError::bad_request(
-                        "new password must not match any of the recently used passwords"
+                        "new password must not match any of the recently used passwords",
                     ));
                 }
             }
@@ -642,8 +650,13 @@ async fn bootstrap(
     let username = normalize_username(&request.username)?;
     let email = normalize_email(&request.email)?;
     validate_new_password(
-        &state, &request.password, Some(&username), Some(&email), None
-    ).await?;
+        &state,
+        &request.password,
+        Some(&username),
+        Some(&email),
+        None,
+    )
+    .await?;
     let password_hash =
         hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
     let id = Uuid::now_v7().to_string();
@@ -824,8 +837,13 @@ async fn change_password(
         return Err(ApiError::unauthorized());
     }
     validate_new_password(
-        &state, &request.password, Some(&user.username), Some(&user.email), Some(&user.id)
-    ).await?;
+        &state,
+        &request.password,
+        Some(&user.username),
+        Some(&user.email),
+        Some(&user.id),
+    )
+    .await?;
     let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
     state.store.change_password(&user.id, &hash).await?;
     audit_action(&state, Some(&user.id), Some(&user.id), "password-changed").await;
@@ -894,16 +912,30 @@ async fn reset_password(
         return Err(ApiError::unauthorized());
     }
     let token_digest = digest(&request.token);
-    let user_id = state.store.password_reset_user(&token_digest)
-        .await?.ok_or_else(ApiError::unauthorized)?;
-    let user = state.store.auth_user_by_id(&user_id)
-        .await?.ok_or_else(ApiError::unauthorized)?;
+    let user_id = state
+        .store
+        .password_reset_user(&token_digest)
+        .await?
+        .ok_or_else(ApiError::unauthorized)?;
+    let user = state
+        .store
+        .auth_user_by_id(&user_id)
+        .await?
+        .ok_or_else(ApiError::unauthorized)?;
     validate_new_password(
-        &state, &request.password, Some(&user.username), Some(&user.email), Some(&user_id)
-    ).await?;
+        &state,
+        &request.password,
+        Some(&user.username),
+        Some(&user.email),
+        Some(&user_id),
+    )
+    .await?;
     let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
-    let consumed = state.store.consume_one_time_token(&token_digest, "reset-password")
-        .await?.ok_or_else(ApiError::unauthorized)?;
+    let consumed = state
+        .store
+        .consume_one_time_token(&token_digest, "reset-password")
+        .await?
+        .ok_or_else(ApiError::unauthorized)?;
     if consumed != user_id {
         return Err(ApiError::unauthorized());
     }
@@ -1162,8 +1194,13 @@ async fn add_user(
     let username = normalize_username(&request.username)?;
     let email = normalize_email(&request.email)?;
     validate_new_password(
-        &state, &request.password, Some(&username), Some(&email), None
-    ).await?;
+        &state,
+        &request.password,
+        Some(&username),
+        Some(&email),
+        None,
+    )
+    .await?;
     if !matches!(request.role.as_str(), "owner" | "admin" | "viewer") {
         return Err(ApiError::bad_request("role must be owner, admin or viewer"));
     }
@@ -1327,8 +1364,16 @@ mod tests {
             normalize_email(" Alice@Example.org ").unwrap(),
             "alice@example.org"
         );
-        assert!(PasswordPolicy::default().validate_password("much-longer-password", None, None).is_ok());
-        assert!(PasswordPolicy::default().validate_password("short", None, None).is_err());
+        assert!(
+            PasswordPolicy::default()
+                .validate_password("much-longer-password", None, None)
+                .is_ok()
+        );
+        assert!(
+            PasswordPolicy::default()
+                .validate_password("short", None, None)
+                .is_err()
+        );
         assert_ne!(digest("a"), digest("b"));
         assert_eq!(AuthMode::Disabled, AuthMode::Disabled);
     }
