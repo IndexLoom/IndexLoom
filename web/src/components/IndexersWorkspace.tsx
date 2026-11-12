@@ -1,4 +1,5 @@
-import { t, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../lib/i18n";
+import { translate, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../lib/i18n";
+const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "indexers");
 import {
   type FormEvent,
   useDeferredValue,
