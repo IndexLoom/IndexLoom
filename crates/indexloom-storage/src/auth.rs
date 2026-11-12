@@ -527,6 +527,42 @@ impl Store {
         Ok(())
     }
 
+    /// Returns serialized password policy; missing row means server defaults.
+    pub async fn load_password_policy(&self) -> Result<Option<String>, StorageError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT policy_json FROM auth_password_policy WHERE id = 1"
+        ).fetch_optional(&self.pool).await.map_err(Into::into)
+    }
+
+    /// Stores owner-validated policy atomically in SQLite.
+    pub async fn save_password_policy(&self, json: &str) -> Result<(), StorageError> {
+        sqlx::query(
+            "INSERT INTO auth_password_policy(id, policy_json, updated_at) VALUES (1, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at"
+        )
+        .bind(json).bind(epoch()).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Returns current and historic password hashes, never plaintext.
+    pub async fn password_hash_history(
+        &self, user_id: &str, history_count: usize
+    ) -> Result<Vec<String>, StorageError> {
+        let limit = i64::try_from(history_count.min(10)).unwrap_or(10);
+        let mut result = Vec::new();
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM auth_users WHERE id = ?"
+        ).bind(user_id).fetch_optional(&self.pool).await?.flatten();
+        if let Some(hash) = current { result.push(hash); }
+        if limit > 0 {
+            let previous = sqlx::query_scalar::<_, String>(
+                "SELECT password_hash FROM auth_password_history WHERE user_id = ? ORDER BY id DESC LIMIT ?"
+            ).bind(user_id).bind(limit).fetch_all(&self.pool).await?;
+            result.extend(previous);
+        }
+        Ok(result)
+    }
+
     /// Replaces a password hash and revokes all account sessions.
     ///
     /// # Errors
@@ -538,6 +574,29 @@ impl Store {
     ) -> Result<(), StorageError> {
         // Password replacement and session revocation must share a transaction.
         let mut transaction = self.pool.begin().await?;
+        let previous: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM auth_users WHERE id = ?"
+        )
+            .bind(user_id)
+            .fetch_optional(&mut *transaction)
+            .await?
+            .flatten();
+        if let Some(old_hash) = previous {
+            sqlx::query(
+                "INSERT INTO auth_password_history(user_id, password_hash, changed_at) VALUES (?, ?, ?)"
+            )
+                .bind(user_id)
+                .bind(old_hash)
+                .bind(epoch())
+                .execute(&mut *transaction)
+                .await?;
+        }
+        sqlx::query("DELETE FROM auth_password_history WHERE user_id = ? AND id NOT IN (\
+            SELECT id FROM auth_password_history WHERE user_id = ? ORDER BY id DESC LIMIT 10)")
+            .bind(user_id)
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query("UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE id = ?")
             .bind(password_hash)
             .bind(epoch())
