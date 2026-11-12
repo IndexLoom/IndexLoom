@@ -117,7 +117,7 @@ jobs:
                 sentGenre = route.request().postDataJSON().filters.genre;
                 await route.fulfill({
                   status: 200, contentType: 'application/x-ndjson',
-                  body: '{"type":"started","query":"example","total":0}\\n{"type":"finished","completed":0,"total":0,"resultCount":0}\\n',
+                  body: '{"type":"started","query":"example","total":0}\n{"type":"finished","completed":0,"total":0,"resultCount":0}\n',
                 });
               });
               await page.getByRole('combobox', {name: 'Interface language'}).first().selectOption('ru');
