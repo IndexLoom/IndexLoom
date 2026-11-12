@@ -2,6 +2,7 @@ import {
   createContext, type FormEvent, type ReactNode,
   useCallback, useContext, useEffect, useMemo, useState,
 } from "react";
+import { LanguageSwitcher, t, useLocale } from "../lib/i18n";
 
 type AuthMode = "token" | "local" | "oidc" | "hybrid" | "disabled";
 type AuthConfig = {
@@ -60,6 +61,7 @@ async function postJson<T>(route: string, body: unknown): Promise<T> {
 }
 
 export function AuthenticationProvider({ children }: { children: ReactNode }) {
+  useLocale(); // Ensure sign-in and recovery UI updates without losing form state.
   const [token, setToken] = useState(savedToken);
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -329,6 +331,7 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
       <div className="auth-card">
         <header className="auth-header">
           <div className="auth-brand"><span>IL</span><strong>IndexLoom</strong></div>
+          <LanguageSwitcher compact />
           <p className="eyebrow">Private workspace</p>
           <h1>{panel === "bootstrap" ? "Set up your administrator" : panel === "reset" ? "New password" : panel === "recover" ? "Recover access" : panel === "mfa" ? "Verify second factor" : "Welcome back"}</h1>
           <p>{panel === "bootstrap"

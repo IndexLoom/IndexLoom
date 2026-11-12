@@ -1,4 +1,5 @@
 import { AppearanceProvider } from "./lib/ui-preferences";
+import { LocaleProvider } from "./lib/i18n";
 import { AuthenticationProvider } from "./components/AdminSession";
 import { registerPwa } from "./lib/pwa";
 import { StrictMode } from "react";
@@ -17,9 +18,11 @@ if (!root) {
 
 createRoot(root).render(
   <StrictMode>
-    <AppearanceProvider>
-      <AuthenticationProvider><App /></AuthenticationProvider>
-    </AppearanceProvider>
+    <LocaleProvider>
+      <AppearanceProvider>
+        <AuthenticationProvider><App /></AuthenticationProvider>
+      </AppearanceProvider>
+    </LocaleProvider>
   </StrictMode>,
 );
 

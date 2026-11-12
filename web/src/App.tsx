@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t, useLocale } from "./lib/i18n";
 
 import { AppShell, type View } from "./components/AppShell";
 import { NetworkStatus } from "./components/NetworkStatus";
@@ -7,6 +8,7 @@ import { SearchWorkspace } from "./components/SearchWorkspace";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
 
 export function App() {
+  useLocale(); // Re-render the active workspace when the language changes.
   const [view, setView] = useState<View>(() => {
     const value = new URLSearchParams(window.location.search).get("view");
     return value === "indexers" || value === "settings" || value === "history" ? value : "search";
@@ -26,8 +28,8 @@ export function App() {
       {view === "settings" ? <SettingsWorkspace /> : null}
       {view === "history" ? (
         <section className="empty-view">
-          <h1>History</h1>
-          <p>Completed searches will appear here when persistent history is enabled.</p>
+          <h1>{t("History")}</h1>
+          <p>{t("Completed searches will appear here when persistent history is enabled.")}</p>
         </section>
       ) : null}
     </AppShell>

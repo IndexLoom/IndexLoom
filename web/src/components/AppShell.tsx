@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { useAppearance } from "../lib/ui-preferences";
+import { LanguageSwitcher, t } from "../lib/i18n";
 import { useAdminSession } from "./AdminSession";
 import { useEffect, useState } from "react";
 
@@ -57,11 +58,11 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
               className={item.id === activeView ? "nav-item active" : "nav-item"}
               key={item.id}
               onClick={() => onNavigate(item.id)}
-              title={item.label}
+              title={t(item.label)}
               type="button"
             >
               <NavIcon view={item.id} />
-              <span>{item.label}</span>
+              <span>{t(item.label)}</span>
             </button>
           ))}
         </nav>
@@ -80,8 +81,9 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
       </aside>
       <main className="workspace" id="main-workspace" tabIndex={-1}>
         <div className="workspace-topbar">
-          <span className="topbar-location">Workspace <span>/</span> {navigation.find((item) => item.id === activeView)?.label}</span>
+          <span className="topbar-location">Workspace <span>/</span> {t(navigation.find((item) => item.id === activeView)?.label ?? "")}</span>
           <div className="topbar-actions">
+            <LanguageSwitcher compact />
             {installPrompt ? <button className="topbar-settings" onClick={install} type="button">Install app</button> : null}
             <button className="topbar-settings" onClick={() => onNavigate("settings")} type="button">Appearance</button>
             {config?.mode !== "disabled" ? <button className="topbar-settings" onClick={clearToken} type="button">Sign out</button> : null}

@@ -372,3 +372,24 @@
   .totp-recovery-grid { grid-template-columns: 1fr; }
   .totp-provisioning, .totp-recovery { padding: 12px; }
 }
+
+
+/* Compact locale control in top navigation and on the sign-in screen. */
+.language-picker { display: grid; gap: 8px; min-width: 0; font-size: .85rem; color: var(--muted); }
+.language-picker select {
+  appearance: auto;
+  min-width: 130px;
+  min-height: 40px;
+  padding: 7px 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  font: inherit;
+  font-size: 16px;
+}
+.language-picker.compact select { min-width: 78px; min-height: 34px; font-size: .78rem; padding: 5px; }
+.auth-header > .language-picker { justify-self: start; }
+@media (max-width: 640px) {
+  .topbar-actions .language-picker.compact select { min-width: 75px; min-height: 36px; font-size: .74rem; }
+}

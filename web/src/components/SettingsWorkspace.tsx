@@ -1,6 +1,7 @@
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
 
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
+import { LanguageSwitcher, t } from "../lib/i18n";
 import { SecuritySettings } from "./SecuritySettings";
 import { EmailSettings } from "./EmailSettings";
 import { ApiError, type CatalogStatus, fetchCatalogStatus } from "../lib/api";
@@ -102,6 +103,11 @@ export function SettingsWorkspace() {
 
       {tab === "themes" ? (
         <div className="appearance-content" role="tabpanel">
+          <div className="setting-heading">
+            <h2>{t("Interface language")}</h2>
+            <p>{t("Choose the language used for controls, messages, categories and genres.")}</p>
+            <LanguageSwitcher />
+          </div>
           <div className="setting-heading">
             <h2>Theme</h2>
             <p>Choose a starting point. Every color can be overridden independently.</p>
