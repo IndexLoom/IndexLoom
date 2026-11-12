@@ -4,7 +4,7 @@ FROM node:24.19.0-alpine AS web-builder
 WORKDIR /source/web
 RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml ./
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=private \
     pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
@@ -17,8 +17,11 @@ WORKDIR /source
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
 COPY migrations/ ./migrations/
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/source/target \
+# Buildx executes amd64 and arm64 stages concurrently. Shared writeable Cargo
+# registry/target caches race when unpacking crates; private cache mounts keep
+# each writer isolated while retaining incremental cache benefits.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=private \
+    --mount=type=cache,target=/source/target,sharing=private \
     cargo build --locked --release --package indexloom-server \
     && cp /source/target/release/indexloom-server /tmp/indexloom-server
 

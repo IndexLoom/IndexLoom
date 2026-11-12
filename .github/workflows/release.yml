@@ -168,7 +168,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   publish:
-    needs: [version, binaries, mobile]
+    needs: [version, binaries, mobile, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
