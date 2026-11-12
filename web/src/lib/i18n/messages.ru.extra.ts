@@ -1,5 +1,7 @@
 /** Additional Russian UI strings for administration, account security and notifications. */
 export const ruExtra: Readonly<Record<string,string>> = {
+  "Verifying account before showing search history…": "Проверяем учётную запись перед показом истории поиска…",
+  "Saved only in this browser for the current account. Queries and counts; never tracker credentials or links.": "Сохраняется только в этом браузере для текущей учётной записи: запросы и количество результатов, но не пароли трекеров и ссылки.",
   "Password policy": "Политика паролей",
   "Enable individual requirements for newly created and changed local passwords. Current passwords, OIDC and API tokens are unaffected.": "Включайте отдельные требования для новых и изменяемых локальных паролей. Существующие пароли, OIDC и API-токены не затрагиваются.",
   "Password policy presets": "Готовые профили паролей",
