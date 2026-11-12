@@ -1350,8 +1350,8 @@ async fn send_user_verification(
 #[cfg(test)]
 mod tests {
     use super::{
-        AuthMode, digest, hash_password, normalize_email, normalize_username,
-        password_policy::PasswordPolicy, verify_password,
+        AccessLevel, AuthMode, digest, hash_password, normalize_email, normalize_username,
+        password_policy::PasswordPolicy, required_access, verify_password,
     };
     use std::sync::Arc;
     use tokio::sync::Semaphore;
@@ -1376,6 +1376,19 @@ mod tests {
         );
         assert_ne!(digest("a"), digest("b"));
         assert_eq!(AuthMode::Disabled, AuthMode::Disabled);
+    }
+
+    #[test]
+    fn password_policy_changes_require_owner_role() {
+        use axum::http::Method;
+        assert_eq!(
+            required_access(&Method::PUT, "/api/v1/auth/password-policy/settings"),
+            AccessLevel::Owner
+        );
+        assert_eq!(
+            required_access(&Method::POST, "/api/v1/auth/password"),
+            AccessLevel::Viewer
+        );
     }
 
     #[tokio::test]
