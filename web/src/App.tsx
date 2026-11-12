@@ -7,9 +7,11 @@ import { IndexersWorkspace } from "./components/IndexersWorkspace";
 import { SearchWorkspace } from "./components/SearchWorkspace";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { HistoryWorkspace } from "./components/HistoryWorkspace";
+import { useAdminSession } from "./components/AdminSession";
 
 export function App() {
   useLocale(); // Re-render the active workspace when the language changes.
+  const { historyScope } = useAdminSession();
   const [replayQuery, setReplayQuery] = useState("");
   const [view, setView] = useState<View>(() => {
     const value = new URLSearchParams(window.location.search).get("view");
@@ -28,7 +30,10 @@ export function App() {
       {view === "search" ? <SearchWorkspace initialQuery={replayQuery} /> : null}
       {view === "indexers" ? <IndexersWorkspace /> : null}
       {view === "settings" ? <SettingsWorkspace /> : null}
-      {view === "history" ? <HistoryWorkspace onReplay={(query) => { setReplayQuery(query); navigate("search"); }} /> : null}
+      {view === "history" ? (historyScope
+        ? <HistoryWorkspace key={historyScope} scope={historyScope} onReplay={(query) => { setReplayQuery(query); navigate("search"); }} />
+        : <p className="muted" role="status">Verifying account before showing search history…</p>
+      ) : null}
     </AppShell>
   );
 }
