@@ -25,9 +25,9 @@ directory.mkdir(parents=True, exist_ok=True)
   </base-config>
   <!-- Local autonomous server is bound to 127.0.0.1, never to the LAN. -->
   <domain-config cleartextTrafficPermitted="true">
-    <domain>127.0.0.1</domain>
-    <domain>localhost</domain>
-    <domain>tauri.localhost</domain>
+    <domain includeSubdomains="false">127.0.0.1</domain>
+    <domain includeSubdomains="false">localhost</domain>
+    <domain includeSubdomains="false">tauri.localhost</domain>
   </domain-config>
 </network-security-config>
 ''',
