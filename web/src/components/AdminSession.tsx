@@ -3,6 +3,7 @@ import {
   useCallback, useContext, useEffect, useMemo, useState,
 } from "react";
 import { LanguageSwitcher, t, useLocale } from "../lib/i18n";
+import { PasswordRequirements } from "./PasswordPolicySettings";
 
 type AuthMode = "token" | "local" | "oidc" | "hybrid" | "disabled";
 type AuthConfig = {
@@ -339,7 +340,7 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             : panel === "token"
               ? "Sign in with your administrator access token."
               : panel === "recover" ? "Enter your account email to request a password reset."
-                : panel === "reset" ? "Create a new password with at least 12 characters."
+                : panel === "reset" ? "Create a new password following your administrator\u0027s requirements."
                   : panel === "mfa" ? "Enter the six-digit authenticator code or a saved recovery code."
                   : "Sign in to your indexers, searches and settings.")}</p>
         </header>
@@ -365,8 +366,9 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             </label>
           ) : null}
           {panel === "login" || panel === "bootstrap" || panel === "reset" ? (
-            <label>{t("Password")}{" "}<input autoComplete={panel === "login" ? "current-password" : "new-password"} type="password" minLength={panel === "login" ? 1 : 12} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            <label>{t("Password")}{" "}<input autoComplete={panel === "login" ? "current-password" : "new-password"} type="password" minLength={panel === "login" ? 1 : 8} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           ) : null}
+          {panel === "bootstrap" || panel === "reset" ? <PasswordRequirements value={password} username={username} email={email} /> : null}
           {panel === "login" || panel === "token" || panel === "bootstrap" ? (
             <label className="auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />{t("Keep me signed in on this device")}</label>
           ) : null}
