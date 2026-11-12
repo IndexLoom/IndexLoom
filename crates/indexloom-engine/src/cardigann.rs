@@ -1722,7 +1722,10 @@ fn parse_size(value: &str) -> Option<u64> {
 }
 
 fn parse_date(value: &str) -> Option<OffsetDateTime> {
-    use time::format_description::{parse, well_known::{Rfc2822, Rfc3339}};
+    use time::format_description::{
+        parse,
+        well_known::{Rfc2822, Rfc3339},
+    };
     let value = value.trim();
     if let Ok(timestamp) = OffsetDateTime::parse(value, &Rfc3339) {
         return Some(timestamp);
@@ -1843,16 +1846,25 @@ mod tests {
             assert_eq!(rendered, phrase);
             let mut url = url::Url::parse("https://example.invalid/search").unwrap();
             url.query_pairs_mut().append_pair("q", &rendered);
-            assert_eq!(url.query_pairs().find(|(key, _)| key == "q").unwrap().1, phrase);
+            assert_eq!(
+                url.query_pairs().find(|(key, _)| key == "q").unwrap().1,
+                phrase
+            );
         }
     }
 
     #[test]
     fn supports_common_tracker_publication_dates() {
         use super::parse_date;
-        for date in ["2026-11-12T20:00:00Z", "Thu, 12 Nov 2026 20:00:00 GMT",
-            "2026-11-12 20:00:00", "2026-11-12 20:00",
-            "2026/11/12 20:00:00", "2026-11-12", "2026/11/12"] {
+        for date in [
+            "2026-11-12T20:00:00Z",
+            "Thu, 12 Nov 2026 20:00:00 GMT",
+            "2026-11-12 20:00:00",
+            "2026-11-12 20:00",
+            "2026/11/12 20:00:00",
+            "2026-11-12",
+            "2026/11/12",
+        ] {
             assert!(parse_date(date).is_some(), "should parse {date}");
         }
         assert!(parse_date("not-a-date").is_none());
