@@ -33,7 +33,7 @@ type WorkspaceState =
     };
 
 export function SearchWorkspace({ initialQuery = "" }: { initialQuery?: string }) {
-  const { token, acceptToken, clearToken } = useAdminSession();
+  const { token, acceptToken, clearToken, historyScope } = useAdminSession();
   if (!token) {
     return <AdminTokenGate onSubmit={acceptToken} />;
   }
@@ -177,7 +177,7 @@ function AuthenticatedSearch({
             }));
             return;
           }
-          recordSearch({ query: submittedQuery, resultCount: event.resultCount, indexerCount: event.total, language: filters.languages?.[0] ?? null });
+          if (historyScope) recordSearch(historyScope, { query: submittedQuery, resultCount: event.resultCount, indexerCount: event.total, language: filters.languages?.[0] ?? null });
           setSearchProgress({
             completed: event.completed,
             total: event.total,
