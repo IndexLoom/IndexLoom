@@ -228,6 +228,27 @@ The standalone binaries and Docker images require the same
 `INDEXLOOM_ADMIN_TOKEN`, `INDEXLOOM_MASTER_KEY`, and writable SQLite
 database configuration. Release downloads live in GitHub Releases.
 
+## Multilingual workspace and search history
+
+The browser supports a default interface language plus independently selected
+languages for navigation, search, indexer management, settings, and taxonomy.
+Choose **Settings → Appearance → Selective localization** to edit per-area
+languages and override individual English phrases in a chosen locale.
+The initial non-English dictionaries beyond Russian cover key controls; unknown
+phrases deliberately fall back to English until translated. The source
+definition's categories, IDs, query parameters and original result titles
+remain unchanged.
+
+**Search → Advanced search filters → Indexer language** restricts the actual
+selected indexers by metadata language. UTF-8 keywords are passed unchanged.
+This is not automatic cross-language title translation. **History** stores
+completed queries and summary counts in this browser only, capped at 100.
+Delete individual entries or clear the local history from the History page.
+
+For consistent SQLite snapshots and offline recovery, see
+[backup and restore](docs/BACKUP.md). The encrypted settings database alone
+cannot recover credentials without the original master key.
+
 ## Development
 
 ```bash
