@@ -1806,6 +1806,20 @@ mod tests {
     }
 
     #[test]
+    fn preserves_unicode_search_terms_through_cardigann_rendering_and_url_encoding() {
+        for phrase in ["千と千尋", "Школа магии", "El viaje", "안녕하세요"] {
+            let context = RenderContext::new(BTreeMap::new(), BTreeMap::new())
+                .for_search(phrase, BTreeMap::new());
+            let rendered = render_template("{{ .Query.Keywords }}", &context)
+                .expect("multilingual keyword template should render");
+            assert_eq!(rendered, phrase);
+            let mut url = url::Url::parse("https://example.invalid/search").unwrap();
+            url.query_pairs_mut().append_pair("q", &rendered);
+            assert_eq!(url.query_pairs().find(|(key, _)| key == "q").unwrap().1, phrase);
+        }
+    }
+
+    #[test]
     fn exposes_empty_values_for_unresolved_result_fields() {
         let fields: YamlValue = serde_yaml::from_str(
             "title_primary:\n  optional: true\ntitle:\n  text: '{{ or (.Result.title_primary) (.Result.title_default) }}'\ntitle_default:\n  selector: a\n",
