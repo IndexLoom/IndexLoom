@@ -42,9 +42,10 @@ class BackupTests(unittest.TestCase):
         conn = self.make_database()
         snapshot(self.db, self.out)
         conn.close()
-        with sqlite3.connect(self.db) as active:
-            active.execute("DELETE FROM search_history")
-            active.commit()
+        active = sqlite3.connect(self.db)
+        active.execute("DELETE FROM search_history")
+        active.commit()
+        active.close()
         with self.assertRaisesRegex(ValueError, "Stop IndexLoom"):
             restore(self.out, self.db, False)
         restore(self.out, self.db, True)
