@@ -107,6 +107,12 @@ jobs:
           pnpm install --no-frozen-lockfile
           pnpm tauri icon app-icon.svg
           pnpm tauri ios init --ci
+      - name: Configure pnpm 11 for Xcode non-interactive build phases
+        working-directory: apps/native
+        run: |
+          set -euo pipefail
+          pnpm config set --global confirmModulesPurge false
+          pnpm config get confirmModulesPurge
       - name: Compile unsigned iOS release archive
         working-directory: apps/native
         run: pnpm tauri ios build --ci --no-sign --archive-only -t aarch64
