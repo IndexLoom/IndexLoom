@@ -8,6 +8,8 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use indexloom_core::deployment::RuntimeMode;
+mod runtime_args;
 use indexloom_server::{
     AdminToken, AppState,
     auth::{AuthMode, AuthSettings, MailSender},
@@ -33,6 +35,35 @@ async fn main() -> Result<()> {
     let bind = env_or("INDEXLOOM_BIND", "0.0.0.0:8080")
         .parse::<SocketAddr>()
         .context("INDEXLOOM_BIND must be a socket address")?;
+    let deployment = match runtime_args::parse_from_environment(std::env::args().skip(1))
+        .map_err(anyhow::Error::msg)?
+    {
+        runtime_args::Command::Help => {
+            println!("{}", runtime_args::HELP);
+            return Ok(());
+        }
+        runtime_args::Command::Start(deployment) => deployment,
+    };
+    if deployment.mode == RuntimeMode::External {
+        return serve_external(bind, deployment.remote.expect("validated external URL")).await;
+    }
+    serve_autonomous(bind).await
+}
+
+async fn serve_external(bind: SocketAddr, remote: url::Url) -> Result<()> {
+    // This mode does not read or create a local database, catalog or secret.
+    let listener = TcpListener::bind(bind)
+        .await
+        .with_context(|| format!("failed to bind {bind}"))?;
+    tracing::info!(%bind, endpoint = %remote, "IndexLoom external mode");
+    axum::serve(listener, indexloom_server::remote::router(remote))
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .context("IndexLoom external gateway failed")?;
+    Ok(())
+}
+
+async fn serve_autonomous(bind: SocketAddr) -> Result<()> {
     let database_url = env_or(
         "INDEXLOOM_DATABASE_URL",
         "sqlite:///data/indexloom.db?mode=rwc",

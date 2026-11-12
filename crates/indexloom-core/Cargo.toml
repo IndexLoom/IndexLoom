@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 serde.workspace = true
+url.workspace = true
 time.workspace = true
 uuid.workspace = true
 
