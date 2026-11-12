@@ -13,3 +13,12 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Regenerated Tauri/Gradle/Xcode projects and native dependencies.
+/apps/native/node_modules/
+/apps/native/pnpm-lock.yaml
+/apps/native/src-tauri/Cargo.lock
+/apps/native/src-tauri/target/
+/apps/native/src-tauri/gen/
+/apps/native/src-tauri/icons/
+/apps/native/.gradle/

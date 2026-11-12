@@ -7,6 +7,7 @@ on:
       - "crates/**"
       - "migrations/**"
       - "web/**"
+      - "apps/native/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "Dockerfile"
@@ -138,6 +139,11 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  mobile:
+    uses: ./.github/workflows/mobile.yml
+    permissions:
+      contents: read
+
   docker:
     needs: version
     runs-on: ubuntu-latest
@@ -162,7 +168,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   publish:
-    needs: [version, binaries]
+    needs: [version, binaries, mobile]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -171,6 +177,14 @@ jobs:
           pattern: application-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: indexloom-native-android-arm64
+          path: dist/mobile/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: indexloom-native-ios-arm64-unsigned
+          path: dist/mobile/ios
       - name: Verify packages and publish pre-release
         shell: bash
         env:
@@ -179,7 +193,14 @@ jobs:
         run: |
           set -euo pipefail
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 5
-          (cd dist && sha256sum * > SHA256SUMS)
-          gh release create "$TAG" dist/* --target "$GITHUB_SHA" --prerelease \
+          test "$(find dist/mobile/android -type f -name '*.apk' | wc -l)" -ge 1
+          test -s dist/mobile/ios/indexloom-ios-arm64-unsigned.ipa
+          mkdir -p dist/release-assets
+          cp dist/mobile/ios/indexloom-ios-arm64-unsigned.ipa dist/release-assets/
+          find dist/mobile/android -type f -name '*.apk' -exec cp {} dist/release-assets/ \;
+          cp dist/mobile/ios/indexloom-ios-arm64-unsigned-xcarchive.zip dist/release-assets/
+          mv dist/*.tar.gz dist/*.zip dist/release-assets/
+          (cd dist/release-assets && sha256sum * > SHA256SUMS)
+          gh release create "$TAG" dist/release-assets/* --target "$GITHUB_SHA" --prerelease \
             --title "IndexLoom $TAG" \
-            --notes "Self-hosted IndexLoom pre-release: Rust web-enabled and headless binaries for Linux, Windows, and macOS. Docker multi-arch: ghcr.io/indexloom/indexloom:$TAG. Indexer catalog updates independently from IndexLoom/Indexers releases."
+            --notes "IndexLoom pre-release: server web-enabled and headless binaries for Linux, Windows, macOS; Android ARM64 APK; unsigned iOS ARM64 IPA and Xcode archive (sign before installation). Docker multi-arch: ghcr.io/indexloom/indexloom:$TAG. Indexer catalog updates independently."

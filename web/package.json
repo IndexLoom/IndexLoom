@@ -10,6 +10,8 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "dev": "vite --host 0.0.0.0",
+    "i18n:check": "node scripts/check-i18n.mjs",
+    "test:history": "node --test scripts/check-search-history.mjs",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {

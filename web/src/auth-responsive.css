@@ -372,3 +372,48 @@
   .totp-recovery-grid { grid-template-columns: 1fr; }
   .totp-provisioning, .totp-recovery { padding: 12px; }
 }
+
+
+/* Compact locale control in top navigation and on the sign-in screen. */
+.language-picker { display: grid; gap: 8px; min-width: 0; font-size: .85rem; color: var(--muted); }
+.language-picker select {
+  appearance: auto;
+  min-width: 130px;
+  min-height: 40px;
+  padding: 7px 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  font: inherit;
+  font-size: 16px;
+}
+.language-picker.compact select { min-width: 78px; min-height: 34px; font-size: .78rem; padding: 5px; }
+.auth-header > .language-picker { justify-self: start; }
+@media (max-width: 640px) {
+  .topbar-actions .language-picker.compact select { min-width: 75px; min-height: 36px; font-size: .74rem; }
+}
+
+/* Owner-managed local password rules: compact on desktop, single-column on phones. */
+.password-policy-editor {
+  margin: 22px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: clamp(12px, 2vw, 22px);
+  background: var(--surface);
+}
+.password-policy-editor h3 { margin: 24px 0 10px; font-size: 1rem; }
+.password-policy-editor h3:first-of-type { margin-top: 12px; }
+.password-policy-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 18px; }
+.password-policy-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 54px; padding: 10px 2px; border-bottom: 1px solid var(--border); }
+.password-policy-toggle { display: flex; flex: 1; align-items: flex-start; gap: 10px; cursor: pointer; }
+.password-policy-toggle input { width: 17px; height: 17px; margin-top: 3px; flex: 0 0 auto; accent-color: var(--accent); }
+.password-policy-toggle span { display: grid; gap: 3px; }
+.password-policy-toggle small { font-size: .79rem; color: var(--muted); }
+.password-policy-row > input[type="number"] { box-sizing: border-box; min-width: 74px; width: 86px; height: 38px; border: 1px solid var(--border); border-radius: 7px; padding: 7px 8px; color: var(--text); background: var(--background); font: inherit; }
+.password-policy-editor form > .primary-button { margin-top: 16px; }
+.password-requirements { margin: 10px 0 15px; padding: 12px 14px; background: var(--color-bg-sunken); border: 1px solid var(--border); border-radius: var(--ui-radius); font-size: .84rem; }
+.password-requirements ul { margin: 7px 0; padding-left: 20px; display: grid; gap: 5px; color: var(--muted); }
+.password-requirements li.satisfied { color: var(--text); }
+.password-requirements small { color: var(--muted); }
+@media(max-width: 540px) { .password-policy-editor { padding: 12px; } .password-policy-row { gap: 8px; } .password-policy-row > input[type="number"] { width: 70px; min-width: 70px; } }

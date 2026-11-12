@@ -62,8 +62,20 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - run: pnpm i18n:check
+      - run: pnpm test:history
       - run: pnpm typecheck
       - run: pnpm build
+
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify SQLite snapshots and offline restore safety
+        run: python3 -m unittest discover -s tests -p "test_backup.py" -v
 
   compose:
     runs-on: ubuntu-latest

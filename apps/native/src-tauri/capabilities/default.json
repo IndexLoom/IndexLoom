@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.tauri.app/capability/2",
+  "identifier": "main",
+  "description": "Bundled native mode chooser; no remote web origins may invoke native commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

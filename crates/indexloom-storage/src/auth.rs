@@ -527,6 +527,77 @@ impl Store {
         Ok(())
     }
 
+    /// Returns serialized password policy; missing row means server defaults.
+    pub async fn load_password_policy(&self) -> Result<Option<String>, StorageError> {
+        sqlx::query_scalar::<_, String>("SELECT policy_json FROM auth_password_policy WHERE id = 1")
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Stores owner-validated policy atomically in SQLite.
+    pub async fn save_password_policy(&self, json: &str) -> Result<(), StorageError> {
+        let policy: serde_json::Value = serde_json::from_str(json)
+            .map_err(|_| StorageError::InvalidData("password policy JSON is invalid".to_owned()))?;
+        let history_enabled = policy
+            .get("historyEnabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO auth_password_policy(id, policy_json, updated_at) VALUES (1, ?, ?) \
+             ON CONFLICT(id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at"
+        )
+        .bind(json).bind(epoch()).execute(&mut *transaction).await?;
+        // Disabling the feature also erases its historical hash data.
+        if !history_enabled {
+            sqlx::query("DELETE FROM auth_password_history")
+                .execute(&mut *transaction)
+                .await?;
+        }
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    /// Returns current and historic password hashes, never plaintext.
+    pub async fn password_hash_history(
+        &self,
+        user_id: &str,
+        history_count: usize,
+    ) -> Result<Vec<String>, StorageError> {
+        let limit = i64::try_from(history_count.min(10)).unwrap_or(10);
+        let mut result = Vec::new();
+        let current: Option<String> =
+            sqlx::query_scalar("SELECT password_hash FROM auth_users WHERE id = ?")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
+        if let Some(hash) = current {
+            result.push(hash);
+        }
+        if limit > 0 {
+            let previous = sqlx::query_scalar::<_, String>(
+                "SELECT password_hash FROM auth_password_history WHERE user_id = ? ORDER BY id DESC LIMIT ?"
+            ).bind(user_id).bind(limit).fetch_all(&self.pool).await?;
+            result.extend(previous);
+        }
+        Ok(result)
+    }
+
+    /// Looks up a live reset token without consuming it. Password rules and
+    /// history are checked before the single-use token is atomically consumed.
+    pub async fn password_reset_user(&self, digest: &str) -> Result<Option<String>, StorageError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM auth_one_time_tokens WHERE token_sha256 = ? AND purpose = 'reset-password' AND expires_at > ?"
+        )
+        .bind(digest)
+        .bind(epoch())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     /// Replaces a password hash and revokes all account sessions.
     ///
     /// # Errors
@@ -536,8 +607,51 @@ impl Store {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), StorageError> {
+        self.change_password_with_history(user_id, password_hash, false)
+            .await
+    }
+
+    /// Replaces the password and only retains prior hashes when the configured
+    /// policy enables reuse prevention. Otherwise any old history is deleted.
+    pub async fn change_password_with_history(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+        history_enabled: bool,
+    ) -> Result<(), StorageError> {
         // Password replacement and session revocation must share a transaction.
         let mut transaction = self.pool.begin().await?;
+        let previous: Option<String> =
+            sqlx::query_scalar("SELECT password_hash FROM auth_users WHERE id = ?")
+                .bind(user_id)
+                .fetch_optional(&mut *transaction)
+                .await?
+                .flatten();
+        if history_enabled {
+            if let Some(old_hash) = previous {
+                sqlx::query(
+                    "INSERT INTO auth_password_history(user_id, password_hash, changed_at) VALUES (?, ?, ?)"
+                )
+                    .bind(user_id)
+                    .bind(old_hash)
+                    .bind(epoch())
+                    .execute(&mut *transaction)
+                    .await?;
+            }
+            sqlx::query(
+                "DELETE FROM auth_password_history WHERE user_id = ? AND id NOT IN (\
+                SELECT id FROM auth_password_history WHERE user_id = ? ORDER BY id DESC LIMIT 10)",
+            )
+            .bind(user_id)
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await?;
+        } else {
+            sqlx::query("DELETE FROM auth_password_history WHERE user_id = ?")
+                .bind(user_id)
+                .execute(&mut *transaction)
+                .await?;
+        }
         sqlx::query("UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE id = ?")
             .bind(password_hash)
             .bind(epoch())
@@ -733,181 +847,5 @@ impl Store {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::Store;
-
-    #[tokio::test]
-    async fn bootstrap_is_one_time_and_sessions_are_revocable() {
-        let store = Store::connect("sqlite::memory:")
-            .await
-            .expect("create test database");
-        assert_eq!(store.auth_user_count().await.unwrap(), 0);
-        assert!(
-            store
-                .bootstrap_admin("alice", "alice", "alice@example.org", "hash", true)
-                .await
-                .unwrap()
-        );
-        assert!(
-            !store
-                .bootstrap_admin("other", "other", "other@example.org", "hash", true)
-                .await
-                .unwrap()
-        );
-        let user = store
-            .auth_user_by_login("ALICE@example.org")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(user.username, "alice");
-        store.create_session("digest", &user.id, 60).await.unwrap();
-        assert!(
-            store
-                .auth_user_for_session("digest")
-                .await
-                .unwrap()
-                .is_some()
-        );
-        store.revoke_session("digest").await.unwrap();
-        assert!(
-            store
-                .auth_user_for_session("digest")
-                .await
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn one_time_token_is_consumed_only_once() {
-        let store = Store::connect("sqlite::memory:").await.unwrap();
-        store
-            .bootstrap_admin("id", "alice", "alice@example.org", "hash", false)
-            .await
-            .unwrap();
-        store
-            .create_one_time_token("digest", "id", "verify-email", 60)
-            .await
-            .unwrap();
-        assert_eq!(
-            store
-                .consume_one_time_token("digest", "verify-email")
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("id")
-        );
-        assert!(
-            store
-                .consume_one_time_token("digest", "verify-email")
-                .await
-                .unwrap()
-                .is_none()
-        );
-    }
-    #[tokio::test]
-    async fn owner_admin_viewer_permissions_are_persistent_and_last_owner_is_safe() {
-        let store = Store::connect("sqlite::memory:")
-            .await
-            .expect("migrate account roles");
-        assert!(
-            store
-                .bootstrap_admin("owner", "first", "first@example.org", "argon2", true,)
-                .await
-                .unwrap()
-        );
-        let initial = store.auth_user_by_id("owner").await.unwrap().unwrap();
-        assert_eq!(initial.role, "owner");
-        assert!(!store.set_user_role("owner", "viewer").await.unwrap());
-        assert!(!store.set_user_disabled("owner", true).await.unwrap());
-
-        store
-            .add_local_user(
-                "reader",
-                "reader",
-                "reader@example.org",
-                "argon2",
-                true,
-                "viewer",
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            store.auth_user_by_id("reader").await.unwrap().unwrap().role,
-            "viewer"
-        );
-        assert!(store.set_user_role("reader", "admin").await.unwrap());
-        assert_eq!(
-            store.auth_user_by_id("reader").await.unwrap().unwrap().role,
-            "admin"
-        );
-        assert!(store.set_user_role("reader", "owner").await.unwrap());
-        assert!(store.set_user_role("owner", "viewer").await.unwrap());
-        assert!(!store.set_user_disabled("reader", true).await.unwrap());
-        assert!(store.set_user_role("owner", "owner").await.unwrap());
-        assert!(store.set_user_disabled("reader", true).await.unwrap());
-        assert!(
-            store
-                .auth_user_by_id("reader")
-                .await
-                .unwrap()
-                .unwrap()
-                .disabled
-        );
-
-        store
-            .auth_audit(Some("owner"), Some("reader"), "role-changed")
-            .await
-            .unwrap();
-        let events = store.auth_audit_events().await.unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].action, "role-changed");
-        assert_eq!(events[0].actor_id.as_deref(), Some("owner"));
-        assert!(!store.set_user_role("owner", "invalid").await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn explicit_owner_role_is_not_based_on_oidc_login_order() {
-        let store = Store::connect("sqlite::memory:").await.unwrap();
-        store
-            .add_oidc_user(
-                "oidc-primary",
-                "oidc-one",
-                "one@example.org",
-                "https://issuer.example.org",
-                "subject-1",
-                "viewer",
-            )
-            .await
-            .unwrap();
-        store
-            .add_oidc_user(
-                "oidc-secondary",
-                "oidc-two",
-                "two@example.org",
-                "https://issuer.example.org",
-                "subject-2",
-                "owner",
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            store
-                .auth_user_by_id("oidc-primary")
-                .await
-                .unwrap()
-                .unwrap()
-                .role,
-            "viewer"
-        );
-        assert_eq!(
-            store
-                .auth_user_by_id("oidc-secondary")
-                .await
-                .unwrap()
-                .unwrap()
-                .role,
-            "owner"
-        );
-    }
-}
+#[path = "auth/tests.rs"]
+mod tests;

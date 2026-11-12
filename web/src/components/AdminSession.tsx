@@ -2,6 +2,8 @@ import {
   createContext, type FormEvent, type ReactNode,
   useCallback, useContext, useEffect, useMemo, useState,
 } from "react";
+import { LanguageSwitcher, t, useLocale } from "../lib/i18n";
+import { PasswordRequirements } from "./PasswordPolicySettings";
 
 type AuthMode = "token" | "local" | "oidc" | "hybrid" | "disabled";
 type AuthConfig = {
@@ -28,6 +30,7 @@ type AuthContextType = {
   acceptToken: (token: string, remember?: boolean) => void;
   clearToken: () => void;
   config: AuthConfig | null;
+  historyScope: string | null;
 };
 
 const KEY = "indexloom.admin-token.v1";
@@ -60,8 +63,10 @@ async function postJson<T>(route: string, body: unknown): Promise<T> {
 }
 
 export function AuthenticationProvider({ children }: { children: ReactNode }) {
+  useLocale(); // Ensure sign-in and recovery UI updates without losing form state.
   const [token, setToken] = useState(savedToken);
   const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [identity, setIdentity] = useState<{ token: string; scope: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -76,6 +81,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
     setConfig((current) =>
       current?.bootstrapAvailable ? { ...current, bootstrapAvailable: false } : current
     );
+    setIdentity(null);
     setToken(next);
   }, []);
 
@@ -91,6 +97,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       sessionStorage.removeItem(KEY);
       localStorage.removeItem(PERSISTENT_KEY);
     } catch { /* Storage can be unavailable. */ }
+    setIdentity(null);
     setToken("");
   }, [token]);
 
@@ -121,13 +128,23 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       cache: "no-store",
       headers: { Authorization: "Bearer " + token },
       signal: controller.signal,
-    }).then((response) => {
-      if (response.status !== 401 || controller.signal.aborted) return;
-      try {
-        sessionStorage.removeItem(KEY);
-        localStorage.removeItem(PERSISTENT_KEY);
-      } catch { /* Browser storage may be disabled. */ }
-      setToken("");
+    }).then(async (response) => {
+      if (controller.signal.aborted) return;
+      if (response.status === 401) {
+        try {
+          sessionStorage.removeItem(KEY);
+          localStorage.removeItem(PERSISTENT_KEY);
+        } catch { /* Browser storage may be disabled. */ }
+        setIdentity(null);
+        setToken("");
+        return;
+      }
+      if (!response.ok) return;
+      const me = await response.json() as { method: string; user: { id: string } | null };
+      if (controller.signal.aborted) return;
+      const scope = me.user?.id ? "user:" + me.user.id
+        : me.method === "legacy-token" ? "operator" : null;
+      if (scope) setIdentity({ token, scope });
     }).catch(() => { /* Keep the UI available during offline mode. */ });
     return () => controller.abort();
   }, [config, token]);
@@ -179,20 +196,22 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
   const context = useMemo<AuthContextType>(() => ({
     token: config?.mode === "disabled" ? "disabled" : token,
     acceptToken, clearToken, config,
-  }), [acceptToken, clearToken, config, token]);
+    historyScope: config?.mode === "disabled" ? "anonymous"
+      : identity?.token === token ? identity.scope : null,
+  }), [acceptToken, clearToken, config, token, identity]);
 
   if (loading) return (
     <main className="auth-page" aria-busy="true">
       <div className="auth-brand">IL <strong>IndexLoom</strong></div>
-      <p>Connecting to workspace…</p>
+      <p>{t("Connecting to workspace…")}</p>
     </main>
   );
   if (!config) return (
     <main className="auth-page">
       <div className="auth-card">
-        <h1>Connection unavailable</h1>
-        <p>{error || "Check the server connection."}</p>
-        <button className="primary-button" onClick={() => { void loadConfig(); }} type="button">Retry</button>
+        <h1>{t("Connection unavailable")}</h1>
+        <p>{t(error || "Check the server connection.")}</p>
+        <button className="primary-button" onClick={() => { void loadConfig(); }} type="button">{t("Retry")}</button>
       </div>
     </main>
   );
@@ -329,73 +348,72 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
       <div className="auth-card">
         <header className="auth-header">
           <div className="auth-brand"><span>IL</span><strong>IndexLoom</strong></div>
-          <p className="eyebrow">Private workspace</p>
-          <h1>{panel === "bootstrap" ? "Set up your administrator" : panel === "reset" ? "New password" : panel === "recover" ? "Recover access" : panel === "mfa" ? "Verify second factor" : "Welcome back"}</h1>
-          <p>{panel === "bootstrap"
+          <LanguageSwitcher compact />
+          <p className="eyebrow">{t("Private workspace")}</p>
+          <h1>{t(panel === "bootstrap" ? "Set up your administrator" : panel === "reset" ? "New password" : panel === "recover" ? "Recover access" : panel === "mfa" ? "Verify second factor" : "Welcome back")}</h1>
+          <p>{t(panel === "bootstrap"
             ? "Initialize local login with the independent operator secret. This can only be done once."
             : panel === "token"
               ? "Sign in with your administrator access token."
               : panel === "recover" ? "Enter your account email to request a password reset."
-                : panel === "reset" ? "Create a new password with at least 12 characters."
+                : panel === "reset" ? "Create a new password following your administrator\u0027s requirements."
                   : panel === "mfa" ? "Enter the six-digit authenticator code or a saved recovery code."
-                  : "Sign in to your indexers, searches and settings."}</p>
+                  : "Sign in to your indexers, searches and settings.")}</p>
         </header>
         <form className="auth-form" onSubmit={(event) => { void submit(event); }}>
           {panel === "bootstrap" ? (
             <>
-              <label>Username <input autoComplete="username" minLength={3} maxLength={48} required value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-              <label>Email <input autoComplete="email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+              <label>{t("Username")}{" "}<input autoComplete="username" minLength={3} maxLength={48} required value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+              <label>{t("Email")}{" "}<input autoComplete="email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
             </>
           ) : null}
           {panel === "login" ? (
-            <label>Username or email <input autoComplete="username" required value={login} onChange={(event) => setLogin(event.target.value)} /></label>
+            <label>{t("Username or email")}{" "}<input autoComplete="username" required value={login} onChange={(event) => setLogin(event.target.value)} /></label>
           ) : null}
           {panel === "recover" ? (
-            <label>Email <input autoComplete="email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+            <label>{t("Email")}{" "}<input autoComplete="email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
           ) : null}
           {panel === "bootstrap" || panel === "token" ? (
-            <label>Operator token <input autoComplete="off" type="password" minLength={32} required value={operatorToken} onChange={(event) => setOperatorToken(event.target.value)} /></label>
+            <label>{t("Operator token")}{" "}<input autoComplete="off" type="password" minLength={32} required value={operatorToken} onChange={(event) => setOperatorToken(event.target.value)} /></label>
           ) : null}
           {panel === "mfa" ? (
-            <label>Authenticator or recovery code
-              <input autoComplete="one-time-code" autoFocus minLength={6} maxLength={48}
+            <label>{t("Authenticator or recovery code")}{" "}<input autoComplete="one-time-code" autoFocus minLength={6} maxLength={48}
                 required value={totpCode} onChange={(event) => setTotpCode(event.target.value)} />
             </label>
           ) : null}
           {panel === "login" || panel === "bootstrap" || panel === "reset" ? (
-            <label>Password <input autoComplete={panel === "login" ? "current-password" : "new-password"} type="password" minLength={panel === "login" ? 1 : 12} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            <label>{t("Password")}{" "}<input autoComplete={panel === "login" ? "current-password" : "new-password"} type="password" minLength={panel === "login" ? 1 : 8} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           ) : null}
+          {panel === "bootstrap" || panel === "reset" ? <PasswordRequirements value={password} username={username} email={email} /> : null}
           {panel === "login" || panel === "token" || panel === "bootstrap" ? (
-            <label className="auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />Keep me signed in on this device</label>
+            <label className="auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />{t("Keep me signed in on this device")}</label>
           ) : null}
           <button className="primary-button" disabled={busy} type="submit">
-            {busy ? "Working…" : panel === "bootstrap" ? "Create administrator" : panel === "recover" ? "Send recovery link" : panel === "reset" ? "Update password" : panel === "mfa" ? "Verify and sign in" : "Sign in"}
+            {t(busy ? "Working…" : panel === "bootstrap" ? "Create administrator" : panel === "recover" ? "Send recovery link" : panel === "reset" ? "Update password" : panel === "mfa" ? "Verify and sign in" : "Sign in")}
           </button>
         </form>
         {config.oidcEnabled && panel !== "reset" && panel !== "mfa" ? (
-          <button className="auth-oidc" disabled={busy} onClick={() => { void oidc(); }} type="button">
-            Continue with OpenID Connect
-          </button>
+          <button className="auth-oidc" disabled={busy} onClick={() => { void oidc(); }} type="button">{t("Continue with OpenID Connect")}{" "}</button>
         ) : null}
-        <nav className="auth-actions" aria-label="Sign-in options">
-          {panel === "mfa" ? <button type="button" onClick={() => { setTotpCode(""); setTotpChallenge(""); setPanel("login"); }}>Back to password login</button> : null}
+        <nav className="auth-actions" aria-label={t("Sign-in options")}>
+          {panel === "mfa" ? <button type="button" onClick={() => { setTotpCode(""); setTotpChallenge(""); setPanel("login"); }}>{t("Back to password login")}</button> : null}
           {panel !== "login" && config.localEnabled && !config.bootstrapAvailable && panel !== "reset" && panel !== "mfa" ? (
-            <button type="button" onClick={() => setPanel("login")}>Password login</button>
+            <button type="button" onClick={() => setPanel("login")}>{t("Password login")}</button>
           ) : null}
           {panel !== "token" && (config.mode === "token" || config.mode === "hybrid") ? (
-            <button type="button" onClick={() => setPanel("token")}>Administrator token</button>
+            <button type="button" onClick={() => setPanel("token")}>{t("Administrator token")}</button>
           ) : null}
           {panel === "login" && config.mailEnabled ? (
-            <button type="button" onClick={() => setPanel("recover")}>Forgot password?</button>
+            <button type="button" onClick={() => setPanel("recover")}>{t("Forgot password?")}</button>
           ) : null}
           {panel === "recover" ? (
-            <button type="button" onClick={() => setPanel("login")}>Back to sign in</button>
+            <button type="button" onClick={() => setPanel("login")}>{t("Back to sign in")}</button>
           ) : null}
         </nav>
-        {localError || error ? <p className="auth-error" role="alert">{localError || error}</p> : null}
-        {notice ? <p className="auth-notice" role="status">{notice}</p> : null}
+        {localError || error ? <p className="auth-error" role="alert">{t(localError || error)}</p> : null}
+        {notice ? <p className="auth-notice" role="status">{t(notice)}</p> : null}
       </div>
-      <footer className="auth-footer">IndexLoom · self-hosted indexer workspace</footer>
+      <footer className="auth-footer">{t("IndexLoom · self-hosted indexer workspace")}</footer>
     </main>
   );
 }
@@ -405,15 +423,15 @@ export function AdminTokenGate({ onSubmit }: { onSubmit: (token: string) => void
   const [value, setValue] = useState("");
   return (
     <section className="empty-view credential-gate">
-      <h1>Session expired</h1>
-      <p>Sign in again to continue.</p>
+      <h1>{t("Session expired")}</h1>
+      <p>{t("Sign in again to continue.")}</p>
       <form className="credential-gate-form" onSubmit={(event) => {
         event.preventDefault();
         if (value.trim()) onSubmit(value.trim());
       }}>
-        <label htmlFor="admin-token">Access token</label>
+        <label htmlFor="admin-token">{t("Access token")}</label>
         <input autoComplete="current-password" id="admin-token" value={value} type="password" onChange={(event) => setValue(event.target.value)} required />
-        <button className="primary-button" type="submit">Unlock</button>
+        <button className="primary-button" type="submit">{t("Unlock")}</button>
       </form>
     </section>
   );

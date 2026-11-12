@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useState } from "react";
 
 export function NetworkStatus() {
@@ -12,8 +13,6 @@ export function NetworkStatus() {
     };
   }, []);
   return online ? null : (
-    <p className="network-offline" role="status">
-      You are offline. Your interface is available, but account and indexer operations need a connection.
-    </p>
+    <p className="network-offline" role="status">{t("You are offline. Your interface is available, but account and indexer operations need a connection.")}{" "}</p>
   );
 }

@@ -1,0 +1,5 @@
+# pnpm 11 only loads non-auth options from the workspace YAML (not .npmrc).
+# Xcode starts its own non-interactive pnpm install and may not inherit CI=true.
+packages:
+  - "."
+confirmModulesPurge: false
