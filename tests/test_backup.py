@@ -49,12 +49,14 @@ class BackupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Stop IndexLoom"):
             restore(self.out, self.db, False)
         restore(self.out, self.db, True)
-        with sqlite3.connect(self.db) as new:
-            self.assertEqual(new.execute("SELECT COUNT(*) FROM search_history").fetchone()[0], 1)
+        new = sqlite3.connect(self.db)
+        self.assertEqual(new.execute("SELECT COUNT(*) FROM search_history").fetchone()[0], 1)
+        new.close()
         previous = self.root / "indexloom.db.before-restore"
         self.assertTrue(previous.exists())
-        with sqlite3.connect(previous) as old:
-            self.assertEqual(old.execute("SELECT COUNT(*) FROM search_history").fetchone()[0], 0)
+        old = sqlite3.connect(previous)
+        self.assertEqual(old.execute("SELECT COUNT(*) FROM search_history").fetchone()[0], 0)
+        old.close()
         with self.assertRaises(FileExistsError):
             restore(self.out, self.db, True)
 
