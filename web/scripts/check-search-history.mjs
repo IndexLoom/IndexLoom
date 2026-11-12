@@ -1,16 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
-import ts from "typescript";
+
 
 // Test the production TypeScript module without adding a separate test framework.
-const tsSource = await readFile(new URL("../src/lib/search-history.ts", import.meta.url), "utf8");
-const js = ts.transpileModule(tsSource, { compilerOptions: {
-  module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022,
-} }).outputText;
 const { recordSearch, readSearchHistory, deleteSearchHistory } =
-  await import("data:text/javascript;base64," + Buffer.from(js).toString("base64"));
+  await import("../src/lib/search-history.ts");
 
 const values = new Map();
 globalThis.crypto ??= { randomUUID };
