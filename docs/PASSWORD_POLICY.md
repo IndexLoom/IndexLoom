@@ -59,8 +59,12 @@ just because the password policy changes.
 When password-history checks are enabled, a replacement must differ from
 the current password and the configured number of previous passwords.
 The database retains no more than ten prior salted Argon2id hashes per
-account; these hashes are deleted when the account is deleted. Successful
-password changes revoke that account's existing local sessions.
+account **only when reuse prevention is enabled**. Turning this switch off
+immediately deletes the stored password history for every account. Password
+changes made while the switch is off do not create historical hash records;
+enabling it later begins tracking new changes, not retroactively reconstructing
+old passwords. History is also deleted when an account is deleted.
+Successful password changes revoke that account's existing local sessions.
 
 ## HTTP API
 
