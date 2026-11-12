@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>IndexLoom • Connection</title>
+  <link rel="stylesheet" href="./shell.css">
+  <script src="./shell.js" defer></script>
+</head>
+<body>
+  <main class="page">
+    <header><span class="brand">IL</span><div><h1>IndexLoom</h1><p>Choose how this device runs IndexLoom</p></div></header>
+    <section class="mode" aria-labelledby="local-heading">
+      <small>01 / ON THIS DEVICE</small>
+      <h2 id="local-heading">Autonomous</h2>
+      <p>Your device stores its own database and searches trackers locally. Runs while the app is open. A connection to the Internet is still needed to contact trackers.</p>
+      <button id="start-local" type="button">Start local IndexLoom</button>
+      <div id="local-ready" class="result" hidden>
+        <label>Local operator token
+          <code id="operator-token"></code>
+        </label>
+        <p class="muted">Copy the token. IndexLoom will ask for it the first time. Keep it private.</p>
+        <div class="controls"><button id="copy-token" type="button">Copy token</button><button id="open-local" type="button">Open workspace</button></div>
+      </div>
+    </section>
+    <section class="mode" aria-labelledby="remote-heading">
+      <small>02 / ON ANOTHER DEVICE</small>
+      <h2 id="remote-heading">External</h2>
+      <p>Use an existing IndexLoom installation. Search, configuration, credentials and database stay on the remote server.</p>
+      <form id="remote-form">
+        <label for="remote-url">IndexLoom server URL (HTTPS)</label>
+        <input id="remote-url" type="url" required placeholder="https://indexloom.example.com/" autocomplete="url">
+        <button type="submit">Connect to server</button>
+      </form>
+    </section>
+    <p role="status" id="feedback" aria-live="polite"></p>
+    <footer><span id="platform">Native</span> · Restart the app to choose another mode.</footer>
+  </main>
+</body>
+</html>
