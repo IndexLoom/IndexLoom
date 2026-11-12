@@ -622,7 +622,7 @@ pub(crate) async fn search_for_feed(
         let batch = search_join_result(result);
         results.extend(batch.results);
     }
-    results.sort_by(|left, right| right.published_at.cmp(&left.published_at));
+    results.sort_by_key(|left| std::cmp::Reverse(left.published_at));
     results.truncate(limit);
     SEARCH_RELEASES.fetch_add(
         u64::try_from(results.len()).unwrap_or(u64::MAX),
