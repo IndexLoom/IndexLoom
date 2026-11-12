@@ -9,6 +9,9 @@ on:
       - "Cargo.lock"
       - ".github/workflows/mobile.yml"
   workflow_dispatch:
+env:
+  CI: "true"
+  PNPM_CONFIG_CONFIRM_MODULES_PURGE: "false"
 permissions:
   contents: read
 # Xcode invokes the package manager again during its build phase.
