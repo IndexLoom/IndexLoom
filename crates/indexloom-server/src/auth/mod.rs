@@ -386,23 +386,23 @@ async fn validate_new_password(
     let policy = password_policy::load(state).await?;
     policy.validate_password(password, username, email)?;
     if let (true, Some(id)) = (policy.history_enabled, user_id) {
-            let hashes = state
-                .store
-                .password_hash_history(id, policy.history_count)
-                .await?;
-            for hash in hashes {
-                if verify_password(
-                    password.to_owned(),
-                    hash,
-                    state.auth_settings.hash_permits.clone(),
-                )
-                .await
-                {
-                    return Err(ApiError::bad_request(
-                        "new password must not match any of the recently used passwords",
-                    ));
-                }
+        let hashes = state
+            .store
+            .password_hash_history(id, policy.history_count)
+            .await?;
+        for hash in hashes {
+            if verify_password(
+                password.to_owned(),
+                hash,
+                state.auth_settings.hash_permits.clone(),
+            )
+            .await
+            {
+                return Err(ApiError::bad_request(
+                    "new password must not match any of the recently used passwords",
+                ));
             }
+        }
     }
     Ok(policy.history_enabled)
 }
@@ -843,7 +843,10 @@ async fn change_password(
     )
     .await?;
     let hash = hash_password(request.password, state.auth_settings.hash_permits.clone()).await?;
-    state.store.change_password_with_history(&user.id, &hash, history_enabled).await?;
+    state
+        .store
+        .change_password_with_history(&user.id, &hash, history_enabled)
+        .await?;
     audit_action(&state, Some(&user.id), Some(&user.id), "password-changed").await;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -937,7 +940,10 @@ async fn reset_password(
     if consumed != user_id {
         return Err(ApiError::unauthorized());
     }
-    state.store.change_password_with_history(&user_id, &hash, history_enabled).await?;
+    state
+        .store
+        .change_password_with_history(&user_id, &hash, history_enabled)
+        .await?;
     audit_action(&state, None, Some(&user_id), "password-reset").await;
     Ok(StatusCode::NO_CONTENT)
 }
