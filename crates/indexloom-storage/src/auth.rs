@@ -948,6 +948,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn configurable_password_rules_persist_and_hash_history_is_bounded() {
+        let store = Store::connect("sqlite::memory:").await.unwrap();
+        assert!(store.load_password_policy().await.unwrap().is_none());
+        store.save_password_policy(r#"{"minimumLength":16,"uppercase":{"enabled":true,"minimum":2}}"#)
+            .await.unwrap();
+        assert!(store.load_password_policy().await.unwrap().unwrap().contains("minimumLength"));
+        store.bootstrap_admin("policy-owner", "policy-owner", "policy@example.org", "hash-0", true)
+            .await.unwrap();
+        store.create_one_time_token("reset-digest", "policy-owner", "reset-password", 600)
+            .await.unwrap();
+        assert_eq!(
+            store.password_reset_user("reset-digest").await.unwrap().as_deref(),
+            Some("policy-owner")
+        );
+        assert_eq!(
+            store.password_reset_user("invalid").await.unwrap(), None
+        );
+        for i in 1..=12 {
+            store.change_password("policy-owner", &format!("hash-{i}")).await.unwrap();
+        }
+        let recent = store.password_hash_history("policy-owner", 10).await.unwrap();
+        assert_eq!(recent.len(), 11);
+        assert_eq!(recent[0], "hash-12");
+        assert_eq!(recent[1], "hash-11");
+        assert_eq!(recent[10], "hash-2");
+        assert!(!recent.contains(&"hash-0".to_owned()));
+        assert_eq!(
+            store.password_hash_history("policy-owner", 0).await.unwrap(),
+            vec!["hash-12".to_owned()]
+        );
+        assert_eq!(
+            store.consume_one_time_token("reset-digest", "reset-password").await.unwrap().as_deref(),
+            Some("policy-owner")
+        );
+        assert!(store.password_reset_user("reset-digest").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
     async fn explicit_owner_role_is_not_based_on_oidc_login_order() {
         let store = Store::connect("sqlite::memory:").await.unwrap();
         store
