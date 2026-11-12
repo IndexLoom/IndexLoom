@@ -1,0 +1,128 @@
+name: Native Android / iOS builds
+on:
+  pull_request:
+    paths:
+      - "apps/native/**"
+      - "crates/**"
+      - "migrations/**"
+      - "web/**"
+      - "Cargo.lock"
+      - ".github/workflows/mobile.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android arm64 APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.0"
+          targets: aarch64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.23.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+      - name: Install Android SDK / NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"             "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0" || test "${PIPESTATUS[1]}" -eq 0
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - name: Build embedded IndexLoom React assets
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Install Tauri CLI and generate platform project
+        working-directory: apps/native
+        run: |
+          pnpm install --no-frozen-lockfile
+          pnpm tauri icon app-icon.svg
+          pnpm tauri android init --ci
+          python3 scripts/prepare-android.py
+      - name: Compile full native autonomous/external APK
+        working-directory: apps/native
+        run: pnpm tauri android build --ci --apk -t aarch64
+      - name: Verify output
+        shell: bash
+        run: |
+          find apps/native/src-tauri/gen/android -type f -name '*.apk' -print
+          test "$(find apps/native/src-tauri/gen/android -type f -name '*.apk' | wc -l)" -gt 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexloom-native-android-arm64
+          path: apps/native/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  ios:
+    name: iOS arm64 unsigned IPA and archive
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98.0"
+          targets: aarch64-apple-ios
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.23.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.19.0"
+      - name: Validate Apple tools
+        run: |
+          xcodebuild -version
+          if ! command -v pod >/dev/null; then brew install cocoapods; fi
+          pod --version
+      - name: Build embedded IndexLoom React assets
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Install Tauri CLI and generate Xcode project
+        working-directory: apps/native
+        run: |
+          pnpm install --no-frozen-lockfile
+          pnpm tauri icon app-icon.svg
+          pnpm tauri ios init --ci
+      - name: Compile unsigned iOS release archive
+        working-directory: apps/native
+        run: pnpm tauri ios build --ci --no-sign --archive-only -t aarch64
+      - name: Package unsigned IPA for subsequent personal signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(find apps/native/src-tauri/gen/apple -type d -name '*.xcarchive' -print -quit)"
+          test -n "$ARCHIVE"
+          APP="$(find "$ARCHIVE/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP"
+          mkdir -p native-artifacts/Payload
+          cp -R "$APP" native-artifacts/Payload/
+          (cd native-artifacts && ditto -c -k --sequesterRsrc Payload indexloom-ios-arm64-unsigned.ipa)
+          ditto -c -k --sequesterRsrc --keepParent "$ARCHIVE" native-artifacts/indexloom-ios-arm64-unsigned-xcarchive.zip
+          test -s native-artifacts/indexloom-ios-arm64-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: indexloom-native-ios-arm64-unsigned
+          path: native-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
