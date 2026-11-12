@@ -1023,7 +1023,7 @@ mod tests {
         assert_eq!(store.password_reset_user("invalid").await.unwrap(), None);
         for i in 1..=12 {
             store
-                .change_password("policy-owner", &format!("hash-{i}"))
+                .change_password_with_history("policy-owner", &format!("hash-{i}"), true)
                 .await
                 .unwrap();
         }
@@ -1064,7 +1064,7 @@ mod tests {
                 .password_hash_history("policy-owner", 0)
                 .await
                 .unwrap(),
-            vec!["hash-12".to_owned()]
+            vec!["hash-13".to_owned()]
         );
         assert_eq!(
             store
