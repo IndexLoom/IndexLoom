@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocale } from "./lib/i18n";
+import { t, useLocale } from "./lib/i18n";
 
 import { AppShell, type View } from "./components/AppShell";
 import { NetworkStatus } from "./components/NetworkStatus";
@@ -32,7 +32,7 @@ export function App() {
       {view === "settings" ? <SettingsWorkspace /> : null}
       {view === "history" ? (historyScope
         ? <HistoryWorkspace key={historyScope} scope={historyScope} onReplay={(query) => { setReplayQuery(query); navigate("search"); }} />
-        : <p className="muted" role="status">Verifying account before showing search history…</p>
+        : <p className="muted" role="status">{t("Verifying account before showing search history…")}</p>
       ) : null}
     </AppShell>
   );
