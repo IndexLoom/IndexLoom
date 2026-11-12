@@ -6,10 +6,10 @@ use indexloom_definitions::IndexerDefinition;
 use serde_yaml::Value as YamlValue;
 use url::Url;
 
+use super::extract::{complete_result_fields, info_hash_from_magnet, normalized_result};
 use super::{
-    RenderContext, SearchParameters, all_search_paths, apply_filters, complete_result_fields,
-    info_hash_from_magnet, normalize_contains_selector, normalized_result, render_search_inputs,
-    render_template, retryable_search_error,
+    RenderContext, SearchParameters, all_search_paths, apply_filters, normalize_contains_selector,
+    render_search_inputs, render_template, retryable_search_error,
 };
 
 #[test]
