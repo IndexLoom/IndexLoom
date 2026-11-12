@@ -46,6 +46,13 @@ class BackupTests(unittest.TestCase):
         active.execute("DELETE FROM search_history")
         active.commit()
         active.close()
+        # Explicitly checkpoint and leave WAL mode before offline restoration.
+        checkpoint = sqlite3.connect(self.db)
+        checkpoint.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        checkpoint.execute("PRAGMA journal_mode=DELETE")
+        checkpoint.close()
+        self.assertFalse(Path(str(self.db) + "-wal").exists())
+        self.assertFalse(Path(str(self.db) + "-shm").exists())
         with self.assertRaisesRegex(ValueError, "Stop IndexLoom"):
             restore(self.out, self.db, False)
         restore(self.out, self.db, True)
