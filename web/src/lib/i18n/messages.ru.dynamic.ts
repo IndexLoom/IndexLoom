@@ -132,5 +132,6 @@ export const ruDynamic: Readonly<Record<string,string>> = {
   "Read-only": "Только просмотр",
   "Administrators": "Администраторы",
   "Owners": "Владельцы",
-  "Viewers": "Наблюдатели"
+  "Viewers": "Наблюдатели",
+  "and": "и"
 };

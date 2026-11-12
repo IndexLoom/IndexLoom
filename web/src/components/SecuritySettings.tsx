@@ -152,7 +152,7 @@ export function SecuritySettings() {
         <div><dt>{t("Current identity")}</dt><dd>{me?.user?.username ?? (config?.mode === "disabled" ? "Anonymous" : "Operator token")}</dd></div>
         <div><dt>{t("Current role")}</dt><dd>{t(me?.user?.role ?? (canManage ? "owner" : "—"))}</dd></div>
         <div><dt>OIDC</dt><dd>{t(config?.oidcEnabled ? "Enabled" : "Off")}</dd></div>
-        <div><dt>Mail</dt><dd>{t(config?.mailEnabled ? "Enabled" : "Off")}</dd></div>
+        <div><dt>{t("Mail")}</dt><dd>{t(config?.mailEnabled ? "Enabled" : "Off")}</dd></div>
         <div><dt>{t("Email verification")}</dt><dd>{t(config?.emailVerificationRequired ? "Required" : "Optional")}</dd></div>
       </dl>
       <p className="muted">{t("Mode and identity provider settings are controlled by environment variables. Disabling protection requires two explicit server settings and should never be used on an Internet-facing deployment.")}</p>

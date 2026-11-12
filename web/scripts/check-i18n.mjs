@@ -48,7 +48,7 @@ for (const file of uiFiles) {
   for (const match of source.matchAll(/>([^<>{}]+)</g)) {
     const phrase = match[1].replace(/\s+/g, " ").trim();
     if (!/[A-Za-z]{4}/.test(phrase) || /[;=]|=>|[()]/.test(phrase)
-      || ["IndexLoom", "IndexLoom · v0.3", "Promise", "Jackett", "Prowlarr", "SOCKS4a", "SOCKS5h", "SMTP", "OIDC", "FlareSolverr"].includes(phrase)) continue;
+      || ["IndexLoom", "IndexLoom · v0.3", "Promise", "Jackett", "Prowlarr", "SOCKS4a", "SOCKS5h", "SMTP", "OIDC", "FlareSolverr", "HTTP"].includes(phrase) || phrase.startsWith("--")) continue;
     plain.push(path.relative(root, file) + ": " + phrase);
   }
 }

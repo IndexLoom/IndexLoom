@@ -231,7 +231,7 @@ export function SettingsWorkspace() {
               value={preferences.customCss}
             />
           </label>
-          <p className="muted">{t("Use CSS variables such as")}{" "}<code>--accent</code>, <code>--surface</code>, and <code>--ui-radius</code>. Custom CSS can make controls inaccessible or load remote resources; only import trusted profiles.</p>
+          <p className="muted">{t("Use CSS variables such as")}{" "}<code>--accent</code>, <code>--surface</code>, {t("and")} <code>--ui-radius</code>. Custom CSS can make controls inaccessible or load remote resources; only import trusted profiles.</p>
         </div>
       ) : null}
 
