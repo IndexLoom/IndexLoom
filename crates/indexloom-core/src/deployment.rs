@@ -10,6 +10,8 @@ pub enum RuntimeMode {
 }
 
 impl RuntimeMode {
+    /// # Errors
+    /// Returns an error if the runtime mode is unrecognized.
     pub fn parse(raw: &str) -> Result<Self, String> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "autonomous" | "local" => Ok(Self::Autonomous),
@@ -33,6 +35,8 @@ impl Deployment {
         }
     }
 
+    /// # Errors
+    /// Returns an error unless the remote endpoint is a safe HTTPS site root.
     pub fn external(url: &str) -> Result<Self, String> {
         Ok(Self {
             mode: RuntimeMode::External,
@@ -40,6 +44,8 @@ impl Deployment {
         })
     }
 
+    /// # Errors
+    /// Returns an error if the environment contains an invalid mode or URL.
     pub fn from_env() -> Result<Self, String> {
         let mode = RuntimeMode::parse(
             &env::var("INDEXLOOM_RUNTIME_MODE").unwrap_or_else(|_| "autonomous".into()),
@@ -57,6 +63,8 @@ impl Deployment {
 
 /// Remote installations must have an HTTPS root URL. Never accept credentials
 /// in the URL or a fragment that could be mistaken for server configuration.
+/// # Errors
+/// Returns an error for unsafe schemes, credentials, non-root paths or malformed URLs.
 pub fn validate_remote_url(raw: &str) -> Result<Url, String> {
     if raw.len() > 2048 || raw.trim() != raw {
         return Err("remote URL is empty, oversized or padded".into());
