@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     convert::Infallible,
-    sync::Arc,
+    sync::{Arc, atomic::{AtomicU64, Ordering}},
     time::{Duration, Instant},
 };
 
@@ -38,6 +38,10 @@ use super::{ApiError, AppState, validate_identifier};
 
 const TEST_CONCURRENCY: usize = 16;
 const SEARCH_CONCURRENCY: usize = 12;
+// Process-local aggregate counts. Never attach query text or user-identifying labels.
+static SEARCH_REQUESTS: AtomicU64 = AtomicU64::new(0);
+static SEARCH_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static SEARCH_RELEASES: AtomicU64 = AtomicU64::new(0);
 const MAX_SEARCH_INDEXERS: usize = 256;
 const MAX_SELECTION_IDENTIFIERS: usize = 20_000;
 const MAX_RUNNING_TEST_JOBS: usize = 8;
@@ -90,6 +94,23 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/v1/indexer-tests/{id}", get(get_test_job))
         .route("/api/v1/search", post(search))
         .route("/api/v1/search/stream", post(search_stream))
+        .route("/api/v1/metrics", get(metrics))
+}
+
+/// Authenticated Prometheus text exposition for coarse-grained runtime counters.
+async fn metrics() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8"),
+            (header::CACHE_CONTROL, "private, no-store"),
+        ],
+        format!(
+            "# HELP indexloom_search_requests_total Accepted federated search requests since process start\\n# TYPE indexloom_search_requests_total counter\\nindexloom_search_requests_total {}\\n# HELP indexloom_search_completed_total Completed searches since process start\\n# TYPE indexloom_search_completed_total counter\\nindexloom_search_completed_total {}\\n# HELP indexloom_search_results_total Result rows fetched since process start\\n# TYPE indexloom_search_results_total counter\\nindexloom_search_results_total {}\\n",
+            SEARCH_REQUESTS.load(Ordering::Relaxed),
+            SEARCH_COMPLETED.load(Ordering::Relaxed),
+            SEARCH_RELEASES.load(Ordering::Relaxed)
+        ),
+    )
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -423,13 +444,16 @@ async fn search(
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, ApiError> {
     let prepared = prepare_search(&state, request).await?;
+    SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let mut tasks = spawn_search_tasks(&state, &prepared);
     let mut indexers = Vec::new();
     while let Some(result) = tasks.join_next().await {
         indexers.push(search_join_result(result));
     }
     sort_search_indexers(&mut indexers);
-    let result_count = indexers.iter().map(|indexer| indexer.results.len()).sum();
+    let result_count: usize = indexers.iter().map(|indexer| indexer.results.len()).sum();
+    SEARCH_RELEASES.fetch_add(u64::try_from(result_count).unwrap_or(u64::MAX), Ordering::Relaxed);
+    SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
     Ok(Json(SearchResponse {
         query: prepared.query,
         indexers,
@@ -442,6 +466,7 @@ async fn search_stream(
     Json(request): Json<SearchRequest>,
 ) -> Result<Response, ApiError> {
     let prepared = prepare_search(&state, request).await?;
+    SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let total = prepared.indexer_ids.len();
     let query = prepared.query.clone();
     let mut tasks = spawn_search_tasks(&state, &prepared);
@@ -458,6 +483,8 @@ async fn search_stream(
             result_count += indexer.results.len();
             yield Ok(ndjson_line(&SearchStreamEvent::Indexer { indexer }));
         }
+        SEARCH_RELEASES.fetch_add(u64::try_from(result_count).unwrap_or(u64::MAX), Ordering::Relaxed);
+        SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
         yield Ok(ndjson_line(&SearchStreamEvent::Finished {
             query,
             completed,
@@ -576,6 +603,7 @@ pub(crate) async fn search_for_feed(
         languages: Vec::new(),
     };
     let prepared = prepare_search(state, request).await?;
+    SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let mut tasks = spawn_search_tasks(state, &prepared);
     let mut results = Vec::new();
     while let Some(result) = tasks.join_next().await {
@@ -584,6 +612,8 @@ pub(crate) async fn search_for_feed(
     }
     results.sort_by(|left, right| right.published_at.cmp(&left.published_at));
     results.truncate(limit);
+    SEARCH_RELEASES.fetch_add(u64::try_from(results.len()).unwrap_or(u64::MAX), Ordering::Relaxed);
+    SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
     Ok(results)
 }
 
