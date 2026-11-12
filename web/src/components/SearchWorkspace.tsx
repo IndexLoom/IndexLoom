@@ -111,7 +111,7 @@ function AuthenticatedSearch({
   );
   const availableLanguages = useMemo(
     () => [...new Set(enabledIndexers.map((indexer) => indexer.capabilities.language).filter(Boolean)
-      .map((language) => language.split(/[-_]/)[0].toLowerCase()))].sort(),
+      .map((language) => (language.split(/[-_]/)[0] ?? language).toLowerCase()))].sort(),
     [enabledIndexers],
   );
   const availableModes = useMemo(
