@@ -1723,7 +1723,7 @@ fn parse_size(value: &str) -> Option<u64> {
 
 fn parse_date(value: &str) -> Option<OffsetDateTime> {
     use time::format_description::{
-        parse,
+        parse_borrowed,
         well_known::{Rfc2822, Rfc3339},
     };
     let value = value.trim();
@@ -1740,14 +1740,14 @@ fn parse_date(value: &str) -> Option<OffsetDateTime> {
         "[year]-[month]-[day] [hour]:[minute]",
         "[year]/[month]/[day] [hour]:[minute]:[second]",
     ] {
-        if let Ok(format) = parse(pattern)
+        if let Ok(format) = parse_borrowed::<3>(pattern)
             && let Ok(timestamp) = time::PrimitiveDateTime::parse(value, &format)
         {
             return Some(timestamp.assume_utc());
         }
     }
     for pattern in ["[year]-[month]-[day]", "[year]/[month]/[day]"] {
-        if let Ok(format) = parse(pattern)
+        if let Ok(format) = parse_borrowed::<3>(pattern)
             && let Ok(date) = time::Date::parse(value, &format)
         {
             return Some(date.midnight().assume_utc());
