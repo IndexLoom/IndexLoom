@@ -1,5 +1,18 @@
 /** Additional Russian UI strings for administration, account security and notifications. */
 export const ruExtra: Readonly<Record<string,string>> = {
+  "Search activity": "История поиска",
+  "Saved in this browser only. Queries, timestamps and counts; never tracker credentials or links.": "Сохраняется только в этом браузере: запросы, время и количество результатов, без паролей и ссылок.",
+  "Completed searches": "Завершённые поиски",
+  "Results found": "Найдено результатов",
+  "Clear all search history?": "Очистить всю историю поиска?",
+  "Clear history": "Очистить историю",
+  "No completed searches yet.": "История поиска пока пуста.",
+  "Search again": "Искать снова",
+  "Delete history entry": "Удалить запись",
+  "Indexer language": "Язык индексатора",
+  "Any indexer language": "Любой язык индексаторов",
+  "Restricts tracker selection; it does not translate the search query.": "Ограничивает выбор индексаторов, но не переводит поисковый запрос.",
+
   "Outbound proxies": "Исходящие прокси",
   "HTTP, SOCKS4a and SOCKS5h routes can be assigned globally, by group, or to one indexer.": "Маршруты HTTP, SOCKS4a и SOCKS5h можно назначить глобально, группе или отдельному индексатору.",
   "Global route": "Общий маршрут",
