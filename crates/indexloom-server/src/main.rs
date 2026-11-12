@@ -8,7 +8,8 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use indexloom_core::deployment::{Deployment, RuntimeMode};
+use indexloom_core::deployment::RuntimeMode;
+mod runtime_args;
 use indexloom_server::{
     AdminToken, AppState,
     auth::{AuthMode, AuthSettings, MailSender},
@@ -34,7 +35,15 @@ async fn main() -> Result<()> {
     let bind = env_or("INDEXLOOM_BIND", "0.0.0.0:8080")
         .parse::<SocketAddr>()
         .context("INDEXLOOM_BIND must be a socket address")?;
-    let deployment = Deployment::from_env().map_err(anyhow::Error::msg)?;
+    let deployment = match runtime_args::parse_from_environment(std::env::args().skip(1))
+        .map_err(anyhow::Error::msg)?
+    {
+        runtime_args::Command::Help => {
+            println!("{}", runtime_args::HELP);
+            return Ok(());
+        }
+        runtime_args::Command::Start(deployment) => deployment,
+    };
     // External binaries are lightweight launchers. They never open SQLite,
     // read master keys, initialize credentials or perform torrent searches.
     if deployment.mode == RuntimeMode::External {

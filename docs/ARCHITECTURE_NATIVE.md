@@ -55,3 +55,23 @@ Account data must not cross from one endpoint to another.
   be addressed independently of mobile packaging.
 - Independent native workspace dependencies need their own reproducible
   lockfile before promotion to a stable release.
+
+## Desktop/server binary mode selection
+
+The same Rust executable supports both modes without recompilation.
+Use an HTTPS root URL when the binary is operating as a redirect-only
+external launcher:
+
+```sh
+indexloom-server --mode external --remote https://indexloom.example.org/
+# or
+INDEXLOOM_RUNTIME_MODE=external INDEXLOOM_REMOTE_URL=https://indexloom.example.org/ indexloom-server
+
+# Default, executes all indexing, storage and credentials on this machine:
+indexloom-server --mode autonomous
+```
+
+A missing mode defaults to autonomous. The external launcher intentionally
+does not proxy credentials, requests or tracker operations; the user's browser
+is redirected to the remote HTTPS origin. Autonomous mode still needs the
+usual local master key, operator credentials and database configuration.
