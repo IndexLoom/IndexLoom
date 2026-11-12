@@ -92,8 +92,7 @@ async fn torznab(State(state): State<AppState>, Query(params): Query<QueryParams
                 .and_then(|c| c.split(',').next())
                 .map(str::to_owned);
             let Ok(results) =
-                crate::execution::search_for_feed(&state, query.to_owned(), category, total)
-                    .await
+                crate::execution::search_for_feed(&state, query.to_owned(), category, total).await
             else {
                 return failure(
                     StatusCode::BAD_REQUEST,
