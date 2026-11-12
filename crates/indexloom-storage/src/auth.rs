@@ -563,6 +563,19 @@ impl Store {
         Ok(result)
     }
 
+    /// Looks up a live reset token without consuming it. Password rules and
+    /// history are checked before the single-use token is atomically consumed.
+    pub async fn password_reset_user(&self, digest: &str) -> Result<Option<String>, StorageError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT user_id FROM auth_one_time_tokens WHERE token_sha256 = ? AND purpose = 'reset-password' AND expires_at > ?"
+        )
+        .bind(digest)
+        .bind(epoch())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     /// Replaces a password hash and revokes all account sessions.
     ///
     /// # Errors
