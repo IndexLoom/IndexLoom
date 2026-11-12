@@ -126,6 +126,8 @@ export type IndexerOrganizationUpdate = {
 };
 
 export type SearchFilters = {
+  /** Restrict configured indexers by metadata language, not the language of titles. */
+  languages?: string[];
   mode?: string;
   category?: string;
   genre?: string;
@@ -438,7 +440,7 @@ export function searchIndexers(
   filters: SearchFilters = {},
 ): Promise<SearchResponse> {
   return authenticatedJson<SearchResponse>("/api/v1/search", token, {
-    body: JSON.stringify({ query, selection, limitPerIndexer, filters }),
+    body: JSON.stringify({ query, selection, limitPerIndexer, filters: withoutLanguages(filters), languages: filters.languages ?? [] }),
     method: "POST",
   });
 }
@@ -453,7 +455,7 @@ export async function searchIndexersStream(
   filters: SearchFilters = {},
 ): Promise<void> {
   const response = await fetch("/api/v1/search/stream", {
-    body: JSON.stringify({ query, selection, limitPerIndexer, filters }),
+    body: JSON.stringify({ query, selection, limitPerIndexer, filters: withoutLanguages(filters), languages: filters.languages ?? [] }),
     cache: "no-store",
     headers: {
       Accept: "application/x-ndjson",
@@ -581,4 +583,10 @@ async function responseError(response: Response): Promise<ApiError> {
     // Preserve the status-only fallback for non-JSON proxy errors.
   }
   return new ApiError(response.status, message);
+}
+
+/** Keep UI-only indexer-language restriction separate from Cardigann search parameters. */
+function withoutLanguages(filters: SearchFilters): Omit<SearchFilters, "languages"> {
+  const { languages: _languages, ...trackerFilters } = filters;
+  return trackerFilters;
 }

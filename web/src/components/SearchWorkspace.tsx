@@ -1,6 +1,6 @@
 import {
-  t, categoryLabel, canonicalGenre, canonicalGenres,
-  genreLabel, searchModeLabel, formatDateTime, formatNumber,
+  translate, categoryLabel, canonicalGenre, canonicalGenres,
+  genreLabel, searchModeLabel, languageLabel, formatDateTime, formatNumber,
 } from "../lib/i18n";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -19,6 +19,8 @@ import {
   searchIndexersStream,
 } from "../lib/api";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
+import { recordSearch } from "../lib/search-history";
+const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "search");
 
 type WorkspaceState =
   | { kind: "loading" }
@@ -30,25 +32,29 @@ type WorkspaceState =
       groups: IndexerGroup[];
     };
 
-export function SearchWorkspace() {
-  const { token, acceptToken, clearToken } = useAdminSession();
+export function SearchWorkspace({ initialQuery = "" }: { initialQuery?: string }) {
+  const { token, acceptToken, clearToken, historyScope } = useAdminSession();
   if (!token) {
     return <AdminTokenGate onSubmit={acceptToken} />;
   }
-  return <AuthenticatedSearch onUnauthorized={clearToken} token={token} />;
+  return <AuthenticatedSearch initialQuery={initialQuery} onUnauthorized={clearToken} token={token} historyScope={historyScope} />;
 }
 
 function AuthenticatedSearch({
   token,
   onUnauthorized,
+  initialQuery,
+  historyScope,
 }: {
   token: string;
   onUnauthorized: () => void;
+  initialQuery: string;
+  historyScope: string | null;
 }) {
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     kind: "loading",
   });
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [filters, setFilters] = useState<SearchFilters>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selection, setSelection] = useState<IndexerSelection>({
@@ -108,6 +114,11 @@ function AuthenticatedSearch({
     () => [...new Set(enabledIndexers.flatMap((indexer) => indexer.capabilities.categories))].sort(),
     [enabledIndexers],
   );
+  const availableLanguages = useMemo(
+    () => [...new Set(enabledIndexers.map((indexer) => indexer.capabilities.language).filter(Boolean)
+      .map((language) => (language.split(/[-_]/)[0] ?? language).toLowerCase()))].sort(),
+    [enabledIndexers],
+  );
   const availableModes = useMemo(
     () => [...new Set(enabledIndexers.flatMap((indexer) => indexer.capabilities.searchModes.map((mode) => mode.name)))].sort(),
     [enabledIndexers],
@@ -135,6 +146,8 @@ function AuthenticatedSearch({
     setSearching(true);
     setNotice(null);
     setSearchProgress(null);
+    // Replace stale results immediately; an empty streamed response still has a result area.
+    setResponse({ query: submittedQuery, indexers: [], resultCount: 0 });
     const indexers = new Map<string, SearchIndexerResults>();
     let resultCount = 0;
     try {
@@ -166,6 +179,7 @@ function AuthenticatedSearch({
             }));
             return;
           }
+          if (historyScope) recordSearch(historyScope, { query: submittedQuery, resultCount: event.resultCount, indexerCount: event.total, language: filters.languages?.[0] ?? null });
           setSearchProgress({
             completed: event.completed,
             total: event.total,
@@ -251,7 +265,7 @@ function AuthenticatedSearch({
           selection={selection}
         />
         <button className="primary-button" disabled={searching} type="submit">
-          {searching ? "Searching…" : "Search"}
+          {searching ? t("Searching…") : t("Search")}
         </button>
         <details className="advanced-search" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
           <summary>{t("Advanced search filters")}</summary>
@@ -264,6 +278,13 @@ function AuthenticatedSearch({
             <label>{t("Category")}{" "}<select value={filters.category ?? ""} onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value || undefined }))}>
                 <option value="">{t("All categories")}</option>
                 {availableCategories.map((category) => <option key={category} value={category}>{categoryLabel(category)}</option>)}
+              </select>
+            </label>
+            <label>{t("Indexer language")}{" "}
+              <select aria-label={t("Indexer language")} value={filters.languages?.[0] ?? ""}
+                onChange={(event) => setFilters((current) => ({ ...current, languages: event.target.value ? [event.target.value] : undefined }))}>
+                <option value="">{t("Any indexer language")}</option>
+                {availableLanguages.map((language) => <option key={language} value={language}>{languageLabel(language)}</option>)}
               </select>
             </label>
             <label>{t("Genre")}{" "}<input list="indexloom-genre-suggestions" value={filters.genre ?? ""} onChange={(event) => setFilters((current) => ({ ...current, genre: event.target.value || undefined }))} placeholder={t("Genre ID or name")} />
@@ -282,7 +303,7 @@ function AuthenticatedSearch({
             <label>{t("TMDb ID")}{" "}<input value={filters.tmdbId ?? ""} placeholder="12345" onChange={(event) => setFilters((current) => ({ ...current, tmdbId: event.target.value || undefined }))} />
             </label>
           </div>
-          <p className="muted">{t("Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.")}</p>
+          <p className="muted">{t("Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.")} {t("Restricts tracker selection; it does not translate the search query.")}</p>
           <button className="quiet-button" onClick={() => setFilters({})} type="button">{t("Clear filters")}</button>
         </details>
       </form>
@@ -359,9 +380,9 @@ function AuthenticatedSearch({
               : ""}
           </span>
         </div>
-        {response ? (
-          <div className="result-groups">
-            {response.indexers.map((indexer) => (
+        <div className="result-groups" aria-live="polite">
+          {!response || response.indexers.length === 0 ? <p className="panel-empty">{response ? t("No matching releases.") : t("Search results will be grouped here by indexer. Every group can be collapsed independently.")}</p> : null}
+          {response?.indexers.map((indexer) => (
               <details
                 className="result-indexer"
                 key={indexer.indexerInstanceId}
@@ -451,11 +472,8 @@ function AuthenticatedSearch({
                   <p className="panel-empty">{t("No matching releases.")}</p>
                 ) : null}
               </details>
-            ))}
-          </div>
-        ) : (
-          <div className="panel-empty">{t("Search results will be grouped here by indexer. Every group can be collapsed independently.")}{" "}</div>
-        )}
+          ))}
+        </div>
       </section>
     </section>
   );

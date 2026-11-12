@@ -1,7 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     convert::Infallible,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -38,6 +41,10 @@ use super::{ApiError, AppState, validate_identifier};
 
 const TEST_CONCURRENCY: usize = 16;
 const SEARCH_CONCURRENCY: usize = 12;
+// Process-local aggregate counts. Never attach query text or user-identifying labels.
+static SEARCH_REQUESTS: AtomicU64 = AtomicU64::new(0);
+static SEARCH_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static SEARCH_RELEASES: AtomicU64 = AtomicU64::new(0);
 const MAX_SEARCH_INDEXERS: usize = 256;
 const MAX_SELECTION_IDENTIFIERS: usize = 20_000;
 const MAX_RUNNING_TEST_JOBS: usize = 8;
@@ -90,6 +97,26 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/v1/indexer-tests/{id}", get(get_test_job))
         .route("/api/v1/search", post(search))
         .route("/api/v1/search/stream", post(search_stream))
+        .route("/api/v1/metrics", get(metrics))
+}
+
+/// Authenticated Prometheus text exposition for coarse-grained runtime counters.
+async fn metrics() -> impl IntoResponse {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "private, no-store"),
+        ],
+        format!(
+            "# HELP indexloom_search_requests_total Accepted federated search requests since process start\n# TYPE indexloom_search_requests_total counter\nindexloom_search_requests_total {}\n# HELP indexloom_search_completed_total Completed searches since process start\n# TYPE indexloom_search_completed_total counter\nindexloom_search_completed_total {}\n# HELP indexloom_search_results_total Result rows fetched since process start\n# TYPE indexloom_search_results_total counter\nindexloom_search_results_total {}\n",
+            SEARCH_REQUESTS.load(Ordering::Relaxed),
+            SEARCH_COMPLETED.load(Ordering::Relaxed),
+            SEARCH_RELEASES.load(Ordering::Relaxed)
+        ),
+    )
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -120,6 +147,8 @@ struct SearchRequest {
     limit_per_indexer: usize,
     #[serde(default)]
     filters: SearchParameters,
+    #[serde(default)]
+    languages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -421,13 +450,19 @@ async fn search(
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, ApiError> {
     let prepared = prepare_search(&state, request).await?;
+    SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let mut tasks = spawn_search_tasks(&state, &prepared);
     let mut indexers = Vec::new();
     while let Some(result) = tasks.join_next().await {
         indexers.push(search_join_result(result));
     }
     sort_search_indexers(&mut indexers);
-    let result_count = indexers.iter().map(|indexer| indexer.results.len()).sum();
+    let result_count: usize = indexers.iter().map(|indexer| indexer.results.len()).sum();
+    SEARCH_RELEASES.fetch_add(
+        u64::try_from(result_count).unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
+    SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
     Ok(Json(SearchResponse {
         query: prepared.query,
         indexers,
@@ -440,6 +475,7 @@ async fn search_stream(
     Json(request): Json<SearchRequest>,
 ) -> Result<Response, ApiError> {
     let prepared = prepare_search(&state, request).await?;
+    SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let total = prepared.indexer_ids.len();
     let query = prepared.query.clone();
     let mut tasks = spawn_search_tasks(&state, &prepared);
@@ -456,6 +492,11 @@ async fn search_stream(
             result_count += indexer.results.len();
             yield Ok(ndjson_line(&SearchStreamEvent::Indexer { indexer }));
         }
+        SEARCH_RELEASES.fetch_add(
+            u64::try_from(result_count).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
+        SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
         yield Ok(ndjson_line(&SearchStreamEvent::Finished {
             query,
             completed,
@@ -490,12 +531,13 @@ async fn prepare_search(
         ));
     }
     validate_search_filters(&request.filters)?;
+    validate_search_languages(&request.languages)?;
     if !(1..=200).contains(&request.limit_per_indexer) {
         return Err(ApiError::bad_request(
             "limitPerIndexer must be between 1 and 200",
         ));
     }
-    let indexer_ids = state
+    let mut indexer_ids = state
         .store
         .select_indexer_ids(
             request.selection.all,
@@ -504,9 +546,37 @@ async fn prepare_search(
             true,
         )
         .await?;
+    if !request.languages.is_empty() {
+        let selected: std::collections::HashSet<_> = indexer_ids.into_iter().collect();
+        let requested: Vec<_> = request
+            .languages
+            .iter()
+            .map(|l| l.to_ascii_lowercase())
+            .collect();
+        indexer_ids = state
+            .store
+            .list_indexers(&state.vault)
+            .await?
+            .into_iter()
+            .filter(|record| selected.contains(&record.id))
+            .filter(|record| {
+                let Ok(definition) = indexloom_definitions::parse_yaml(&record.definition_yaml)
+                else {
+                    return false;
+                };
+                let tag = indexloom_definitions::capabilities::summarize(&definition)
+                    .language
+                    .to_ascii_lowercase();
+                requested
+                    .iter()
+                    .any(|code| tag == *code || tag.starts_with(&format!("{code}-")))
+            })
+            .map(|record| record.id)
+            .collect();
+    }
     if indexer_ids.is_empty() {
         return Err(ApiError::bad_request(
-            "selection contains no enabled indexers",
+            "selection contains no enabled indexers matching the requested languages",
         ));
     }
     if indexer_ids.len() > MAX_SEARCH_INDEXERS {
@@ -520,6 +590,46 @@ async fn prepare_search(
         limit_per_indexer: request.limit_per_indexer,
         filters: request.filters,
     })
+}
+
+/// Shared bounded search for experimental Torznab/RSS consumers.
+/// Never bypasses selection, indexer egress, limits, or concurrency controls.
+pub(crate) async fn search_for_feed(
+    state: &AppState,
+    query: String,
+    category: Option<String>,
+    limit: usize,
+) -> Result<Vec<SearchResult>, ApiError> {
+    let request = SearchRequest {
+        query,
+        selection: IndexerSelection {
+            all: true,
+            indexer_ids: Vec::new(),
+            group_ids: Vec::new(),
+        },
+        limit_per_indexer: limit.clamp(1, 200),
+        filters: SearchParameters {
+            category,
+            ..Default::default()
+        },
+        languages: Vec::new(),
+    };
+    let prepared = prepare_search(state, request).await?;
+    SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
+    let mut tasks = spawn_search_tasks(state, &prepared);
+    let mut results = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        let batch = search_join_result(result);
+        results.extend(batch.results);
+    }
+    results.sort_by_key(|left| std::cmp::Reverse(left.published_at));
+    results.truncate(limit);
+    SEARCH_RELEASES.fetch_add(
+        u64::try_from(results.len()).unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
+    SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
+    Ok(results)
 }
 
 fn spawn_search_tasks(state: &AppState, prepared: &PreparedSearch) -> JoinSet<SearchIndexerView> {
@@ -815,6 +925,23 @@ fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn validate_search_languages(languages: &[String]) -> Result<(), ApiError> {
+    if languages.len() > 16
+        || languages.iter().any(|language| {
+            language.len() < 2
+                || language.len() > 35
+                || !language
+                    .bytes()
+                    .all(|character| character.is_ascii_alphanumeric() || character == b'-')
+                || language.starts_with('-')
+                || language.ends_with('-')
+        })
+    {
+        return Err(ApiError::bad_request("invalid indexer language filter"));
+    }
+    Ok(())
+}
+
 fn validate_selection(selection: &IndexerSelection) -> Result<(), ApiError> {
     if selection.indexer_ids.len() > MAX_SELECTION_IDENTIFIERS || selection.group_ids.len() > 100 {
         return Err(ApiError::bad_request("indexer selection is too large"));
@@ -841,137 +968,5 @@ fn now() -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{collections::BTreeMap, time::Instant};
-
-    use indexloom_storage::{
-        IndexerConfigurationRecord, ProxyKind, ResolvedIndexerConfiguration, ResolvedOutboundProxy,
-    };
-    use serde_json::json;
-
-    use super::{
-        MAX_COMPLETED_TEST_JOBS, MAX_RUNNING_TEST_JOBS, TEST_JOB_TTL, TestJob, TestJobRegistry,
-        TestJobStatus, execution_fingerprint, prune_test_jobs,
-    };
-
-    #[test]
-    fn prunes_expired_and_oldest_completed_jobs_but_keeps_running_jobs() {
-        let mut jobs = BTreeMap::new();
-        jobs.insert(
-            "expired".to_owned(),
-            completed_job("expired", TEST_JOB_TTL + std::time::Duration::from_secs(1)),
-        );
-        jobs.insert("running".to_owned(), running_job("running"));
-        for index in 0..(MAX_COMPLETED_TEST_JOBS + 5) {
-            let id = format!("completed-{index:04}");
-            let age = std::time::Duration::from_secs(
-                u64::try_from(MAX_COMPLETED_TEST_JOBS + 5 - index).unwrap(),
-            );
-            jobs.insert(id.clone(), completed_job(&id, age));
-        }
-
-        prune_test_jobs(&mut jobs);
-
-        assert!(!jobs.contains_key("expired"));
-        assert!(jobs.contains_key("running"));
-        assert_eq!(
-            jobs.values()
-                .filter(|job| job.status == TestJobStatus::Completed)
-                .count(),
-            MAX_COMPLETED_TEST_JOBS
-        );
-        assert!(!jobs.contains_key("completed-0000"));
-        assert!(jobs.contains_key(&format!("completed-{:04}", MAX_COMPLETED_TEST_JOBS + 4)));
-    }
-
-    #[tokio::test]
-    async fn rejects_more_than_the_running_test_job_budget() {
-        let registry = TestJobRegistry::default();
-        for index in 0..MAX_RUNNING_TEST_JOBS {
-            registry
-                .insert(running_job(&format!("running-{index}")))
-                .await
-                .expect("job within the active budget should be accepted");
-        }
-        let error = registry
-            .insert(running_job("one-too-many"))
-            .await
-            .expect_err("active job budget must be enforced");
-        assert_eq!(error.status, axum::http::StatusCode::TOO_MANY_REQUESTS);
-    }
-
-    #[test]
-    fn runtime_fingerprint_changes_with_credentials_and_effective_proxy() {
-        let record = IndexerConfigurationRecord {
-            id: "example-main".to_owned(),
-            definition_id: "example".to_owned(),
-            display_name: "Example".to_owned(),
-            enabled: true,
-            catalog_available: true,
-            user_agent: None,
-            flaresolverr_instance_id: None,
-            proxy_id: None,
-            group_ids: Vec::new(),
-            tags: Vec::new(),
-            last_test: None,
-            values: BTreeMap::new(),
-            configured_secrets: Vec::new(),
-            definition_yaml: "definition-v1".to_owned(),
-        };
-        let mut resolved = ResolvedIndexerConfiguration {
-            user_agent: None,
-            flaresolverr_instance_id: None,
-            proxy_id: None,
-            values: BTreeMap::from([("ratio".to_owned(), json!(1))]),
-            secrets: BTreeMap::from([("cookie".to_owned(), "first".to_owned())]),
-        };
-        let direct = execution_fingerprint(&record, &resolved, None, None).unwrap();
-        resolved
-            .secrets
-            .insert("cookie".to_owned(), "second".to_owned());
-        let changed_secret = execution_fingerprint(&record, &resolved, None, None).unwrap();
-        assert_ne!(direct, changed_secret);
-
-        let proxy = ResolvedOutboundProxy {
-            id: "proxy-main".to_owned(),
-            kind: ProxyKind::Socks5,
-            host: "proxy.example".to_owned(),
-            port: 1080,
-            enabled: true,
-            username: Some("alice".to_owned()),
-            password: Some("secret".to_owned()),
-        };
-        let proxied = execution_fingerprint(&record, &resolved, Some(&proxy), None).unwrap();
-        assert_ne!(changed_secret, proxied);
-    }
-
-    fn running_job(id: &str) -> TestJob {
-        TestJob {
-            id: id.to_owned(),
-            status: TestJobStatus::Running,
-            total: 1,
-            completed: 0,
-            results: Vec::new(),
-            created_at: "2026-08-26T00:00:00Z".to_owned(),
-            finished_at: None,
-            finished_monotonic: None,
-        }
-    }
-
-    fn completed_job(id: &str, age: std::time::Duration) -> TestJob {
-        TestJob {
-            id: id.to_owned(),
-            status: TestJobStatus::Completed,
-            total: 1,
-            completed: 1,
-            results: Vec::new(),
-            created_at: "2026-08-26T00:00:00Z".to_owned(),
-            finished_at: Some("2026-08-26T00:00:01Z".to_owned()),
-            finished_monotonic: Some(
-                Instant::now()
-                    .checked_sub(age)
-                    .expect("test age is bounded"),
-            ),
-        }
-    }
-}
+#[path = "execution/tests.rs"]
+mod tests;

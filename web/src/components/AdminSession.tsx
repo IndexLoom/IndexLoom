@@ -3,6 +3,7 @@ import {
   useCallback, useContext, useEffect, useMemo, useState,
 } from "react";
 import { LanguageSwitcher, t, useLocale } from "../lib/i18n";
+import { PasswordRequirements } from "./PasswordPolicySettings";
 
 type AuthMode = "token" | "local" | "oidc" | "hybrid" | "disabled";
 type AuthConfig = {
@@ -29,6 +30,7 @@ type AuthContextType = {
   acceptToken: (token: string, remember?: boolean) => void;
   clearToken: () => void;
   config: AuthConfig | null;
+  historyScope: string | null;
 };
 
 const KEY = "indexloom.admin-token.v1";
@@ -64,6 +66,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
   useLocale(); // Ensure sign-in and recovery UI updates without losing form state.
   const [token, setToken] = useState(savedToken);
   const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [identity, setIdentity] = useState<{ token: string; scope: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -78,6 +81,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
     setConfig((current) =>
       current?.bootstrapAvailable ? { ...current, bootstrapAvailable: false } : current
     );
+    setIdentity(null);
     setToken(next);
   }, []);
 
@@ -93,6 +97,7 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       sessionStorage.removeItem(KEY);
       localStorage.removeItem(PERSISTENT_KEY);
     } catch { /* Storage can be unavailable. */ }
+    setIdentity(null);
     setToken("");
   }, [token]);
 
@@ -123,13 +128,23 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
       cache: "no-store",
       headers: { Authorization: "Bearer " + token },
       signal: controller.signal,
-    }).then((response) => {
-      if (response.status !== 401 || controller.signal.aborted) return;
-      try {
-        sessionStorage.removeItem(KEY);
-        localStorage.removeItem(PERSISTENT_KEY);
-      } catch { /* Browser storage may be disabled. */ }
-      setToken("");
+    }).then(async (response) => {
+      if (controller.signal.aborted) return;
+      if (response.status === 401) {
+        try {
+          sessionStorage.removeItem(KEY);
+          localStorage.removeItem(PERSISTENT_KEY);
+        } catch { /* Browser storage may be disabled. */ }
+        setIdentity(null);
+        setToken("");
+        return;
+      }
+      if (!response.ok) return;
+      const me = await response.json() as { method: string; user: { id: string } | null };
+      if (controller.signal.aborted) return;
+      const scope = me.user?.id ? "user:" + me.user.id
+        : me.method === "legacy-token" ? "operator" : null;
+      if (scope) setIdentity({ token, scope });
     }).catch(() => { /* Keep the UI available during offline mode. */ });
     return () => controller.abort();
   }, [config, token]);
@@ -181,7 +196,9 @@ export function AuthenticationProvider({ children }: { children: ReactNode }) {
   const context = useMemo<AuthContextType>(() => ({
     token: config?.mode === "disabled" ? "disabled" : token,
     acceptToken, clearToken, config,
-  }), [acceptToken, clearToken, config, token]);
+    historyScope: config?.mode === "disabled" ? "anonymous"
+      : identity?.token === token ? identity.scope : null,
+  }), [acceptToken, clearToken, config, token, identity]);
 
   if (loading) return (
     <main className="auth-page" aria-busy="true">
@@ -339,7 +356,7 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             : panel === "token"
               ? "Sign in with your administrator access token."
               : panel === "recover" ? "Enter your account email to request a password reset."
-                : panel === "reset" ? "Create a new password with at least 12 characters."
+                : panel === "reset" ? "Create a new password following your administrator\u0027s requirements."
                   : panel === "mfa" ? "Enter the six-digit authenticator code or a saved recovery code."
                   : "Sign in to your indexers, searches and settings.")}</p>
         </header>
@@ -365,8 +382,9 @@ function AuthenticationGate({ config, error, notice, onLogin, onNotice, onError 
             </label>
           ) : null}
           {panel === "login" || panel === "bootstrap" || panel === "reset" ? (
-            <label>{t("Password")}{" "}<input autoComplete={panel === "login" ? "current-password" : "new-password"} type="password" minLength={panel === "login" ? 1 : 12} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            <label>{t("Password")}{" "}<input autoComplete={panel === "login" ? "current-password" : "new-password"} type="password" minLength={panel === "login" ? 1 : 8} required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           ) : null}
+          {panel === "bootstrap" || panel === "reset" ? <PasswordRequirements value={password} username={username} email={email} /> : null}
           {panel === "login" || panel === "token" || panel === "bootstrap" ? (
             <label className="auth-remember"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />{t("Keep me signed in on this device")}</label>
           ) : null}

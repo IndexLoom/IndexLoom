@@ -5,6 +5,17 @@ not just a frontend gate: all protected `/api/v1/*` endpoints share the same
 authorization middleware. Existing installations stay in `token` mode unless
 their environment explicitly opts into another policy.
 
+## Password policies
+
+Local account password rules can be switched on or off independently, with
+per-rule counts and Passphrase/Balanced/Strict presets. An owner can manage
+them in **Settings → Security & users → Password policy**. The server validates
+new passwords at bootstrap, account creation, change, and email reset.
+Existing logins and OIDC credentials are unaffected.
+
+See [Password policy and presets](PASSWORD_POLICY.md) for all options,
+security boundaries, password history and the REST API.
+
 ## Supported modes
 
 | `INDEXLOOM_AUTH_MODE` | Description | Required setup |

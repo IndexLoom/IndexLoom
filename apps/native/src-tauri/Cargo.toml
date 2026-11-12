@@ -1,0 +1,28 @@
+[package]
+name = "indexloom-native"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.98"
+license = "AGPL-3.0-or-later"
+description = "IndexLoom desktop/mobile host for autonomous and external modes"
+
+[lib]
+name = "indexloom_native_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = "=2.7.2"
+
+[dependencies]
+tauri = { version = "=2.12.3", features = [] }
+indexloom-core = { path = "../../../crates/indexloom-core" }
+indexloom-server = { path = "../../../crates/indexloom-server", features = ["embedded-web"] }
+base64 = "0.23.1"
+getrandom = "0.4.3"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.53.1", features = ["sync", "rt", "net", "macros"] }
+
+# Isolated mobile workspace keeps Tauri's large target-specific dependency
+# graph out of the server's locked Cargo.lock and ordinary Docker builds.
+[workspace]
+resolver = "3"

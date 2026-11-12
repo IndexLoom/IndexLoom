@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useAppearance } from "../lib/ui-preferences";
-import { LanguageSwitcher, t } from "../lib/i18n";
+import { LanguageSwitcher, translate } from "../lib/i18n";
+const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "navigation");
 import { useAdminSession } from "./AdminSession";
 import { useEffect, useState } from "react";
 

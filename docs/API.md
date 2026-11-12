@@ -24,6 +24,56 @@ See [Authentication and email](AUTHENTICATION.md) for setup and security.
 New catalog instances are disabled by default. Tests and search only select
 enabled instances.
 
+## Runtime search metrics
+
+Authenticated `GET /api/v1/metrics` exports process-local Prometheus
+counter samples (`indexloom_search_requests_total`,
+`indexloom_search_completed_total`, `indexloom_search_results_total`).
+Counters reset on service restart and contain **no query text, indexer names,
+user identities or other high-cardinality labels**. API authentication and
+`Cache-Control: no-store` apply. Configure an authenticated scraper to monitor
+the endpoint; unauthenticated public exposure is not recommended.
+
+## Experimental Torznab / RSS
+
+`GET /api/v1/torznab?t=caps&apikey=<separate-key>` publishes a minimal
+Torznab-compatible capabilities document. `t=search&q=<UTF-8-query>`
+returns RSS 2.0 with Torznab attributes, escaped XML, search limits
+and optional one-category filtering. Other Torznab search modes are
+not yet supported, and the exact compatibility depends on enabled
+Cardigann definitions. This integration is experimental.
+
+The endpoint is **disabled by default**. Enable with a separate,
+random 32+-byte `INDEXLOOM_TORZNAB_API_KEY` in the server environment;
+the normal administrator bearer token is not accepted. Many
+Torznab clients include API keys in URL query strings: use HTTPS,
+mask the query in proxy logs, and do not expose the port publicly.
+The endpoint uses the existing bounded search engine and excludes
+disabled/retired indexers. Search errors are currently normalized to
+an XML error rather than reporting detailed per-indexer failures.
+
+## Multilingual search
+
+Both `POST /search` and `POST /search/stream` accept the optional
+top-level `languages` array (for example `["ru", "ja"]`). This narrows
+**configured indexers** by their definition's BCP 47 language tag after
+normal group/instance selection. A language matches its exact tag or
+regional variants (`ru` matches `ru-RU`). No title or query translation is
+performed. The `query` field accepts UTF-8 text in any script.
+
+```json
+{
+  "query": "千と千尋",
+  "selection": {"all": true, "groupIds": [], "indexerIds": []},
+  "languages": ["ja"],
+  "limitPerIndexer": 50,
+  "filters": {}
+}
+```
+
+Invalid language tags or no matching enabled indexers produce HTTP 400.
+This restriction is separate from native Cardigann category/genre parameters.
+
 ## Routing and groups
 
 - `GET /proxies`, `PUT /proxies/{id}`, `DELETE /proxies/{id}` manage named
