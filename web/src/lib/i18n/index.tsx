@@ -1,13 +1,14 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import { ruMessages } from "./messages.ru";
 import { ruExtra } from "./messages.ru.extra";
+import { ruDynamic } from "./messages.ru.dynamic";
 import { canonicalGenres, categoryRu, genreRu, newznabCategoryNames } from "./taxonomy";
 export { canonicalGenres } from "./taxonomy";
 
 export type Locale = "en" | "ru";
 export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "ru"];
 const STORAGE_KEY = "indexloom.locale.v1";
-const fallbackMessages: Readonly<Record<string, string>> = { ...ruMessages, ...ruExtra };
+const fallbackMessages: Readonly<Record<string, string>> = { ...ruMessages, ...ruExtra, ...ruDynamic };
 const englishToGenre = new Map<string, string>();
 
 for (const genre of Object.keys(genreRu)) {
