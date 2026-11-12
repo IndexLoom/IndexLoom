@@ -27,11 +27,17 @@ pub struct Deployment {
 
 impl Deployment {
     pub fn autonomous() -> Self {
-        Self { mode: RuntimeMode::Autonomous, remote: None }
+        Self {
+            mode: RuntimeMode::Autonomous,
+            remote: None,
+        }
     }
 
     pub fn external(url: &str) -> Result<Self, String> {
-        Ok(Self { mode: RuntimeMode::External, remote: Some(validate_remote_url(url)?) })
+        Ok(Self {
+            mode: RuntimeMode::External,
+            remote: Some(validate_remote_url(url)?),
+        })
     }
 
     pub fn from_env() -> Result<Self, String> {
@@ -56,9 +62,14 @@ pub fn validate_remote_url(raw: &str) -> Result<Url, String> {
         return Err("remote URL is empty, oversized or padded".into());
     }
     let mut url = Url::parse(raw).map_err(|_| "remote URL is not valid")?;
-    if url.scheme() != "https" || url.host_str().is_none() || !url.username().is_empty()
-        || url.password().is_some() || url.query().is_some() || url.fragment().is_some()
-        || url.path() != "/" {
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
         return Err(
             "remote URL must be an HTTPS site root without credentials, path, query or fragment"
                 .into(),
@@ -74,19 +85,33 @@ mod tests {
 
     #[test]
     fn runtime_modes_are_explicit() {
-        assert_eq!(RuntimeMode::parse("AUTONOMOUS").unwrap(), RuntimeMode::Autonomous);
-        assert_eq!(RuntimeMode::parse("external").unwrap(), RuntimeMode::External);
+        assert_eq!(
+            RuntimeMode::parse("AUTONOMOUS").unwrap(),
+            RuntimeMode::Autonomous
+        );
+        assert_eq!(
+            RuntimeMode::parse("external").unwrap(),
+            RuntimeMode::External
+        );
         assert!(RuntimeMode::parse("disabled").is_err());
         assert!(Deployment::autonomous().remote.is_none());
     }
 
     #[test]
     fn remote_endpoint_rejects_unsafe_or_misleading_urls() {
-        assert_eq!(validate_remote_url("https://example.com").unwrap().as_str(), "https://example.com/");
+        assert_eq!(
+            validate_remote_url("https://example.com").unwrap().as_str(),
+            "https://example.com/"
+        );
         for value in [
-            "http://example.com", "file:///etc/passwd", "https://u:p@example.com",
-            "https://example.com/path", "https://example.com/#token", "https://example.com/?secret=1",
-            " https://example.com", "https://example.com@127.0.0.1",
+            "http://example.com",
+            "file:///etc/passwd",
+            "https://u:p@example.com",
+            "https://example.com/path",
+            "https://example.com/#token",
+            "https://example.com/?secret=1",
+            " https://example.com",
+            "https://example.com@127.0.0.1",
         ] {
             assert!(validate_remote_url(value).is_err(), "accepted {value}");
         }

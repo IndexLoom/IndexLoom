@@ -356,7 +356,10 @@ pub(super) fn normalized_result(
     })
 }
 
-pub(super) fn result_value<'a>(values: &'a BTreeMap<String, String>, keys: &[&str]) -> Option<&'a str> {
+pub(super) fn result_value<'a>(
+    values: &'a BTreeMap<String, String>,
+    keys: &[&str],
+) -> Option<&'a str> {
     keys.iter()
         .find_map(|key| values.get(*key))
         .map(String::as_str)
@@ -455,4 +458,3 @@ pub(super) fn json_string(value: &JsonValue) -> String {
         JsonValue::Object(_) => value.to_string(),
     }
 }
-

@@ -116,7 +116,10 @@ pub(super) fn normalize_contains_selector(value: &str) -> (String, Vec<String>) 
     (regex.replace_all(value, "").into_owned(), contains)
 }
 
-pub(super) fn check_error_selectors(value: Option<&YamlValue>, body: &str) -> Result<(), EngineError> {
+pub(super) fn check_error_selectors(
+    value: Option<&YamlValue>,
+    body: &str,
+) -> Result<(), EngineError> {
     let Some(errors) = value.and_then(YamlValue::as_sequence) else {
         return Ok(());
     };
@@ -287,4 +290,3 @@ pub(super) fn parse_date(value: &str) -> Option<OffsetDateTime> {
     }
     None
 }
-

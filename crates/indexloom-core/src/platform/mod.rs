@@ -21,25 +21,35 @@ pub struct Capabilities {
 }
 
 mod android;
+mod docker;
 mod ios;
-mod windows;
 mod linux;
 mod macos;
-mod docker;
+mod windows;
 
 #[must_use]
 pub fn current() -> Capabilities {
     #[cfg(target_os = "android")]
-    { return android::CAPABILITIES; }
+    {
+        return android::CAPABILITIES;
+    }
     #[cfg(target_os = "ios")]
-    { return ios::CAPABILITIES; }
+    {
+        return ios::CAPABILITIES;
+    }
     #[cfg(target_os = "windows")]
-    { return windows::CAPABILITIES; }
+    {
+        return windows::CAPABILITIES;
+    }
     #[cfg(target_os = "macos")]
-    { return macos::CAPABILITIES; }
+    {
+        return macos::CAPABILITIES;
+    }
     #[cfg(target_os = "linux")]
     {
-        if docker::detected() { return docker::CAPABILITIES; }
+        if docker::detected() {
+            return docker::CAPABILITIES;
+        }
         return linux::CAPABILITIES;
     }
     #[allow(unreachable_code)]

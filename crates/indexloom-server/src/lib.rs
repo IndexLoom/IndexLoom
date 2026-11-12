@@ -35,9 +35,9 @@ use url::Url;
 
 pub mod auth;
 pub mod catalog;
-pub mod remote;
 mod execution;
 mod management;
+pub mod remote;
 mod torznab;
 
 const MAX_CONFIGURATION_BODY: usize = 128 * 1024;

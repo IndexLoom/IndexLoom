@@ -39,7 +39,9 @@ fn target_url(remote: &Url, uri: &Uri) -> Option<Url> {
     let mut url = remote.clone();
     url.set_path(path);
     url.set_query(uri.query());
-    if url.origin() != remote.origin() { return None; }
+    if url.origin() != remote.origin() {
+        return None;
+    }
     Some(url)
 }
 
