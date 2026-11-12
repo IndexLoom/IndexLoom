@@ -539,7 +539,9 @@ impl Store {
     pub async fn save_password_policy(&self, json: &str) -> Result<(), StorageError> {
         let policy: serde_json::Value = serde_json::from_str(json)
             .map_err(|_| StorageError::InvalidData("password policy JSON is invalid".to_owned()))?;
-        let history_enabled = policy.get("historyEnabled").and_then(serde_json::Value::as_bool)
+        let history_enabled = policy
+            .get("historyEnabled")
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
         let mut transaction = self.pool.begin().await?;
         sqlx::query(
@@ -550,7 +552,8 @@ impl Store {
         // Disabling the feature also erases its historical hash data.
         if !history_enabled {
             sqlx::query("DELETE FROM auth_password_history")
-                .execute(&mut *transaction).await?;
+                .execute(&mut *transaction)
+                .await?;
         }
         transaction.commit().await?;
         Ok(())
@@ -604,7 +607,8 @@ impl Store {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), StorageError> {
-        self.change_password_with_history(user_id, password_hash, false).await
+        self.change_password_with_history(user_id, password_hash, false)
+            .await
     }
 
     /// Replaces the password and only retains prior hashes when the configured
@@ -638,10 +642,15 @@ impl Store {
                 "DELETE FROM auth_password_history WHERE user_id = ? AND id NOT IN (\
                 SELECT id FROM auth_password_history WHERE user_id = ? ORDER BY id DESC LIMIT 10)",
             )
-            .bind(user_id).bind(user_id).execute(&mut *transaction).await?;
+            .bind(user_id)
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await?;
         } else {
             sqlx::query("DELETE FROM auth_password_history WHERE user_id = ?")
-                .bind(user_id).execute(&mut *transaction).await?;
+                .bind(user_id)
+                .execute(&mut *transaction)
+                .await?;
         }
         sqlx::query("UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE id = ?")
             .bind(password_hash)
@@ -1028,14 +1037,26 @@ mod tests {
         assert_eq!(recent[10], "hash-2");
         assert!(!recent.contains(&"hash-0".to_owned()));
         // Turning off password history must also delete retained hashes.
-        store.save_password_policy(r#"{"historyEnabled":false}"#).await.unwrap();
+        store
+            .save_password_policy(r#"{"historyEnabled":false}"#)
+            .await
+            .unwrap();
         assert_eq!(
-            store.password_hash_history("policy-owner", 10).await.unwrap(),
+            store
+                .password_hash_history("policy-owner", 10)
+                .await
+                .unwrap(),
             vec!["hash-12".to_owned()]
         );
-        store.change_password("policy-owner", "hash-13").await.unwrap();
+        store
+            .change_password("policy-owner", "hash-13")
+            .await
+            .unwrap();
         assert_eq!(
-            store.password_hash_history("policy-owner", 10).await.unwrap(),
+            store
+                .password_hash_history("policy-owner", 10)
+                .await
+                .unwrap(),
             vec!["hash-13".to_owned()]
         );
         assert_eq!(
