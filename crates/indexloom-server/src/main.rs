@@ -153,7 +153,7 @@ async fn serve_autonomous(bind: SocketAddr) -> Result<()> {
         .context("IndexLoom HTTP server failed")?;
 
     Ok(())
-
+}
 
 async fn synchronize_catalog_or_retain(store: &Store, source: &CatalogSource) -> Result<()> {
     match synchronize(store, source).await {
