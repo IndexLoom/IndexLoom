@@ -4,8 +4,8 @@ import { deleteSearchHistory, readSearchHistory } from "../lib/search-history";
 
 const t = (phrase: string) => translate(phrase, undefined, "search");
 
-export function HistoryWorkspace({ onReplay }: { onReplay: (query: string) => void }) {
-  const [items, setItems] = useState(readSearchHistory);
+export function HistoryWorkspace({ scope, onReplay }: { scope: string; onReplay: (query: string) => void }) {
+  const [items, setItems] = useState(() => readSearchHistory(scope));
   const count = items.length;
   const total = items.reduce((sum, entry) => sum + entry.resultCount, 0);
   return <section className="settings-view">
@@ -13,7 +13,7 @@ export function HistoryWorkspace({ onReplay }: { onReplay: (query: string) => vo
       <div>
         <p className="eyebrow">{t("Search activity")}</p>
         <h1>{t("History")}</h1>
-        <p className="page-description">{t("Saved in this browser only. Queries, timestamps and counts; never tracker credentials or links.")}</p>
+        <p className="page-description">{t("Saved only in this browser for the current account. Queries and counts; never tracker credentials or links.")}</p>
       </div>
     </header>
     <div className="overview-metrics">
@@ -22,7 +22,7 @@ export function HistoryWorkspace({ onReplay }: { onReplay: (query: string) => vo
     </div>
     <div className="appearance-footer">
       <button className="quiet-button" type="button" disabled={count === 0}
-        onClick={() => { if (window.confirm(t("Clear all search history?"))) setItems(deleteSearchHistory()); }}>
+        onClick={() => { if (window.confirm(t("Clear all search history?"))) setItems(deleteSearchHistory(scope)); }}>
         {t("Clear history")}
       </button>
     </div>
@@ -35,7 +35,7 @@ export function HistoryWorkspace({ onReplay }: { onReplay: (query: string) => vo
         </div>
         <div className="history-actions">
           <button className="quiet-button" type="button" onClick={() => onReplay(entry.query)}>{t("Search again")}</button>
-          <button className="quiet-button" aria-label={t("Delete history entry")} type="button" onClick={() => setItems(deleteSearchHistory(entry.id))}>{t("Delete")}</button>
+          <button className="quiet-button" aria-label={t("Delete history entry")} type="button" onClick={() => setItems(deleteSearchHistory(scope, entry.id))}>{t("Delete")}</button>
         </div>
       </article>)}
     </div>
