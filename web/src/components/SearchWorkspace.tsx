@@ -19,6 +19,7 @@ import {
   searchIndexersStream,
 } from "../lib/api";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
+import { recordSearch } from "../lib/search-history";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "search");
 
 type WorkspaceState =
@@ -31,25 +32,27 @@ type WorkspaceState =
       groups: IndexerGroup[];
     };
 
-export function SearchWorkspace() {
+export function SearchWorkspace({ initialQuery = "" }: { initialQuery?: string }) {
   const { token, acceptToken, clearToken } = useAdminSession();
   if (!token) {
     return <AdminTokenGate onSubmit={acceptToken} />;
   }
-  return <AuthenticatedSearch onUnauthorized={clearToken} token={token} />;
+  return <AuthenticatedSearch initialQuery={initialQuery} onUnauthorized={clearToken} token={token} />;
 }
 
 function AuthenticatedSearch({
   token,
   onUnauthorized,
+  initialQuery,
 }: {
   token: string;
   onUnauthorized: () => void;
+  initialQuery: string;
 }) {
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     kind: "loading",
   });
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [filters, setFilters] = useState<SearchFilters>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selection, setSelection] = useState<IndexerSelection>({
@@ -172,6 +175,7 @@ function AuthenticatedSearch({
             }));
             return;
           }
+          recordSearch({ query: submittedQuery, resultCount: event.resultCount, indexerCount: event.total, language: filters.languages?.[0] ?? null });
           setSearchProgress({
             completed: event.completed,
             total: event.total,
