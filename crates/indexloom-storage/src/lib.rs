@@ -360,6 +360,8 @@ impl Store {
 
     /// Opens a native per-app SQLite file without interpreting its path as a URL.
     /// Mobile sandbox paths may contain spaces or non-ASCII characters.
+    /// # Errors
+    /// Returns a storage error if the path cannot be opened or migrations fail.
     pub async fn connect_path(path: &Path) -> Result<Self, StorageError> {
         let options = SqliteConnectOptions::new()
             .filename(path)
