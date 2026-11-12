@@ -21,6 +21,7 @@ ENVIRONMENT:
   INDEXLOOM_BIND           local listener (default 0.0.0.0:8080)
 ";
 
+#[derive(Debug)]
 pub enum Command {
     Help,
     Start(Deployment),
