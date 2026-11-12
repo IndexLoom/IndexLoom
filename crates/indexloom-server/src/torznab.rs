@@ -37,26 +37,35 @@ fn xml(status: StatusCode, body: String) -> Response {
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
         body,
-    ).into_response()
+    )
+        .into_response()
 }
 
 fn failure(status: StatusCode, code: u16, reason: &str) -> Response {
-    xml(status, format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><error code=\"{code}\" description=\"{}\"/>",
-        xml_escape(reason),
-    ))
+    xml(
+        status,
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><error code=\"{code}\" description=\"{}\"/>",
+            xml_escape(reason),
+        ),
+    )
 }
 
-async fn torznab(
-    State(state): State<AppState>,
-    Query(params): Query<QueryParams>,
-) -> Response {
+async fn torznab(State(state): State<AppState>, Query(params): Query<QueryParams>) -> Response {
     // Disabled by default. NEVER reuse the owner token as a Torznab API key.
     let Ok(secret) = std::env::var("INDEXLOOM_TORZNAB_API_KEY") else {
-        return failure(StatusCode::SERVICE_UNAVAILABLE, 101, "Torznab API is disabled");
+        return failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            101,
+            "Torznab API is disabled",
+        );
     };
     if secret.len() < 32 || secret.len() > 512 {
-        return failure(StatusCode::SERVICE_UNAVAILABLE, 101, "Invalid server API key configuration");
+        return failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            101,
+            "Invalid server API key configuration",
+        );
     }
     let provided = params.apikey.as_deref().unwrap_or("");
     if secret.as_bytes().ct_eq(provided.as_bytes()).unwrap_u8() != 1 {
@@ -76,15 +85,39 @@ async fn torznab(
             let offset = params.offset.unwrap_or(0);
             let total = count.saturating_add(offset).min(200);
             // Only a single source category is supported by the bounded Cardigann query.
-            let category = params.cat.as_deref().filter(|c| !c.is_empty())
-                .and_then(|c| c.split(',').next()).map(str::to_owned);
-            let results = match crate::execution::search_for_feed(&state, query.to_owned(), category, total).await {
-                Ok(results) => results,
-                Err(_) => return failure(StatusCode::BAD_REQUEST, 202, "Search failed or no enabled indexers"),
-            };
-            xml(StatusCode::OK, rss(&results.into_iter().skip(offset).take(count).collect::<Vec<_>>()))
-        },
-        _ => failure(StatusCode::BAD_REQUEST, 203, "Unsupported Torznab operation"),
+            let category = params
+                .cat
+                .as_deref()
+                .filter(|c| !c.is_empty())
+                .and_then(|c| c.split(',').next())
+                .map(str::to_owned);
+            let results =
+                match crate::execution::search_for_feed(&state, query.to_owned(), category, total)
+                    .await
+                {
+                    Ok(results) => results,
+                    Err(_) => {
+                        return failure(
+                            StatusCode::BAD_REQUEST,
+                            202,
+                            "Search failed or no enabled indexers",
+                        );
+                    }
+                };
+            xml(
+                StatusCode::OK,
+                rss(&results
+                    .into_iter()
+                    .skip(offset)
+                    .take(count)
+                    .collect::<Vec<_>>()),
+            )
+        }
+        _ => failure(
+            StatusCode::BAD_REQUEST,
+            203,
+            "Unsupported Torznab operation",
+        ),
     }
 }
 
@@ -102,25 +135,37 @@ fn caps() -> String {
     <category id="7000" name="Books"/>
     <category id="8000" name="Other"/>
   </categories>
-</caps>"#.to_owned()
+</caps>"#
+        .to_owned()
 }
 
 fn rss(items: &[SearchResult]) -> String {
     let mut output = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\" xmlns:torznab=\"http://torznab.com/schemas/2015/feed\"><channel><title>IndexLoom</title><description>Federated torrent search</description>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\" xmlns:torznab=\"http://torznab.com/schemas/2015/feed\"><channel><title>IndexLoom</title><description>Federated torrent search</description>",
     );
     for item in items {
-        let guid = item.source_guid.as_deref()
+        let guid = item
+            .source_guid
+            .as_deref()
             .or(item.details_url.as_deref())
             .or(item.source_id.as_deref())
             .unwrap_or("");
-        let guid = if guid.is_empty() { item.id.to_string() } else { guid.to_owned() };
+        let guid = if guid.is_empty() {
+            item.id.to_string()
+        } else {
+            guid.to_owned()
+        };
         output.push_str("<item><title>");
         output.push_str(&xml_escape(&item.title));
         output.push_str("</title><guid isPermaLink=\"false\">");
         output.push_str(&xml_escape(&guid));
         output.push_str("</guid>");
-        if let Some(url) = item.download_url.as_deref().or(item.magnet_url.as_deref()).or(item.details_url.as_deref()) {
+        if let Some(url) = item
+            .download_url
+            .as_deref()
+            .or(item.magnet_url.as_deref())
+            .or(item.details_url.as_deref())
+        {
             output.push_str("<link>");
             output.push_str(&xml_escape(url));
             output.push_str("</link>");
@@ -153,7 +198,11 @@ fn rss(items: &[SearchResult]) -> String {
                 output.push_str("\"/>");
             }
         }
-        let category = item.category.as_deref().filter(|value| value.len() == 4 && value.bytes().all(|b| b.is_ascii_digit())).unwrap_or("8000");
+        let category = item
+            .category
+            .as_deref()
+            .filter(|value| value.len() == 4 && value.bytes().all(|b| b.is_ascii_digit()))
+            .unwrap_or("8000");
         output.push_str("<torznab:attr name=\"category\" value=\"");
         output.push_str(category);
         output.push_str("\"/></item>");
@@ -172,7 +221,9 @@ fn xml_escape(value: &str) -> String {
             '"' => output.push_str("&quot;"),
             '\'' => output.push_str("&apos;"),
             '\u{9}' | '\u{A}' | '\u{D}' => output.push(character),
-            '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..='\u{10FFFF}' => output.push(character),
+            '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..='\u{10FFFF}' => {
+                output.push(character)
+            }
             _ => {}
         }
     }
@@ -186,7 +237,10 @@ mod tests {
     use uuid::Uuid;
     #[test]
     fn escapes_all_untrusted_xml_content() {
-        assert_eq!(xml_escape("привет & <world> \"'\u{1}"), "привет &amp; &lt;world&gt; &quot;&apos;");
+        assert_eq!(
+            xml_escape("привет & <world> \"'\u{1}"),
+            "привет &amp; &lt;world&gt; &quot;&apos;"
+        );
         assert!(caps().contains("supportedParams=\"q,cat\""));
     }
 
@@ -196,13 +250,17 @@ mod tests {
             id: Uuid::nil(),
             indexer_instance_id: "a".into(),
             definition_id: "a".into(),
-            source_id: None, source_guid: None, info_hash: None,
+            source_id: None,
+            source_guid: None,
+            info_hash: None,
             title: "映画 & <anime>".into(),
             details_url: Some("https://example.org/?a=1&b=2".into()),
             download_url: None,
             magnet_url: None,
             category: None,
-            size: Some(42), seeders: Some(5), leechers: Some(1),
+            size: Some(42),
+            seeders: Some(5),
+            leechers: Some(1),
             published_at: None,
         };
         let document = rss(&[result]);
