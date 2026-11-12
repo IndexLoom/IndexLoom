@@ -37,17 +37,19 @@ export function SearchWorkspace({ initialQuery = "" }: { initialQuery?: string }
   if (!token) {
     return <AdminTokenGate onSubmit={acceptToken} />;
   }
-  return <AuthenticatedSearch initialQuery={initialQuery} onUnauthorized={clearToken} token={token} />;
+  return <AuthenticatedSearch initialQuery={initialQuery} onUnauthorized={clearToken} token={token} historyScope={historyScope} />;
 }
 
 function AuthenticatedSearch({
   token,
   onUnauthorized,
   initialQuery,
+  historyScope,
 }: {
   token: string;
   onUnauthorized: () => void;
   initialQuery: string;
+  historyScope: string | null;
 }) {
   const [workspace, setWorkspace] = useState<WorkspaceState>({
     kind: "loading",
