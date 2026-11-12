@@ -537,11 +537,22 @@ impl Store {
 
     /// Stores owner-validated policy atomically in SQLite.
     pub async fn save_password_policy(&self, json: &str) -> Result<(), StorageError> {
+        let policy: serde_json::Value = serde_json::from_str(json)
+            .map_err(|_| StorageError::InvalidData("password policy JSON is invalid".to_owned()))?;
+        let history_enabled = policy.get("historyEnabled").and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let mut transaction = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO auth_password_policy(id, policy_json, updated_at) VALUES (1, ?, ?) \
              ON CONFLICT(id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at"
         )
-        .bind(json).bind(epoch()).execute(&self.pool).await?;
+        .bind(json).bind(epoch()).execute(&mut *transaction).await?;
+        // Disabling the feature also erases its historical hash data.
+        if !history_enabled {
+            sqlx::query("DELETE FROM auth_password_history")
+                .execute(&mut *transaction).await?;
+        }
+        transaction.commit().await?;
         Ok(())
     }
 
@@ -593,6 +604,17 @@ impl Store {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), StorageError> {
+        self.change_password_with_history(user_id, password_hash, false).await
+    }
+
+    /// Replaces the password and only retains prior hashes when the configured
+    /// policy enables reuse prevention. Otherwise any old history is deleted.
+    pub async fn change_password_with_history(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+        history_enabled: bool,
+    ) -> Result<(), StorageError> {
         // Password replacement and session revocation must share a transaction.
         let mut transaction = self.pool.begin().await?;
         let previous: Option<String> =
@@ -601,24 +623,26 @@ impl Store {
                 .fetch_optional(&mut *transaction)
                 .await?
                 .flatten();
-        if let Some(old_hash) = previous {
+        if history_enabled {
+            if let Some(old_hash) = previous {
+                sqlx::query(
+                    "INSERT INTO auth_password_history(user_id, password_hash, changed_at) VALUES (?, ?, ?)"
+                )
+                    .bind(user_id)
+                    .bind(old_hash)
+                    .bind(epoch())
+                    .execute(&mut *transaction)
+                    .await?;
+            }
             sqlx::query(
-                "INSERT INTO auth_password_history(user_id, password_hash, changed_at) VALUES (?, ?, ?)"
+                "DELETE FROM auth_password_history WHERE user_id = ? AND id NOT IN (\
+                SELECT id FROM auth_password_history WHERE user_id = ? ORDER BY id DESC LIMIT 10)",
             )
-                .bind(user_id)
-                .bind(old_hash)
-                .bind(epoch())
-                .execute(&mut *transaction)
-                .await?;
+            .bind(user_id).bind(user_id).execute(&mut *transaction).await?;
+        } else {
+            sqlx::query("DELETE FROM auth_password_history WHERE user_id = ?")
+                .bind(user_id).execute(&mut *transaction).await?;
         }
-        sqlx::query(
-            "DELETE FROM auth_password_history WHERE user_id = ? AND id NOT IN (\
-            SELECT id FROM auth_password_history WHERE user_id = ? ORDER BY id DESC LIMIT 10)",
-        )
-        .bind(user_id)
-        .bind(user_id)
-        .execute(&mut *transaction)
-        .await?;
         sqlx::query("UPDATE auth_users SET password_hash = ?, updated_at = ? WHERE id = ?")
             .bind(password_hash)
             .bind(epoch())
