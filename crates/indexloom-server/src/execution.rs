@@ -881,8 +881,18 @@ mod tests {
 
     use super::{
         MAX_COMPLETED_TEST_JOBS, MAX_RUNNING_TEST_JOBS, TEST_JOB_TTL, TestJob, TestJobRegistry,
-        TestJobStatus, execution_fingerprint, prune_test_jobs,
+        TestJobStatus, execution_fingerprint, prune_test_jobs, validate_search_languages,
     };
+
+    #[test]
+    fn validates_international_indexer_language_tags() {
+        assert!(validate_search_languages(&["ru".to_owned(), "ja-JP".to_owned(), "zh-Hans".to_owned()]).is_ok());
+        assert!(validate_search_languages(&[]).is_ok());
+        for invalid in ["", "a", "en_US", "../etc/passwd", "-ru", "fr-", "ру"] {
+            assert!(validate_search_languages(&[invalid.to_owned()]).is_err(), "{invalid} should be rejected");
+        }
+        assert!(validate_search_languages(&vec!["de".to_owned(); 17]).is_err());
+    }
 
     #[test]
     fn prunes_expired_and_oldest_completed_jobs_but_keeps_running_jobs() {
