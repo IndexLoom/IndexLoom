@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 serde.workspace = true
-serde_yaml.workspace = true
+serde_yaml = { package = "indexloom-yaml", version = "0.3.0", path = "../indexloom-yaml" }
 thiserror.workspace = true
 
 [dev-dependencies]
