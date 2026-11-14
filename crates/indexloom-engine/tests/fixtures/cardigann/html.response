@@ -1,0 +1,6 @@
+TRACKER_PREFIX<table class="torrents"><tbody>
+<tr><td><a href="details.php?id=42"><span class="badge">VIP</span>Example Movie</a><i class="free"></i></td><td><a href="download.php?id=42">download</a><span title="2026-11-14 12:30:45 +03:00"></span></td><td>1.5 GiB</td></tr>
+<tr><td><a href="details.php?id=43">Unrelated Release</a></td><td><a href="download.php?id=43">download</a><span title="2026-11-14 12:30:45 +03:00"></span></td><td>2 GiB</td></tr>
+<tr><td><a href="details.php?id=44">Example Movie blocked</a><i class="blocked"></i></td></tr>
+<tr><td><a href="details.php?id=45">Example Movie broken</a></td></tr>
+</tbody></table>

@@ -543,6 +543,9 @@ impl AccessLevel {
 }
 
 fn required_access(method: &Method, path: &str) -> AccessLevel {
+    if path.contains("/login-challenge") {
+        return AccessLevel::Admin;
+    }
     if path.starts_with("/api/v1/auth/users")
         || path.starts_with("/api/v1/auth/mail")
         || path == "/api/v1/auth/audit"
@@ -1349,6 +1352,54 @@ async fn send_user_verification(
         .ok_or_else(|| ApiError::not_found("account does not exist"))?;
     send_verification_for_user(&state, &user).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Manual tracker login always requires an explicit bearer credential, including
+/// when the rest of the deployment has authentication disabled. Cookie-only
+/// requests cannot initiate tracker actions or retrieve private CAPTCHA images.
+pub(super) async fn tracker_login_actor(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<String, ApiError> {
+    if headers
+        .get("sec-fetch-site")
+        .is_some_and(|v| v != "same-origin" && v != "none")
+    {
+        return Err(ApiError::forbidden());
+    }
+    let token = bearer(headers).ok_or_else(ApiError::unauthorized)?;
+    if !(32..=128).contains(&token.len()) {
+        return Err(ApiError::unauthorized());
+    }
+    if state.auth_settings.mode.legacy_token()
+        && state
+            .admin_token
+            .as_ref()
+            .is_some_and(|t| t.authorizes(headers))
+    {
+        return Ok(format!("operator:{}", digest(token)));
+    }
+    if state.auth_settings.mode == AuthMode::Disabled {
+        if state
+            .admin_token
+            .as_ref()
+            .is_some_and(|t| t.authorizes(headers))
+        {
+            return Ok(format!("operator:{}", digest(token)));
+        }
+        return Err(ApiError::unauthorized());
+    }
+    authorize_action(
+        state,
+        headers,
+        &Method::POST,
+        "/api/v1/indexers/login-challenge",
+    )
+    .await?;
+    Ok(format!(
+        "user:{}",
+        user_for_bearer(state, headers).await?.id
+    ))
 }
 
 #[cfg(test)]

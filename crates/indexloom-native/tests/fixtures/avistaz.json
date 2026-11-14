@@ -1,0 +1,42 @@
+{
+  "current_page": 1,
+  "last_page": 2,
+  "next_page_url": "https://tracker.invalid/api/v1/jackett/torrents?type=2&page=2",
+  "data": [
+    {
+      "id": 6301,
+      "url": "https://tracker.invalid/torrent/6301-example-series",
+      "download": "https://tracker.invalid/rss/download/REDACTED/example.torrent",
+      "type_id": 2,
+      "type": "TV-Show",
+      "info_hash": "b123456789012345678901234567890123456789",
+      "file_name": "Example Series 2026 S01E05 720p WEB-DL",
+      "file_size": 935127615,
+      "file_count": 1,
+      "seed": 20,
+      "leech": 0,
+      "completed": 23,
+      "download_multiply": 0,
+      "upload_multiply": 2,
+      "video_quality": "720p",
+      "movie_tv": {
+        "imdb": "tt1234567",
+        "tmdb": "135144",
+        "tvdb": "410548"
+      },
+      "audio": [
+        {
+          "id": 79,
+          "language": "Japanese"
+        }
+      ],
+      "subtitle": [
+        {
+          "id": 45,
+          "language": "English"
+        }
+      ],
+      "created_at_iso": "2026-11-13T09:39:52+02:00"
+    }
+  ]
+}

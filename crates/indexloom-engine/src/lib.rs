@@ -19,10 +19,13 @@ use thiserror::Error;
 use url::Url;
 
 mod cardigann;
+mod sessions;
+pub use sessions::{CookieSnapshot, SessionPersistence};
 
+pub use cardigann::download::{DownloadArtifact, validate_magnet, validate_torrent};
 pub use cardigann::{
     CardigannExecutor, IndexerExecutionConfig, IndexerSearchBatch, IndexerTestOutcome,
-    SearchParameters,
+    LoginChallengeDescriptor, LoginField, LoginProgress, SearchParameters,
 };
 
 const MAX_FLARESOLVERR_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -153,6 +156,8 @@ fn embedded_ipv4(address: Ipv6Addr) -> Ipv4Addr {
 #[derive(Clone, Debug)]
 pub struct SearchEngine {
     client: Client,
+    cookies: std::sync::Arc<sessions::SessionJar>,
+    browser_user_agent: std::sync::Arc<std::sync::RwLock<Option<String>>>,
 }
 
 impl SearchEngine {
@@ -172,17 +177,28 @@ impl SearchEngine {
     ///
     /// Returns [`EngineError`] when the proxy or HTTP client is invalid.
     pub fn with_proxy(proxy: Option<&ProxyRoute>) -> Result<Self, EngineError> {
+        Self::with_proxy_and_roots(proxy, Vec::new())
+    }
+
+    pub(crate) fn with_proxy_and_roots(
+        proxy: Option<&ProxyRoute>,
+        roots: Vec<reqwest::Certificate>,
+    ) -> Result<Self, EngineError> {
         if proxy.is_some_and(|route| !route.enabled) {
             return Err(EngineError::ProxyDisabled);
         }
+        let cookies = std::sync::Arc::new(sessions::SessionJar::default());
         let mut builder = Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
-            .cookie_store(true)
+            .cookie_provider(cookies.clone())
             // Environment proxy variables must not silently replace the
             // explicit direct/proxy routing decision made by IndexLoom.
             .no_proxy();
+        for root in roots {
+            builder = builder.add_root_certificate(root);
+        }
         if let Some(route) = proxy {
             let mut configured = reqwest::Proxy::all(&route.url)?;
             if let Some(username) = route.username.as_deref() {
@@ -197,7 +213,11 @@ impl SearchEngine {
             builder = builder.dns_resolver(PublicDnsResolver);
         }
         let client = builder.build()?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            cookies,
+            browser_user_agent: std::sync::Arc::default(),
+        })
     }
 
     /// Exposes the configured client to bounded request executors.
@@ -207,8 +227,7 @@ impl SearchEngine {
 
     /// Builds a direct request with credentials scoped to this request only.
     ///
-    /// A shared cookie jar is intentionally not used: credentials from one
-    /// tracker must never be replayed to another tracker.
+    /// Cookies are selected by this indexer's jar using URL scope rules.
     pub fn request(
         &self,
         method: Method,
@@ -216,13 +235,33 @@ impl SearchEngine {
         profile: &DirectRequestProfile,
     ) -> RequestBuilder {
         let mut request = self.client.request(method, url);
-        if let Some(user_agent) = profile.user_agent.as_deref() {
+        let browser_user_agent = self
+            .browser_user_agent
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(user_agent) = browser_user_agent
+            .as_deref()
+            .or(profile.user_agent.as_deref())
+        {
             request = request.header(header::USER_AGENT, user_agent);
         }
-        if let Some(cookie) = profile.cookie_header.as_deref() {
-            request = request.header(header::COOKIE, cookie);
-        }
         request
+    }
+
+    /// Imports the browser solver's scoped cookies and browser user agent.
+    /// Never exposes or serializes the imported credentials.
+    fn import_browser_solution(&self, url: &Url, solution: &BrowserSolution) {
+        self.cookies.receive_browser_cookies(&solution.cookies, url);
+        if !solution.user_agent.trim().is_empty()
+            && solution.user_agent.len() <= 1024
+            && !solution.user_agent.chars().any(char::is_control)
+        {
+            *self
+                .browser_user_agent
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(solution.user_agent.clone());
+        }
     }
 
     /// Extracts text values from an HTML document for conformance tests.
@@ -246,7 +285,8 @@ impl SearchEngine {
 pub struct DirectRequestProfile {
     /// Optional browser `User-Agent` override.
     pub user_agent: Option<String>,
-    /// Optional raw Cookie request header.
+    /// Legacy seed input. `request()` never emits this as an unsafe header;
+    /// configure cookie credentials through `CardigannExecutor` instead.
     pub cookie_header: Option<String>,
 }
 
@@ -429,9 +469,12 @@ struct FlareSolverrResponse {
 }
 
 /// Browser cookie accepted and returned by `FlareSolverr`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserCookie {
+    /// Absolute UNIX expiry returned by browser solvers; -1 means session-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires: Option<f64>,
     /// Cookie name.
     pub name: String,
     /// Cookie value. Callers must redact this field from logs and APIs.
@@ -448,6 +491,12 @@ pub struct BrowserCookie {
     /// HTTP-only flag.
     #[serde(default, rename = "httpOnly", skip_serializing_if = "is_false")]
     pub http_only: bool,
+}
+
+impl std::fmt::Debug for BrowserCookie {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrowserCookie").finish_non_exhaustive()
+    }
 }
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -473,6 +522,52 @@ pub struct BrowserSolution {
 /// Engine construction and parsing errors.
 #[derive(Debug, Error)]
 pub enum EngineError {
+    #[error("tracker request timed out")]
+    RequestTimeout,
+    #[error("invalid torrent metadata")]
+    InvalidTorrent,
+    #[error("invalid magnet URI")]
+    InvalidMagnet,
+    #[error("invalid Cardigann download definition: {0}")]
+    InvalidDownloadDefinition(&'static str),
+    #[error("download selectors did not resolve a valid torrent or magnet")]
+    DownloadNotFound,
+    #[error("download exceeded its request, depth, or time budget")]
+    DownloadBudgetExceeded,
+    #[error("release does not belong to this configured indexer")]
+    ReleaseIndexerMismatch,
+    /// A filter could not be executed. Reasons never include input or credentials.
+    #[error("Cardigann filter {name}: {reason}")]
+    CardigannFilter { name: String, reason: &'static str },
+    /// A definition uses an unsupported or unsafe compatibility feature.
+    #[error("Cardigann incompatibility: {0}")]
+    CardigannIncompatible(&'static str),
+    /// A required row field is absent; callers can skip that release.
+    #[error("required Cardigann field is missing")]
+    CardigannMissingField,
+    /// A JSON selector is invalid or exceeds a bounded execution budget.
+    #[error("invalid Cardigann JSON selector: {0}")]
+    JsonSelector(&'static str),
+    /// Session persistence failed; intentionally excludes secret-bearing context.
+    #[error("tracker session persistence failed")]
+    SessionPersistence,
+    /// A tracker needs a manually supplied, ephemeral response.
+    #[error("tracker needs interactive login; open its configuration and start tracker login")]
+    LoginChallengeRequired,
+    /// Opaque challenge is missing, expired, consumed or belongs to another actor.
+    #[error("tracker login challenge is unavailable; start tracker login again")]
+    LoginChallengeUnavailable,
+    /// Per-indexer login request budget has been exhausted.
+    #[error("too many tracker login attempts; wait one minute")]
+    LoginChallengeRateLimited,
+    /// Browser-only CAPTCHA families cannot be represented as manual inputs.
+    #[error(
+        "this login requires a browser; JavaScript CAPTCHA is unsupported; use a tracker session cookie or configure FlareSolverr for Cloudflare"
+    )]
+    BrowserLoginRequired,
+    /// Challenge contents were invalid or exceeded the bounded memory budget.
+    #[error("tracker login challenge is invalid or unsupported")]
+    InvalidLoginChallenge,
     /// HTTP client construction failed.
     #[error("failed to build HTTP client: {0}")]
     HttpClient(#[from] reqwest::Error),
@@ -594,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn scopes_user_agent_and_cookie_to_one_request() {
+    fn scopes_user_agent_and_never_injects_raw_cookie_headers() {
         let engine = SearchEngine::new().expect("engine should initialize");
         let profile = DirectRequestProfile {
             user_agent: Some("IndexLoom test agent".to_owned()),
@@ -612,7 +707,7 @@ mod tests {
             request.headers()[header::USER_AGENT],
             "IndexLoom test agent"
         );
-        assert_eq!(request.headers()[header::COOKIE], "session=secret");
+        assert!(!request.headers().contains_key(header::COOKIE));
 
         let uncredentialed = engine
             .request(

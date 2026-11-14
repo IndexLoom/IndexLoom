@@ -1,0 +1,35 @@
+# NexusPHP/UNIT3D idioms, authored independently from source definitions.
+paths: [{path: /browse}]
+keywordsfilters:
+  - {name: diacritics, args: replace}
+preprocessingfilters:
+  - {name: replace, args: ['TRACKER_PREFIX', '']}
+rows:
+  selector: 'table.torrents > tbody > tr:has(a[href^="details.php?id="]):not(:has(.blocked))'
+  filters: [{name: andmatch}]
+fields:
+  title:
+    text: '{{ or .Result.filename .Result.title_default }}'
+  filename:
+    selector: .filename
+    optional: true
+  title_default:
+    selector: 'a[href^="details.php?id="]'
+    remove: 'span.badge'
+    filters: [{name: trim}]
+  details:
+    selector: 'a[href^="details.php?id="]'
+    attribute: href
+  download:
+    selector: 'a[href^="download.php?id="]'
+    attribute: href
+  downloadvolumefactor:
+    case:
+      '.free': '0'
+      '*': '1'
+  date:
+    selector: 'span[title]'
+    attribute: title
+    filters: [{name: dateparse, args: 'yyyy-MM-dd HH:mm:ss zzz'}]
+  size:
+    selector: 'td:nth-child(3)'

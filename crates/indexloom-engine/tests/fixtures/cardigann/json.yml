@@ -1,0 +1,32 @@
+# API rows.attribute/multiple and M-Team-style JSON predicates.
+paths:
+  - path: /api/search
+    method: post
+    response: {type: json}
+preprocessingfilters: [{name: replace, args: ['TRACKER_PREFIX', '']}]
+rows:
+  selector: 'data.data:not(promotion.down:contains(1))'
+  attribute: releases
+  multiple: true
+  missingAttributeEqualsNoResults: true
+  filters: [{name: andmatch, args: '20'}]
+fields:
+  title:
+    selector: 'names[0]'
+    filters: [{name: htmldecode}]
+  details:
+    text: '/details/{{ .Result.id }}'
+  id:
+    selector: id
+  size:
+    selector: bytes
+  date:
+    selector: created
+    filters: [{name: fuzzytime}]
+  downloadvolumefactor:
+    selector: free
+    case: {'true': '0', '*': '1'}
+  seeders:
+    selector: peers.seeders
+    optional: true
+    default: '0'

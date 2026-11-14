@@ -165,14 +165,24 @@ deduplicate results should prefer tracker-native `sourceId`, `sourceGuid` and
   "sourceGuid": null,
   "infoHash": "0123456789abcdef0123456789abcdef01234567",
   "title": "Example release",
-  "detailsUrl": "https://tracker.example/torrent/1234567",
-  "downloadUrl": "https://tracker.example/download/1234567.torrent",
+  "detailsUrl": null,
+  "downloadUrl": "/api/v1/downloads/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "magnetUrl": null
 }
 ```
 
-`detailsUrl`, `downloadUrl` and `magnetUrl` are intentionally independent.
-Callers must not assume the details page is a downloadable torrent resource.
+Search responses withhold tracker details/GUID/download/magnet URLs. A usable
+release has a server-issued `downloadUrl` handle instead. Fetch it with the same
+Authorization credential used for the search; browser navigation alone cannot
+supply that header. Handles expire after ten minutes and are single-use.
+
+`GET /downloads/{handle}` returns validated `application/x-bittorrent` bytes or
+JSON `{ "magnetUrl": "magnet:?…" }`, without forwarding tracker response headers.
+Unknown/expired/consumed handles return 404, excess concurrent downloads return
+429, and upstream/validation failures return a generic 502. Configuration or
+runtime changes invalidate existing handles. No arbitrary target URL is accepted.
+Experimental Torznab currently omits grab links pending feed-key authenticated
+download integration. See [download and mirror behavior](STAGE_A_DOWNLOAD_MIRRORS.md).
 
 Request and response objects are not stable before the first tagged release.
 

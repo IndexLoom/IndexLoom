@@ -17,6 +17,7 @@ import {
   fetchHealth,
   fetchIndexers,
   searchIndexersStream,
+  downloadRelease,
 } from "../lib/api";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 import { recordSearch } from "../lib/search-history";
@@ -63,6 +64,7 @@ function AuthenticatedSearch({
     indexerIds: [],
   });
   const [searching, setSearching] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [searchProgress, setSearchProgress] = useState<{
@@ -206,6 +208,19 @@ function AuthenticatedSearch({
         searchAbort.current = null;
         setSearching(false);
       }
+    }
+  }
+
+  async function grab(id: string, path: string, title: string) {
+    if (downloading) return;
+    setDownloading(id);
+    try {
+      await downloadRelease(token, path, title);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) onUnauthorized();
+      else setNotice(error instanceof Error ? error.message : "Download failed");
+    } finally {
+      setDownloading(null);
     }
   }
 
@@ -448,12 +463,14 @@ function AuthenticatedSearch({
                             <td>{result.seeders ?? "—"}</td>
                             <td>
                               <span className="result-actions">
-                                {result.downloadUrl ? (
-                                  <a
-                                    href={result.downloadUrl}
-                                    rel="noreferrer"
-                                    target="_blank"
-                                  >{t("Download")}{" "}</a>
+                                {result.downloadUrl?.startsWith("/api/v1/downloads/") ? (
+                                  <button
+                                    className="text-button"
+                                    type="button"
+                                    disabled={downloading !== null}
+                                    aria-busy={downloading === result.id}
+                                    onClick={() => void grab(result.id, result.downloadUrl!, result.title)}
+                                  >{t("Download")}{" "}</button>
                                 ) : null}
                                 {result.magnetUrl ? (
                                   <a href={result.magnetUrl}>{t("Magnet")}</a>

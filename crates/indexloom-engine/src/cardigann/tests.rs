@@ -188,8 +188,8 @@ fn combines_path_and_search_level_inputs() {
     assert_eq!(
         inputs,
         [
-            ("q".to_owned(), "one piece".to_owned()),
-            ("f".to_owned(), "0".to_owned())
+            ("f".to_owned(), "0".to_owned()),
+            ("q".to_owned(), "one piece".to_owned())
         ]
     );
 }
@@ -333,7 +333,7 @@ fn rejects_unsafe_links_and_uses_a_valid_magnet_fallback() {
     );
 }
 
-fn definition() -> IndexerDefinition {
+pub(super) fn definition() -> IndexerDefinition {
     serde_yaml::from_str(
         r#"
 apiVersion: indexloom.io/v1alpha1
@@ -367,4 +367,138 @@ spec:
 "#,
     )
     .expect("test definition should deserialize")
+}
+
+#[derive(Debug, Default)]
+struct MemorySessions {
+    snapshot: std::sync::Mutex<Option<crate::CookieSnapshot>>,
+    loads: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl crate::SessionPersistence for MemorySessions {
+    async fn load(&self) -> Result<Option<crate::CookieSnapshot>, crate::EngineError> {
+        self.loads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(self
+            .snapshot
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|snapshot| crate::CookieSnapshot {
+                cookies_json: snapshot.cookies_json.clone(),
+                expires_at: snapshot.expires_at,
+            }))
+    }
+    async fn save(&self, snapshot: crate::CookieSnapshot) -> Result<(), crate::EngineError> {
+        *self.snapshot.lock().unwrap() = Some(snapshot);
+        Ok(())
+    }
+    async fn clear(&self) -> Result<(), crate::EngineError> {
+        *self.snapshot.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+fn session_executor(persistence: std::sync::Arc<MemorySessions>) -> super::CardigannExecutor {
+    let mut definition = definition();
+    // This no-request authentication fixture tests the lifecycle independently
+    // of HTTP. Full form login is covered by the server's loopback tests.
+    definition.spec.implementation.authentication =
+        Some(serde_yaml::from_str("{method: get}").unwrap());
+    super::CardigannExecutor::new(super::IndexerExecutionConfig {
+        indexer_instance_id: "fixture".into(),
+        definition,
+        values: BTreeMap::new(),
+        secrets: BTreeMap::from([("password".into(), "fixture-password".into())]),
+        user_agent: None,
+        proxy: None,
+        flaresolverr: None,
+    })
+    .unwrap()
+    .with_session_persistence(persistence)
+}
+
+#[tokio::test]
+async fn lifecycle_restores_before_authentication_and_writes_through_without_shutdown() {
+    let persistence = std::sync::Arc::new(MemorySessions::default());
+    let first = session_executor(persistence.clone());
+    first
+        .engine
+        .cookies
+        .seed("sid=fixture-session", &first.base_url);
+    assert!(first.test().await.success);
+    assert!(persistence.snapshot.lock().unwrap().is_some());
+    drop(first);
+    let restored = session_executor(persistence.clone());
+    assert!(!restored.engine.cookies.has_cookies());
+    assert!(restored.test().await.success);
+    assert!(restored.engine.cookies.has_cookies());
+    assert!(restored.test().await.success);
+    assert_eq!(
+        persistence.loads.load(std::sync::atomic::Ordering::Relaxed),
+        2
+    );
+    assert!(!format!("{restored:?}").contains("fixture-session"));
+    assert!(!format!("{restored:?}").contains("fixture-password"));
+}
+
+#[tokio::test]
+async fn lifecycle_rejects_expired_snapshot_and_evicts_it() {
+    let persistence = std::sync::Arc::new(MemorySessions::default());
+    let executor = session_executor(persistence.clone());
+    executor
+        .engine
+        .cookies
+        .seed("sid=fixture-session", &executor.base_url);
+    let mut snapshot = executor.engine.cookies.snapshot().unwrap().unwrap();
+    snapshot.expires_at = time::OffsetDateTime::now_utc().unix_timestamp() - 1;
+    *persistence.snapshot.lock().unwrap() = Some(snapshot);
+    assert!(executor.test().await.success);
+    assert!(!executor.engine.cookies.has_cookies());
+    assert!(persistence.snapshot.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn paginated_search_rejects_rendered_cookie_headers_without_losing_session_scope() {
+    use reqwest::cookie::CookieStore;
+    let persistence = std::sync::Arc::new(MemorySessions::default());
+    let mut executor = session_executor(persistence.clone());
+    executor
+        .engine
+        .cookies
+        .seed("sid=fixture-session", &executor.base_url);
+    assert!(executor.test().await.success);
+    executor.definition.spec.implementation.search = serde_yaml::from_str(
+        "paths: [{path: /search}]\nheaders: {cOoKiE: ['sid={{ .Config.password }}']}\nrows: {selector: .result}\nfields: {}",
+    ).unwrap();
+    let error = executor
+        .search_page_with_parameters("fixture", 25, 50, &super::SearchParameters::default())
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        crate::EngineError::InvalidSearchDefinition(
+            "Cookie headers must use the scoped session jar"
+        )
+    ));
+    assert!(!error.to_string().contains("fixture-password"));
+    // The rejected definition header cannot overwrite the authenticated jar.
+    assert_eq!(
+        executor.engine.cookies.cookies(&executor.base_url).unwrap(),
+        "sid=fixture-session"
+    );
+    assert!(
+        executor
+            .engine
+            .cookies
+            .cookies(&url::Url::parse("https://other.invalid/").unwrap())
+            .is_none()
+    );
+    let restored = session_executor(persistence);
+    assert!(restored.test().await.success);
+    assert_eq!(
+        restored.engine.cookies.cookies(&restored.base_url).unwrap(),
+        "sid=fixture-session"
+    );
 }

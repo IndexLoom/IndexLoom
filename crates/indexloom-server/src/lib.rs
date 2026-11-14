@@ -35,11 +35,14 @@ use url::Url;
 
 pub mod auth;
 pub mod catalog;
+mod download;
 mod execution;
 pub mod local;
 mod management;
 pub mod remote;
 mod torznab;
+mod tracker_login;
+mod tracker_sessions;
 
 const MAX_CONFIGURATION_BODY: usize = 128 * 1024;
 const MAX_USER_AGENT_BYTES: usize = 512;
@@ -56,6 +59,7 @@ pub struct AppState {
     mail_sender: Option<auth::MailSender>,
     test_jobs: execution::TestJobRegistry,
     executor_cache: execution::ExecutorCache,
+    downloads: download::DownloadRegistry,
     search_permits: Arc<tokio::sync::Semaphore>,
 }
 
@@ -71,6 +75,7 @@ impl AppState {
             mail_sender: None,
             test_jobs: execution::TestJobRegistry::default(),
             executor_cache: execution::ExecutorCache::default(),
+            downloads: download::DownloadRegistry::new(),
             search_permits: execution::search_permits(),
         }
     }
@@ -92,6 +97,7 @@ impl AppState {
             mail_sender,
             test_jobs: execution::TestJobRegistry::default(),
             executor_cache: execution::ExecutorCache::default(),
+            downloads: download::DownloadRegistry::new(),
             search_permits: execution::search_permits(),
         }
     }
@@ -157,6 +163,8 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         )
         .merge(management::routes())
         .merge(execution::routes())
+        .merge(tracker_login::routes())
+        .merge(download::routes())
         .merge(auth::private_routes())
         .layer(DefaultBodyLimit::max(MAX_CONFIGURATION_BODY))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
@@ -186,7 +194,8 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
 }
 
 async fn security_headers(request: Request, next: Next) -> Response {
-    let auth_endpoint = request.uri().path().starts_with("/api/v1/auth/");
+    let auth_endpoint = request.uri().path().starts_with("/api/v1/auth/")
+        || request.uri().path().contains("/login-challenge");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(

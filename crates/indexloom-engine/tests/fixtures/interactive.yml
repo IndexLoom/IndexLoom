@@ -1,0 +1,35 @@
+# Original offline fixture for IndexLoom's manual login protocol.
+apiVersion: indexloom.io/v1alpha1
+kind: Indexer
+metadata: { id: challenge-test, name: Challenge test, description: Offline fixture, language: en-US }
+provenance:
+  generatedBy: indexloom-importer/v1
+  source:
+    project: jackett
+    repository: https://github.com/Jackett/Jackett
+    revision: "0000000000000000000000000000000000000000"
+    path: test/interactive.yml
+    sourceId: challenge-test
+    license: GPL-2.0-only
+    fileSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    contentSha256: "1111111111111111111111111111111111111111111111111111111111111111"
+spec:
+  protocol: torrent
+  privacy: private
+  baseUrls: [http://tracker.invalid/]
+  implementation:
+    engine: cardigann
+    encoding: UTF-8
+    capabilities: {}
+    settings:
+      - { name: username, type: text, label: Username }
+      - { name: password, type: password, label: Password }
+    authentication:
+      method: form
+      path: /login
+      form: form#login
+      inputs: { username: "{{ .Config.username }}", password: "{{ .Config.password }}" }
+      captcha: { type: image, selector: "img#captcha", input: answer }
+      error: [{ selector: .error }]
+      test: { path: /test, selector: .authenticated }
+    search: { paths: [{ path: /search }], rows: { selector: .result }, fields: {} }

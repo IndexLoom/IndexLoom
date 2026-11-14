@@ -1,123 +1,10 @@
-//! Cardigann HTML/JSON extraction and normalized result fields.
+//! Cardigann result normalization; extraction lives in the sibling modules.
+pub(super) use super::extract_html::parse_html_results;
+pub(super) use super::extract_json::parse_json_results;
 use super::{
-    BTreeMap, ElementRef, EngineError, Html, IndexerDefinition, JsonValue, Mapping, RenderContext,
-    SearchResult, Selector, Url, Uuid, YamlValue, apply_case, apply_filters, element_text, key,
-    mapping, normalize_contains_selector, parse_date, parse_size, parse_u32, render_template,
-    scalar,
+    BTreeMap, EngineError, IndexerDefinition, JsonValue, Mapping, RenderContext, SearchResult, Url,
+    Uuid, YamlValue, key, mapping, parse_date, parse_size, parse_u32, scalar,
 };
-
-pub(super) fn parse_html_results(
-    indexer_instance_id: &str,
-    definition: &IndexerDefinition,
-    search: &Mapping,
-    body: &str,
-    context: &RenderContext,
-    keywords: &str,
-    final_url: &Url,
-) -> Result<Vec<SearchResult>, EngineError> {
-    let rows =
-        search
-            .get(key("rows"))
-            .and_then(mapping)
-            .ok_or(EngineError::InvalidSearchDefinition(
-                "search rows are missing",
-            ))?;
-    let selector =
-        rows.get(key("selector"))
-            .and_then(scalar)
-            .ok_or(EngineError::InvalidSearchDefinition(
-                "row selector is missing",
-            ))?;
-    let selector = render_template(&selector, &context.for_search(keywords, BTreeMap::new()))?;
-    let (css, contains) = normalize_contains_selector(&selector);
-    let selector =
-        Selector::parse(&css).map_err(|error| EngineError::InvalidSelector(error.to_string()))?;
-    let document = Html::parse_document(body);
-    document
-        .select(&selector)
-        .filter(|row| {
-            contains
-                .iter()
-                .all(|needle| element_text(*row).contains(needle))
-        })
-        .filter_map(|row| {
-            match extract_html_row(
-                indexer_instance_id,
-                definition,
-                search,
-                row,
-                context,
-                keywords,
-                final_url,
-            ) {
-                Ok(Some(result)) => Some(Ok(result)),
-                Ok(None) => None,
-                Err(error) => Some(Err(error)),
-            }
-        })
-        .collect()
-}
-
-pub(super) fn extract_html_row(
-    indexer_instance_id: &str,
-    definition: &IndexerDefinition,
-    search: &Mapping,
-    row: ElementRef<'_>,
-    context: &RenderContext,
-    keywords: &str,
-    final_url: &Url,
-) -> Result<Option<SearchResult>, EngineError> {
-    let fields =
-        search
-            .get(key("fields"))
-            .and_then(mapping)
-            .ok_or(EngineError::InvalidSearchDefinition(
-                "search fields are missing",
-            ))?;
-    let mut result = BTreeMap::new();
-    for (name, specification) in fields {
-        let Some(name) = scalar(name) else { continue };
-        let Some(specification) = mapping(specification) else {
-            continue;
-        };
-        if specification.contains_key(key("text")) {
-            continue;
-        }
-        let render_result = complete_result_fields(fields, &result);
-        if let Some(value) =
-            extract_html_field(row, specification, context, keywords, &render_result)?
-        {
-            result.insert(name, value);
-        }
-    }
-    for _ in 0..3 {
-        let before = result.len();
-        for (name, specification) in fields {
-            let Some(name) = scalar(name) else { continue };
-            if result.contains_key(&name) {
-                continue;
-            }
-            let Some(specification) = mapping(specification) else {
-                continue;
-            };
-            let render_result = complete_result_fields(fields, &result);
-            if let Some(value) =
-                extract_html_field(row, specification, context, keywords, &render_result)?
-            {
-                result.insert(name, value);
-            }
-        }
-        if result.len() == before {
-            break;
-        }
-    }
-    Ok(normalized_result(
-        indexer_instance_id,
-        definition,
-        &result,
-        final_url,
-    ))
-}
 
 pub(super) fn complete_result_fields(
     fields: &Mapping,
@@ -127,185 +14,154 @@ pub(super) fn complete_result_fields(
         .keys()
         .filter_map(scalar)
         .map(|name| {
+            let name = name.split('|').next().unwrap_or_default().to_owned();
             let value = result.get(&name).cloned().unwrap_or_default();
             (name, value)
         })
         .collect()
 }
 
-pub(super) fn extract_html_field(
-    row: ElementRef<'_>,
-    specification: &Mapping,
+/// Resolve helper-field dependencies without repeatedly applying stateful append modifiers.
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the dependency-resolution pass and field modifiers together."
+)]
+pub(super) fn fields(
+    fields: &Mapping,
     context: &RenderContext,
     keywords: &str,
-    result: &BTreeMap<String, String>,
-) -> Result<Option<String>, EngineError> {
-    let render = context.for_search(keywords, result.clone());
-    let mut value = if let Some(text) = specification.get(key("text")).and_then(scalar) {
-        render_template(&text, &render)?
-    } else if let Some(selector_text) = specification.get(key("selector")).and_then(scalar) {
-        let selector_text = render_template(&selector_text, &render)?;
-        let (css, contains) = normalize_contains_selector(&selector_text);
-        let selector = Selector::parse(&css)
-            .map_err(|error| EngineError::InvalidSelector(error.to_string()))?;
-        let element = row.select(&selector).find(|element| {
-            contains
+    mut extract: impl FnMut(&Mapping, &super::TemplateValue) -> Result<Option<String>, EngineError>,
+) -> Result<Option<BTreeMap<String, String>>, EngineError> {
+    if fields.len() > 1024 {
+        return Err(EngineError::CardigannIncompatible(
+            "more than 1024 result fields",
+        ));
+    }
+    let references =
+        super::Regex::new(r"\.Result\.([A-Za-z0-9_-]+)").expect("static field reference pattern");
+    let mut pending = fields.iter().collect::<Vec<_>>();
+    let mut values = BTreeMap::new();
+    let mut done = std::collections::BTreeSet::new();
+    let names = complete_result_fields(fields, &values);
+    while !pending.is_empty() {
+        let mut next = Vec::new();
+        let before = pending.len();
+        for (name_value, spec_value) in pending {
+            let name = name_value;
+            let spec = spec_value;
+            let name = scalar(name).ok_or(EngineError::InvalidSearchDefinition(
+                "field name must be scalar",
+            ))?;
+            let mut parts = name.split('|');
+            let field = parts.next().unwrap_or_default();
+            let modifiers: Vec<_> = parts.collect();
+            if modifiers
                 .iter()
-                .all(|needle| element_text(*element).contains(needle))
-        });
-        let Some(element) = element else {
-            return Ok(specification.get(key("default")).and_then(scalar));
-        };
-        if let Some(attribute) = specification.get(key("attribute")).and_then(scalar) {
-            element
-                .value()
-                .attr(&attribute)
-                .unwrap_or_default()
-                .to_owned()
-        } else {
-            element_text(element)
-        }
-    } else {
-        specification
-            .get(key("default"))
-            .and_then(scalar)
-            .unwrap_or_default()
-    };
-    if let Some(cases) = specification.get(key("case")).and_then(mapping) {
-        value = apply_case(&value, cases);
-    }
-    if let Some(filters) = specification.get(key("filters")) {
-        value = apply_filters(value, filters)?;
-    }
-    if value.trim().is_empty()
-        && specification
-            .get(key("optional"))
-            .and_then(YamlValue::as_bool)
-            .unwrap_or(false)
-    {
-        Ok(None)
-    } else {
-        Ok(Some(value.trim().to_owned()))
-    }
-}
-
-pub(super) fn parse_json_results(
-    indexer_instance_id: &str,
-    definition: &IndexerDefinition,
-    search: &Mapping,
-    body: &str,
-    context: &RenderContext,
-    keywords: &str,
-    final_url: &Url,
-) -> Result<Vec<SearchResult>, EngineError> {
-    let document: JsonValue = serde_json::from_str(body)?;
-    let rows =
-        search
-            .get(key("rows"))
-            .and_then(mapping)
-            .ok_or(EngineError::InvalidSearchDefinition(
-                "search rows are missing",
-            ))?;
-    let selector = rows
-        .get(key("selector"))
-        .and_then(scalar)
-        .unwrap_or_default();
-    let selected = json_path(&document, &selector).unwrap_or(&document);
-    let rows = selected
-        .as_array()
-        .map_or_else(|| std::slice::from_ref(selected), Vec::as_slice);
-    let attribute = rows_mapping_attribute(search);
-    rows.iter()
-        .filter_map(|row| {
-            let row = attribute
-                .as_deref()
-                .and_then(|path| json_path(row, path))
-                .unwrap_or(row);
-            match extract_json_row(
-                indexer_instance_id,
-                definition,
-                search,
-                row,
-                context,
-                keywords,
-                final_url,
-            ) {
-                Ok(Some(result)) => Some(Ok(result)),
-                Ok(None) => None,
-                Err(error) => Some(Err(error)),
+                .any(|m| !["append", "optional", "default", "noappend"].contains(m))
+            {
+                return Err(EngineError::CardigannIncompatible(
+                    "unsupported field modifier",
+                ));
             }
-        })
-        .collect()
-}
-
-pub(super) fn rows_mapping_attribute(search: &Mapping) -> Option<String> {
-    search
-        .get(key("rows"))
-        .and_then(mapping)
-        .and_then(|rows| rows.get(key("attribute")))
-        .and_then(scalar)
-}
-
-pub(super) fn extract_json_row(
-    indexer_instance_id: &str,
-    definition: &IndexerDefinition,
-    search: &Mapping,
-    row: &JsonValue,
-    context: &RenderContext,
-    keywords: &str,
-    final_url: &Url,
-) -> Result<Option<SearchResult>, EngineError> {
-    let fields =
-        search
-            .get(key("fields"))
-            .and_then(mapping)
-            .ok_or(EngineError::InvalidSearchDefinition(
-                "search fields are missing",
+            let spec = mapping(spec).ok_or(EngineError::InvalidSearchDefinition(
+                "field must be a mapping",
             ))?;
-    let mut result = BTreeMap::new();
-    for _ in 0..3 {
-        let before = result.len();
-        for (name, specification) in fields {
-            let Some(name) = scalar(name) else { continue };
-            if result.contains_key(&name) {
+            if spec.keys().filter_map(scalar).any(|key| {
+                ![
+                    "text",
+                    "selector",
+                    "attribute",
+                    "optional",
+                    "default",
+                    "remove",
+                    "case",
+                    "filters",
+                ]
+                .contains(&key.as_str())
+            }) {
+                return Err(EngineError::CardigannIncompatible(
+                    "unsupported field selector option",
+                ));
+            }
+            let source = serde_yaml::to_string(spec)
+                .map_err(|_| EngineError::InvalidSearchDefinition("invalid field"))?;
+            if references
+                .captures_iter(&source)
+                .any(|r| names.contains_key(&r[1]) && !done.contains(&r[1]) && &r[1] != field)
+            {
+                next.push((name_value, spec_value));
                 continue;
             }
-            let Some(specification) = mapping(specification) else {
-                continue;
-            };
-            let render = context.for_search(keywords, complete_result_fields(fields, &result));
-            let mut value = if let Some(text) = specification.get(key("text")).and_then(scalar) {
-                render_template(&text, &render)?
-            } else if let Some(selector) = specification.get(key("selector")).and_then(scalar) {
-                json_path(row, &selector)
-                    .map(json_string)
-                    .unwrap_or_default()
-            } else {
-                specification
+            let render = context.for_search(keywords, complete_result_fields(fields, &values));
+            let optional = [
+                "imdb",
+                "imdbid",
+                "tmdbid",
+                "rageid",
+                "tvdbid",
+                "tvmazeid",
+                "traktid",
+                "doubanid",
+                "poster",
+                "banner",
+                "genre",
+                "description",
+            ]
+            .contains(&field)
+                || modifiers.contains(&"optional")
+                || spec
+                    .get(key("optional"))
+                    .and_then(YamlValue::as_bool)
+                    .unwrap_or(false);
+            let value = extract(spec, &render)?;
+            let value = match value {
+                Some(v) if !v.is_empty() => Some(v),
+                _ => spec
                     .get(key("default"))
                     .and_then(scalar)
-                    .unwrap_or_default()
+                    .map(|v| super::render_template(&v, &render))
+                    .transpose()?,
             };
-            if let Some(cases) = specification.get(key("case")).and_then(mapping) {
-                value = apply_case(&value, cases);
+            if let Some(value) = value {
+                if modifiers.contains(&"append") {
+                    values
+                        .entry(field.to_owned())
+                        .or_insert_with(String::new)
+                        .push_str(&value);
+                } else if !modifiers.contains(&"default") || !values.contains_key(field) {
+                    values.insert(field.to_owned(), value);
+                }
+            } else if !optional {
+                return Ok(None);
             }
-            if let Some(filters) = specification.get(key("filters")) {
-                value = apply_filters(value, filters)?;
-            }
-            if !value.trim().is_empty() {
-                result.insert(name, value.trim().to_owned());
-            }
+            done.insert(field.to_owned());
         }
-        if result.len() == before {
-            break;
+        if next.len() == before {
+            return Err(EngineError::CardigannIncompatible(
+                "cyclic result-field dependencies",
+            ));
         }
+        pending = next;
     }
-    Ok(normalized_result(
-        indexer_instance_id,
-        definition,
-        &result,
-        final_url,
-    ))
+    Ok(Some(values))
+}
+
+pub(super) fn finish(
+    value: Option<String>,
+    spec: &Mapping,
+    render: &super::TemplateValue,
+    encoding: &str,
+) -> Result<Option<String>, EngineError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim().to_owned();
+    let value = if let Some(filters) = spec.get(key("filters")) {
+        super::transform::apply(value, filters, render, encoding)?
+    } else {
+        value
+    };
+    Ok(Some(value))
 }
 
 pub(super) fn normalized_result(
@@ -357,7 +213,10 @@ pub(super) fn normalized_result(
         size: values.get("size").and_then(|value| parse_size(value)),
         seeders: values.get("seeders").and_then(|value| parse_u32(value)),
         leechers: values.get("leechers").and_then(|value| parse_u32(value)),
-        published_at: values.get("date").and_then(|value| parse_date(value)),
+        published_at: values.get("date").and_then(|value| {
+            parse_date(value)
+                .or_else(|| super::dates::fuzzy(value, None, super::OffsetDateTime::now_utc()))
+        }),
     })
 }
 
@@ -426,40 +285,13 @@ pub(super) fn normalize_http_link(base: &Url, value: &str) -> Option<String> {
     matches!(url.scheme(), "http" | "https").then(|| url.to_string())
 }
 
-pub(super) fn json_path<'a>(mut value: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
-    if path.is_empty() || path == ":root" {
-        return Some(value);
-    }
-    for segment in path.trim_start_matches("$.").split('.') {
-        if segment.is_empty() {
-            continue;
-        }
-        let mut name = segment;
-        let mut index = None;
-        if let Some(open) = segment.find('[') {
-            name = &segment[..open];
-            index = segment[open + 1..]
-                .trim_end_matches(']')
-                .parse::<usize>()
-                .ok();
-        }
-        if !name.is_empty() {
-            value = value.get(name)?;
-        }
-        if let Some(index) = index {
-            value = value.get(index)?;
-        }
-    }
-    Some(value)
-}
-
 pub(super) fn json_string(value: &JsonValue) -> String {
     match value {
         JsonValue::Null => String::new(),
         JsonValue::String(value) => value.clone(),
         JsonValue::Bool(value) => value.to_string(),
         JsonValue::Number(value) => value.to_string(),
-        JsonValue::Array(values) => values.iter().map(json_string).collect::<Vec<_>>().join(" "),
+        JsonValue::Array(values) => values.iter().map(json_string).collect::<Vec<_>>().join(","),
         JsonValue::Object(_) => value.to_string(),
     }
 }

@@ -1,15 +1,43 @@
+mod challenge;
+pub use challenge::{LoginChallengeDescriptor, LoginField, LoginProgress};
+pub mod download;
 mod extract;
+mod extract_html;
+mod extract_json;
 mod filters;
+mod http;
+mod mirrors;
+mod rows;
+mod templates;
+use templates::{
+    all_search_paths, path_matches_categories, render_headers, render_inputs, render_raw_query,
+    render_search_inputs, render_template, resolve_category_ids, retryable_search_error,
+    set_pagination,
+};
+mod context;
+mod dates;
+mod response;
+use context::RenderContext;
+mod jsonpath;
+mod selectors;
+mod transform;
+mod transport;
+mod xml;
 use extract::{parse_html_results, parse_json_results};
+
+fn element_text(element: ElementRef<'_>) -> String {
+    element.text().collect::<String>().trim().to_owned()
+}
+
+use filters::{apply_filters, normalize_contains_selector};
 use filters::{
-    apply_case, apply_filters, browser_cookies, check_error_selectors, configuration_json,
-    element_text, json_template_value, key, mapping, normalize_contains_selector, parse_date,
-    parse_size, parse_u32, scalar, selector_matches,
+    check_error_selectors, configuration_json, key, mapping, parse_date, parse_size, parse_u32,
+    scalar, selector_matches,
 };
 
 use std::{
-    collections::{BTreeMap, HashMap},
-    sync::LazyLock,
+    collections::BTreeMap,
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 
@@ -28,8 +56,8 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::{
-    BrowserCookie, DirectRequestProfile, EngineError, FlareSolverrClient, ProxyRoute, SearchEngine,
-    validate_public_url_literal,
+    DirectRequestProfile, EngineError, FlareSolverrClient, ProxyRoute, SearchEngine,
+    SessionPersistence, validate_public_url_literal,
 };
 
 const MAX_DIRECT_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
@@ -116,7 +144,15 @@ pub struct CardigannExecutor {
     flaresolverr: Option<FlareSolverrClient>,
     base_url: Url,
     allowed_origins: Vec<Origin>,
-    auth_state: tokio::sync::Mutex<AuthSessionState>,
+    auth_state: Arc<tokio::sync::Mutex<AuthSessionState>>,
+    mirrors: Arc<mirrors::MirrorPool>,
+    #[cfg(test)]
+    transport: Option<Arc<dyn http::MockTransport>>,
+    encoding: transport::WireEncoding,
+    request_gate: Arc<transport::RequestGate>,
+    operation: Arc<tokio::sync::Mutex<()>>,
+    persistence: Option<Arc<dyn SessionPersistence>>,
+    configured_cookie: bool,
 }
 
 impl CardigannExecutor {
@@ -126,6 +162,18 @@ impl CardigannExecutor {
     ///
     /// Returns [`EngineError`] for invalid catalog URLs or proxy configuration.
     pub fn new(config: IndexerExecutionConfig) -> Result<Self, EngineError> {
+        let roots =
+            transport::certificate_roots(&config.definition.spec.implementation.certificates)?;
+        if !roots.is_empty() && config.flaresolverr.is_some() {
+            return Err(EngineError::CardigannIncompatible(
+                "custom CA roots cannot be enforced through FlareSolverr",
+            ));
+        }
+        let encoding =
+            transport::WireEncoding::new(&config.definition.spec.implementation.encoding)?;
+        let request_gate = Arc::new(transport::RequestGate::new(
+            config.definition.spec.implementation.request_delay_seconds,
+        )?);
         let base_url = Url::parse(
             config
                 .definition
@@ -147,12 +195,20 @@ impl CardigannExecutor {
                 Ok::<Origin, EngineError>(Origin::from_url(&url))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let engine = SearchEngine::with_proxy(config.proxy.as_ref())?;
+        let mirrors = Arc::new(mirrors::MirrorPool::new(
+            &config.definition,
+            config.proxy.as_ref(),
+        )?);
+        let engine = SearchEngine::with_proxy_and_roots(config.proxy.as_ref(), roots)?;
         let cookie_header = config
             .secrets
             .iter()
             .find(|(name, _)| name.to_ascii_lowercase().contains("cookie"))
             .map(|(_, value)| value.clone());
+        let configured_cookie = cookie_header.is_some();
+        if let Some(header) = cookie_header.as_deref() {
+            engine.cookies.seed(header, &base_url);
+        }
         let mut values = config.values;
         for field in config.definition.configuration_schema().fields {
             if values.contains_key(&field.name) || config.secrets.contains_key(&field.name) {
@@ -180,20 +236,55 @@ impl CardigannExecutor {
             engine,
             profile: DirectRequestProfile {
                 user_agent: config.user_agent,
-                cookie_header,
+                cookie_header: None,
             },
             proxy: config.proxy,
             flaresolverr: config.flaresolverr,
             base_url,
             allowed_origins,
-            auth_state: tokio::sync::Mutex::new(AuthSessionState::default()),
+            auth_state: Arc::new(tokio::sync::Mutex::new(AuthSessionState::default())),
+            encoding,
+            request_gate,
+            operation: Arc::new(tokio::sync::Mutex::new(())),
+            persistence: None,
+            configured_cookie,
+            mirrors,
+            #[cfg(test)]
+            transport: None,
         })
+    }
+
+    /// Attaches the host's per-instance encrypted session backend. Loading is
+    /// lazy, before the first authentication; completed operations write through.
+    #[must_use]
+    pub fn with_session_persistence(mut self, persistence: Arc<dyn SessionPersistence>) -> Self {
+        self.persistence = Some(persistence);
+        self
+    }
+
+    async fn persist_session(&self) -> Result<(), EngineError> {
+        if let Some(persistence) = &self.persistence {
+            match self.engine.cookies.snapshot()? {
+                Some(snapshot) => persistence.save(snapshot).await?,
+                None => persistence.clear().await?,
+            }
+        }
+        Ok(())
+    }
+
+    async fn revoke_session(&self) -> Result<(), EngineError> {
+        self.engine.cookies.clear();
+        self.auth_state.lock().await.last_success = None;
+        if let Some(persistence) = &self.persistence {
+            persistence.clear().await?;
+        }
+        Ok(())
     }
 
     /// Tests transport and, when described by the definition, authentication.
     pub async fn test(&self) -> IndexerTestOutcome {
         let started = Instant::now();
-        let result = self.test_inner().await;
+        let result = self.test_mirrors().await;
         IndexerTestOutcome {
             indexer_id: self.indexer_instance_id.clone(),
             indexer_name: self.definition.metadata.name.clone(),
@@ -204,6 +295,19 @@ impl CardigannExecutor {
                 Err(error) => error.to_string(),
             },
         }
+    }
+
+    async fn test_single(&self) -> Result<String, EngineError> {
+        let _operation = self.operation.lock().await;
+        let mut result = self.test_inner().await;
+        if result.is_ok() {
+            if let Err(error) = self.persist_session().await {
+                result = Err(error);
+            }
+        } else if let Err(error) = self.revoke_session().await {
+            result = Err(error);
+        }
+        result
     }
 
     /// Searches one indexer and returns its results as a distinct batch.
@@ -232,6 +336,80 @@ impl CardigannExecutor {
         limit: usize,
         parameters: &SearchParameters,
     ) -> Result<IndexerSearchBatch, EngineError> {
+        self.search_page_with_parameters(term, limit, 0, parameters)
+            .await
+    }
+
+    /// Executes all applicable definition paths for one requested offset.
+    /// Pagination is explicit: no speculative page crawling or unbounded requests.
+    ///
+    /// # Errors
+    /// Returns a definition, transport, or parsing error.
+    pub async fn search_page_with_parameters(
+        &self,
+        term: &str,
+        limit: usize,
+        offset: usize,
+        parameters: &SearchParameters,
+    ) -> Result<IndexerSearchBatch, EngineError> {
+        self.search_page_mirrors(term, limit, offset, parameters)
+            .await
+    }
+
+    async fn search_page_single(
+        &self,
+        term: &str,
+        limit: usize,
+        offset: usize,
+        parameters: &SearchParameters,
+    ) -> Result<IndexerSearchBatch, EngineError> {
+        if term.trim().is_empty() {
+            return Err(EngineError::EmptySearchTerm);
+        }
+        let _operation = self.operation.lock().await;
+        let mut result = self.search_inner(term, limit, offset, parameters).await;
+        if matches!(
+            result,
+            Err(EngineError::AuthenticationRejected | EngineError::UnexpectedStatus(401 | 403))
+        ) {
+            self.revoke_session().await?;
+            result = self.search_inner(term, limit, offset, parameters).await;
+        }
+        // Also save deletion/rotation cookies if extraction failed after a valid
+        // HTTP response. Never preserve a rejected authentication session.
+        if matches!(
+            result,
+            Err(EngineError::AuthenticationRejected | EngineError::UnexpectedStatus(401 | 403))
+        ) {
+            self.revoke_session().await?;
+        } else {
+            let mut state = self.auth_state.lock().await;
+            let trusted = self.definition.spec.implementation.authentication.is_none()
+                || state.last_success.is_some();
+            // Rotation can shorten a cookie's deadline. Recheck authentication
+            // at that new deadline even while the 15-minute cache is warm.
+            state.cookie_expiry = self.engine.cookies.earliest_expiry();
+            drop(state);
+            if trusted {
+                self.persist_session().await?;
+            } else {
+                self.revoke_session().await?;
+            }
+        }
+        result
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Keep request aggregation and partial failure policy in one place."
+    )]
+    async fn search_inner(
+        &self,
+        term: &str,
+        limit: usize,
+        offset: usize,
+        parameters: &SearchParameters,
+    ) -> Result<IndexerSearchBatch, EngineError> {
         if term.trim().is_empty() {
             return Err(EngineError::EmptySearchTerm);
         }
@@ -242,7 +420,14 @@ impl CardigannExecutor {
         )?;
         let keywords = search
             .get(key("keywordsfilters"))
-            .map(|filters| apply_filters(term.to_owned(), filters))
+            .map(|filters| {
+                transform::apply(
+                    term.to_owned(),
+                    filters,
+                    &self.context.for_search(term, BTreeMap::new()),
+                    &self.definition.spec.implementation.encoding,
+                )
+            })
             .transpose()?
             .unwrap_or_else(|| term.to_owned());
         if let Some(mode) = parameters.mode.as_deref() {
@@ -260,58 +445,76 @@ impl CardigannExecutor {
         {
             return Err(EngineError::UnsupportedSearchCategory(category.to_owned()));
         }
-        let render = self.context.for_search_with_parameters(
-            &keywords,
-            BTreeMap::new(),
-            parameters,
-            &categories,
-        );
-        // Cardigann can declare multiple search paths. Fall back only for
-        // temporary transport/server errors; malformed templates, authentication
-        // errors and policy violations are not made safe by trying another path.
+        let mut execution_context = self.context.clone();
+        execution_context.parameters = parameters.clone();
+        execution_context.categories.clone_from(&categories);
+        execution_context.limit = limit.clamp(1, 500);
+        execution_context.offset = offset;
+        execution_context.skip_andmatch =
+            templates::supports_id_search(&self.definition, parameters);
         let paths = all_search_paths(search)?;
+        if paths.len() > 64 {
+            return Err(EngineError::CardigannIncompatible(
+                "more than 64 search paths",
+            ));
+        }
+        let mut results = Vec::new();
         let mut last_error = None;
-        let mut selected = None;
-        for (index, path) in paths.iter().enumerate() {
-            match self.execute_search_path(search, path, &render).await {
-                Ok(response) => {
-                    selected = Some(response);
-                    break;
+        let mut completed = 0;
+        let mut requested = std::collections::BTreeSet::new();
+        for path in paths {
+            if !path_matches_categories(path, &categories)? {
+                continue;
+            }
+            let mut path_context = execution_context.clone();
+            if let Some(restrictions) = path.get(key("categories")).and_then(YamlValue::as_sequence)
+            {
+                let allowed = restrictions.iter().filter_map(scalar).collect::<Vec<_>>();
+                if allowed.first().is_none_or(|v| v != "!") && !categories.is_empty() {
+                    path_context.categories.retain(|v| allowed.contains(v));
                 }
-                Err(error) if index + 1 < paths.len() && retryable_search_error(&error) => {
+            }
+            let render = path_context.for_search(&keywords, BTreeMap::new());
+            // Deduplicate identical rendered requests while preserving explicit offsets.
+            let signature = render_template(
+                &serde_yaml::to_string(path)
+                    .map_err(|_| EngineError::InvalidSearchDefinition("invalid search path"))?,
+                &render,
+            )?;
+            if !requested.insert(signature) {
+                continue;
+            }
+            let response = match self.execute_search_path(search, path, &render).await {
+                Ok(response) => response,
+                Err(error) if retryable_search_error(&error) => {
                     last_error = Some(error);
+                    continue;
                 }
                 Err(error) => return Err(error),
-            }
+            };
+            completed += 1;
+            let parsed =
+                self.parse_search_response(search, path, response, &path_context, &keywords)?;
+            results.extend(
+                parsed
+                    .into_iter()
+                    .take(500_usize.saturating_sub(results.len())),
+            );
         }
-        let response = selected.ok_or_else(|| {
-            last_error.unwrap_or(EngineError::InvalidSearchDefinition(
-                "no usable search path",
+        if completed == 0
+            && let Some(error) = last_error
+        {
+            return Err(error);
+        }
+        let mut identities = std::collections::BTreeSet::new();
+        results.retain(|r| {
+            identities.insert((
+                r.title.clone(),
+                r.download_url.clone(),
+                r.magnet_url.clone(),
+                r.details_url.clone(),
             ))
-        })?;
-        let mut results = match response.response_type.as_str() {
-            "json" => parse_json_results(
-                &self.indexer_instance_id,
-                &self.definition,
-                search,
-                &response.body,
-                &self.context,
-                &keywords,
-                &response.final_url,
-            )?,
-            "html" | "xml" => parse_html_results(
-                &self.indexer_instance_id,
-                &self.definition,
-                search,
-                &response.body,
-                &self.context,
-                &keywords,
-                &response.final_url,
-            )?,
-            _ => {
-                return Err(EngineError::UnsupportedResponseType(response.response_type));
-            }
-        };
+        });
         results.truncate(limit.clamp(1, 500));
         Ok(IndexerSearchBatch {
             indexer_instance_id: self.indexer_instance_id.clone(),
@@ -323,8 +526,8 @@ impl CardigannExecutor {
     }
 
     async fn test_inner(&self) -> Result<String, EngineError> {
+        self.authenticate_if_needed().await?;
         if self.definition.spec.implementation.authentication.is_some() {
-            self.authenticate_if_needed().await?;
             return Ok("authentication and tracker test succeeded".to_owned());
         }
         let response = self
@@ -344,6 +547,17 @@ impl CardigannExecutor {
     }
 
     async fn authenticate_if_needed(&self) -> Result<(), EngineError> {
+        let mut state = self.auth_state.lock().await;
+        let mut restored = false;
+        if !state.loaded {
+            if let Some(persistence) = &self.persistence
+                && let Some(snapshot) = persistence.load().await?
+            {
+                self.engine.cookies.restore(&snapshot)?;
+                restored = self.engine.cookies.has_cookies();
+            }
+            state.loaded = true;
+        }
         let Some(authentication) = self
             .definition
             .spec
@@ -354,24 +568,58 @@ impl CardigannExecutor {
         else {
             return Ok(());
         };
-        let mut state = self.auth_state.lock().await;
+        if state.revoked {
+            return Err(EngineError::LoginChallengeUnavailable);
+        }
+        state.interactive.prune();
+        if state.interactive.pending.is_some() {
+            return Err(EngineError::LoginChallengeRequired);
+        }
         if state
             .last_success
-            .is_some_and(|authenticated| authenticated.elapsed() < AUTH_SESSION_TTL)
+            .is_some_and(|at| at.elapsed() < AUTH_SESSION_TTL)
+            && self.engine.cookies.has_cookies()
+            && state
+                .cookie_expiry
+                .is_none_or(|at| at > OffsetDateTime::now_utc().unix_timestamp())
         {
             return Ok(());
         }
-        self.authenticate(authentication).await?;
+        // Revalidate restored cookies using the definition's test before login.
+        // Without a test, the next request checks the restored session; 401/403
+        // triggers a single fresh login.
+        if restored {
+            match self.authenticate(authentication, true).await {
+                Ok(()) => {
+                    state.last_success = Some(Instant::now());
+                    state.cookie_expiry = self.engine.cookies.earliest_expiry();
+                    return self.persist_session().await;
+                }
+                Err(
+                    EngineError::AuthenticationRejected | EngineError::UnexpectedStatus(401 | 403),
+                ) => {
+                    self.engine.cookies.clear();
+                    if let Some(persistence) = &self.persistence {
+                        persistence.clear().await?;
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        self.authenticate(authentication, false).await?;
         state.last_success = Some(Instant::now());
-        Ok(())
+        state.cookie_expiry = self.engine.cookies.earliest_expiry();
+        self.persist_session().await
     }
 
-    async fn authenticate(&self, authentication: &Mapping) -> Result<(), EngineError> {
-        let configured_cookie = self.profile.cookie_header.is_some();
+    async fn authenticate(
+        &self,
+        authentication: &Mapping,
+        restored: bool,
+    ) -> Result<(), EngineError> {
+        let configured_cookie = self.configured_cookie || restored;
         if authentication.contains_key(key("captcha")) && !configured_cookie {
-            return Err(EngineError::UnsupportedAuthentication(
-                "interactive CAPTCHA requires a cookie or future browser-login workflow".to_owned(),
-            ));
+            return Err(EngineError::LoginChallengeRequired);
         }
         let render = self.context.for_search("", BTreeMap::new());
         let method = authentication
@@ -459,6 +707,9 @@ impl CardigannExecutor {
                 raw_query: None,
             })
             .await?;
+        if challenge::requires_interactive(authentication, &login_page.body)? {
+            return Err(EngineError::LoginChallengeRequired);
+        }
         let (target, form_values) = {
             let selector_text = authentication
                 .get(key("form"))
@@ -519,16 +770,16 @@ impl CardigannExecutor {
         let method = render_template(&method, render)?.to_ascii_lowercase();
         let allow_empty = search
             .get(key("allowEmptyInputs"))
+            .or_else(|| search.get(key("allowemptyinputs")))
             .and_then(YamlValue::as_bool)
             .unwrap_or(false);
         let inputs = render_search_inputs(search, path, render, allow_empty)?;
-        let raw_query = search
-            .get(key("inputs"))
-            .and_then(mapping)
-            .and_then(|inputs| inputs.get(key("$raw")))
-            .and_then(scalar)
-            .map(|value| render_template(&value, render))
-            .transpose()?;
+        let raw_query = render_raw_query(
+            search,
+            path,
+            render,
+            &self.definition.spec.implementation.encoding,
+        )?;
         let headers = render_headers(search.get(key("headers")), render)?;
         let response_type = path
             .get(key("response"))
@@ -542,14 +793,21 @@ impl CardigannExecutor {
                 return Err(EngineError::FlareSolverrUnsupportedRequest);
             }
             let mut url = target;
-            append_query(&mut url, &inputs, raw_query.as_deref());
-            let cookies = browser_cookies(self.profile.cookie_header.as_deref());
+            self.encoding
+                .query(&mut url, &inputs, raw_query.as_deref())?;
+            self.request_gate.wait().await;
+            let cookies = self.engine.cookies.browser_cookies(&url);
             let solution = flaresolverr
                 .get(&url, &cookies, self.proxy.as_ref())
                 .await?;
+            self.engine.import_browser_solution(&url, &solution);
+            let status = StatusCode::from_u16(solution.status)
+                .map_err(|_| EngineError::InvalidResponseStatus(solution.status))?;
+            if !status.is_success() {
+                return Err(EngineError::UnexpectedStatus(status.as_u16()));
+            }
             return Ok(ExecutionResponse {
-                status: StatusCode::from_u16(solution.status)
-                    .map_err(|_| EngineError::InvalidResponseStatus(solution.status))?,
+                status,
                 body: solution.response,
                 final_url: url,
                 response_type,
@@ -572,79 +830,62 @@ impl CardigannExecutor {
         Ok(response)
     }
 
-    async fn execute_direct(&self, spec: RequestSpec) -> Result<ExecutionResponse, EngineError> {
+    #[cfg(test)]
+    fn direct_request(&self, spec: RequestSpec) -> Result<reqwest::RequestBuilder, EngineError> {
         let mut url = spec.url;
         if spec.method == Method::GET {
-            append_query(&mut url, &spec.inputs, spec.raw_query.as_deref());
+            self.encoding
+                .query(&mut url, &spec.inputs, spec.raw_query.as_deref())?;
         }
         self.ensure_allowed(&url)?;
         let mut request = self
             .engine
             .request(spec.method.clone(), url.clone(), &self.profile);
         for (name, value) in &spec.headers {
+            if name == reqwest::header::COOKIE {
+                return Err(EngineError::InvalidSearchDefinition(
+                    "Cookie headers must use the scoped session jar",
+                ));
+            }
             request = request.header(name, value);
         }
         if spec.method == Method::POST {
-            request = request.form(&spec.inputs);
-        }
-        let mut response = request.send().await?;
-        let mut redirects = 0_usize;
-        while response.status().is_redirection()
-            && self
-                .definition
-                .spec
-                .implementation
-                .follow_redirects
-                .unwrap_or(true)
-        {
-            if redirects >= MAX_REDIRECTS {
-                return Err(EngineError::TooManyRedirects);
+            let mut body = self.encoding.form(&spec.inputs)?;
+            if let Some(raw) = spec.raw_query.as_deref().filter(|v| !v.is_empty()) {
+                if !body.is_empty() {
+                    body.push('&');
+                }
+                body.push_str(raw.trim_start_matches(['?', '&']));
             }
-            let location = response
-                .headers()
-                .get(reqwest::header::LOCATION)
-                .and_then(|value| value.to_str().ok())
-                .ok_or(EngineError::RedirectWithoutLocation)?;
-            url = self.resolve_url(response.url(), location)?;
-            self.ensure_allowed(&url)?;
-            response = self
-                .engine
-                .request(Method::GET, url.clone(), &self.profile)
-                .send()
-                .await?;
-            redirects += 1;
+            request = request
+                .header(
+                    reqwest::header::CONTENT_TYPE,
+                    "application/x-www-form-urlencoded",
+                )
+                .body(body);
         }
-        let status = response.status();
-        if response
-            .content_length()
-            .is_some_and(|length| length > MAX_DIRECT_RESPONSE_BYTES as u64)
-        {
-            return Err(EngineError::ResponseTooLarge);
-        }
-        let final_url = response.url().clone();
-        // Content-Length is optional/untrusted: enforce the cap before allocating
-        // every streamed chunk, including chunked transfer-encoded responses.
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await? {
-            if bytes.len().saturating_add(chunk.len()) > MAX_DIRECT_RESPONSE_BYTES {
-                return Err(EngineError::ResponseTooLarge);
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let body = String::from_utf8_lossy(&bytes).into_owned();
-        if !status.is_success() {
-            return Err(EngineError::UnexpectedStatus(status.as_u16()));
-        }
+        Ok(request)
+    }
+
+    async fn execute_direct(&self, spec: RequestSpec) -> Result<ExecutionResponse, EngineError> {
+        // Search, login and downloads share bounded requests, redirect policy,
+        // per-indexer pacing and the same origin-restricted transport.
+        let response = self.execute_binary(spec, false).await?;
         Ok(ExecutionResponse {
-            status,
-            body,
-            final_url,
+            status: response.status,
+            body: self.encoding.decode(&response.body)?,
+            final_url: response.final_url,
             response_type: "html".to_owned(),
         })
     }
 
     fn render_url(&self, value: &str, context: &TemplateValue) -> Result<Url, EngineError> {
-        let rendered = render_template(value, context)?;
+        let rendered = templates::render_encoded_template(
+            value,
+            context,
+            &self.definition.spec.implementation.encoding,
+            true,
+        )?;
         self.resolve_url(&self.base_url, &rendered)
     }
 
@@ -655,17 +896,27 @@ impl CardigannExecutor {
     }
 
     fn ensure_allowed(&self, target: &Url) -> Result<(), EngineError> {
+        if !["http", "https"].contains(&target.scheme())
+            || !target.username().is_empty()
+            || target.password().is_some()
+        {
+            return Err(EngineError::OutboundUrlRejected(
+                "unsupported scheme or URL user information".into(),
+            ));
+        }
         validate_public_url_literal(target)?;
         let origin = Origin::from_url(target);
         if self.allowed_origins.contains(&origin) {
             Ok(())
         } else {
-            Err(EngineError::OutboundUrlRejected(target.to_string()))
+            Err(EngineError::OutboundUrlRejected(
+                target.origin().ascii_serialization(),
+            ))
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct RequestSpec {
     method: Method,
     url: Url,
@@ -684,6 +935,10 @@ struct ExecutionResponse {
 
 #[derive(Debug, Default)]
 struct AuthSessionState {
+    interactive: challenge::InteractiveState,
+    revoked: bool,
+    loaded: bool,
+    cookie_expiry: Option<i64>,
     last_success: Option<Instant>,
 }
 
@@ -704,329 +959,13 @@ impl Origin {
     }
 }
 
-#[derive(Debug)]
-struct RenderContext {
-    config: HashMap<String, TemplateValue>,
-}
-
-impl RenderContext {
-    fn new(values: BTreeMap<String, JsonValue>, secrets: BTreeMap<String, String>) -> Self {
-        let mut config = values
-            .into_iter()
-            .map(|(name, value)| (name, json_template_value(value)))
-            .collect::<HashMap<_, _>>();
-        config.extend(
-            secrets
-                .into_iter()
-                .map(|(name, value)| (name, TemplateValue::String(value))),
-        );
-        Self { config }
-    }
-
-    fn for_search(&self, keywords: &str, result: BTreeMap<String, String>) -> TemplateValue {
-        self.for_search_with_parameters(keywords, result, &SearchParameters::default(), &[])
-    }
-
-    fn for_search_with_parameters(
-        &self,
-        keywords: &str,
-        result: BTreeMap<String, String>,
-        parameters: &SearchParameters,
-        categories: &[String],
-    ) -> TemplateValue {
-        let mut query = HashMap::from([
-            ("Album".to_owned(), TemplateValue::String(String::new())),
-            ("Artist".to_owned(), TemplateValue::String(String::new())),
-            ("Author".to_owned(), TemplateValue::String(String::new())),
-            ("DoubanID".to_owned(), TemplateValue::String(String::new())),
-            ("Season".to_owned(), TemplateValue::String(String::new())),
-            ("Ep".to_owned(), TemplateValue::String(String::new())),
-            ("Genre".to_owned(), TemplateValue::String(String::new())),
-            ("IMDBID".to_owned(), TemplateValue::String(String::new())),
-            (
-                "IMDBIDShort".to_owned(),
-                TemplateValue::String(String::new()),
-            ),
-            ("TMDBID".to_owned(), TemplateValue::String(String::new())),
-            ("TVDBID".to_owned(), TemplateValue::String(String::new())),
-            ("Title".to_owned(), TemplateValue::String(String::new())),
-            ("Type".to_owned(), TemplateValue::String(String::new())),
-            ("Year".to_owned(), TemplateValue::String(String::new())),
-            ("id".to_owned(), TemplateValue::String(String::new())),
-        ]);
-        query.insert(
-            "Keywords".to_owned(),
-            TemplateValue::String(keywords.to_owned()),
-        );
-        for (field, value) in [
-            ("Genre", parameters.genre.as_deref()),
-            ("IMDBID", parameters.imdb_id.as_deref()),
-            ("TMDBID", parameters.tmdb_id.as_deref()),
-            ("Type", parameters.mode.as_deref()),
-        ] {
-            if let Some(value) = value {
-                query.insert(field.to_owned(), TemplateValue::String(value.to_owned()));
-            }
-        }
-        for (field, value) in [
-            ("Year", parameters.year),
-            ("Season", parameters.season),
-            ("Ep", parameters.episode),
-        ] {
-            if let Some(value) = value {
-                query.insert(field.to_owned(), TemplateValue::String(value.to_string()));
-            }
-        }
-        let result = result
-            .into_iter()
-            .map(|(key, value)| (key, TemplateValue::String(value)))
-            .collect();
-        TemplateValue::Object(HashMap::from([
-            (
-                "Config".to_owned(),
-                TemplateValue::Object(self.config.clone()),
-            ),
-            (
-                "Keywords".to_owned(),
-                TemplateValue::String(keywords.to_owned()),
-            ),
-            (
-                "keywords".to_owned(),
-                TemplateValue::String(keywords.to_owned()),
-            ),
-            ("Query".to_owned(), TemplateValue::Object(query)),
-            ("Result".to_owned(), TemplateValue::Object(result)),
-            (
-                "Categories".to_owned(),
-                TemplateValue::Array(
-                    categories
-                        .iter()
-                        .map(|value| TemplateValue::String(value.clone()))
-                        .collect(),
-                ),
-            ),
-            ("True".to_owned(), TemplateValue::Bool(true)),
-            ("False".to_owned(), TemplateValue::Bool(false)),
-            ("Today".to_owned(), TemplateValue::String(String::new())),
-        ]))
-    }
-}
-
-fn render_template(source: &str, context: &TemplateValue) -> Result<String, EngineError> {
-    if !source.contains("{{") {
-        return Ok(source.to_owned());
-    }
-    let mut template = Template::default();
-    template.add_func("join", template_join);
-    template.add_func("re_replace", template_regex_replace);
-    let source = HYPHENATED_CONFIG_REFERENCE
-        .replace_all(source, |capture: &regex::Captures<'_>| {
-            format!(r#"(index .Config "{}")"#, &capture[1])
-        });
-    template
-        .parse(source.as_ref())
-        .map_err(|error| EngineError::Template(error.to_string()))?;
-    template
-        .render(&Context::from(context.clone()))
-        .map_err(|error| EngineError::Template(error.to_string()))
-}
-
-fn template_join(arguments: &[TemplateValue]) -> Result<TemplateValue, FuncError> {
-    if arguments.len() != 2 {
-        return Err(FuncError::ExactlyXArgs("join".to_owned(), 2));
-    }
-    let separator = arguments[1].to_string();
-    let TemplateValue::Array(values) = &arguments[0] else {
-        return Err(FuncError::Generic("join requires an array".to_owned()));
-    };
-    Ok(TemplateValue::String(
-        values
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(&separator),
-    ))
-}
-
-fn template_regex_replace(arguments: &[TemplateValue]) -> Result<TemplateValue, FuncError> {
-    if arguments.len() != 3 {
-        return Err(FuncError::ExactlyXArgs("re_replace".to_owned(), 3));
-    }
-    let mut builder = FancyRegexBuilder::new(&arguments[1].to_string());
-    builder.backtrack_limit(CARDIGANN_REGEX_BACKTRACK_LIMIT);
-    let expression = builder
-        .build()
-        .map_err(|error| FuncError::Generic(error.to_string()))?;
-    let input = arguments[0].to_string();
-    let rendered = expression
-        .try_replacen(&input, 0, arguments[2].to_string())
-        .map_err(|error| FuncError::Generic(error.to_string()))?;
-    Ok(TemplateValue::String(rendered.into_owned()))
-}
-
-fn resolve_category_ids(definition: &IndexerDefinition, requested: Option<&str>) -> Vec<String> {
-    let Some(requested) = requested else {
-        return Vec::new();
-    };
-    let Some(caps) = mapping(&definition.spec.implementation.capabilities) else {
-        return Vec::new();
-    };
-    if let Some(mappings) = caps
-        .get(key("categorymappings"))
-        .and_then(YamlValue::as_sequence)
-    {
-        let ids = mappings
-            .iter()
-            .filter_map(mapping)
-            .filter(|item| {
-                item.get(key("cat"))
-                    .and_then(scalar)
-                    .is_some_and(|category| {
-                        category == requested || category.starts_with(&format!("{requested}/"))
-                    })
-            })
-            .filter_map(|item| item.get(key("id")).and_then(scalar))
-            .collect::<Vec<_>>();
-        if !ids.is_empty() {
-            return ids;
-        }
-    }
-    let Some(categories) = caps.get(key("categories")).and_then(mapping) else {
-        return Vec::new();
-    };
-    categories
-        .iter()
-        .filter(|(name, _)| scalar(name).as_deref() == Some(requested))
-        .flat_map(|(_, ids)| ids.as_sequence().cloned().unwrap_or_default())
-        .filter_map(|value| scalar(&value))
-        .collect()
-}
-
-fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {
-    if let Some(paths) = search.get(key("paths")).and_then(YamlValue::as_sequence) {
-        if paths.is_empty() {
-            return Err(EngineError::InvalidSearchDefinition(
-                "search paths are empty",
-            ));
-        }
-        return paths
-            .iter()
-            .map(|value| {
-                mapping(value).ok_or(EngineError::InvalidSearchDefinition(
-                    "search path must be a mapping",
-                ))
-            })
-            .collect();
-    }
-    if search.contains_key(key("path")) {
-        return Ok(vec![search]);
-    }
-    Err(EngineError::InvalidSearchDefinition(
-        "search path is missing",
-    ))
-}
-
-fn retryable_search_error(error: &EngineError) -> bool {
-    match error {
-        EngineError::HttpClient(error) => error.is_timeout() || error.is_connect(),
-        EngineError::UnexpectedStatus(status) => (500..=599).contains(status),
-        _ => false,
-    }
-}
-
-fn render_inputs(
-    value: Option<&YamlValue>,
-    context: &TemplateValue,
-    allow_empty: bool,
-) -> Result<Vec<(String, String)>, EngineError> {
-    let Some(inputs) = value.and_then(mapping) else {
-        return Ok(Vec::new());
-    };
-    inputs
-        .iter()
-        .filter_map(|(name, value)| {
-            let name = scalar(name)?;
-            if name == "$raw" {
-                return None;
-            }
-            Some((name, value))
-        })
-        .map(|(name, value)| {
-            let rendered = render_template(&scalar(value).unwrap_or_default(), context)?;
-            Ok((name, rendered))
-        })
-        .filter(|result: &Result<(String, String), EngineError>| {
-            allow_empty
-                || match result {
-                    Ok((_, value)) => !value.is_empty(),
-                    Err(_) => true,
-                }
-        })
-        .collect()
-}
-
-fn render_search_inputs(
-    search: &Mapping,
-    path: &Mapping,
-    context: &TemplateValue,
-    allow_empty: bool,
-) -> Result<Vec<(String, String)>, EngineError> {
-    let mut inputs = render_inputs(path.get(key("inputs")), context, allow_empty)?;
-    inputs.extend(render_inputs(
-        search.get(key("inputs")),
-        context,
-        allow_empty,
-    )?);
-    Ok(inputs)
-}
-
-fn render_headers(
-    value: Option<&YamlValue>,
-    context: &TemplateValue,
-) -> Result<Vec<(HeaderName, String)>, EngineError> {
-    let Some(headers) = value.and_then(mapping) else {
-        return Ok(Vec::new());
-    };
-    headers
-        .iter()
-        .filter_map(|(name, values)| Some((scalar(name)?, values)))
-        .map(|(name, values)| {
-            let value = match values {
-                YamlValue::Sequence(values) => values
-                    .iter()
-                    .filter_map(scalar)
-                    .map(|value| render_template(&value, context))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", "),
-                _ => render_template(&scalar(values).unwrap_or_default(), context)?,
-            };
-            let name = HeaderName::from_bytes(name.as_bytes())
-                .map_err(|_| EngineError::InvalidHeaderName(name))?;
-            Ok((name, value))
-        })
-        .collect()
-}
-
-fn append_query(url: &mut Url, inputs: &[(String, String)], raw_query: Option<&str>) {
-    {
-        let mut query = url.query_pairs_mut();
-        query.extend_pairs(
-            inputs
-                .iter()
-                .map(|(key, value)| (key.as_str(), value.as_str())),
-        );
-    }
-    if let Some(raw) = raw_query {
-        let raw = raw.trim_start_matches(['?', '&']);
-        let mut query = url.query_pairs_mut();
-        query.extend_pairs(url::form_urlencoded::parse(raw.as_bytes()));
-    }
-}
+#[cfg(test)]
+mod conformance;
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod wire_tests;
 
 fn elapsed_millis(started: Instant) -> u64 {
     u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
-
-#[cfg(test)]
-#[path = "cardigann/tests.rs"]
-mod tests;

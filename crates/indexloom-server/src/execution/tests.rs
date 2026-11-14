@@ -92,6 +92,7 @@ fn runtime_fingerprint_changes_with_credentials_and_effective_proxy() {
         definition_yaml: "definition-v1".to_owned(),
     };
     let mut resolved = ResolvedIndexerConfiguration {
+        session_revision: 0,
         user_agent: None,
         flaresolverr_instance_id: None,
         proxy_id: None,
@@ -147,3 +148,6 @@ fn completed_job(id: &str, age: std::time::Duration) -> TestJob {
         ),
     }
 }
+
+#[path = "session_tests.rs"]
+mod persistent_sessions;

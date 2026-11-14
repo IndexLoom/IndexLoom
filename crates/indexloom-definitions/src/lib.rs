@@ -446,11 +446,17 @@ pub fn validate(definition: &IndexerDefinition) -> Result<(), DefinitionError> {
             "invalid provenance revision or SHA-256".to_owned(),
         ));
     }
+    let encoding = definition.spec.implementation.encoding.trim();
+    if encoding.is_empty() || encoding.len() > 64 || !encoding.is_ascii() {
+        return Err(DefinitionError::Invalid(
+            "encoding must be a nonempty ASCII label of at most 64 bytes".to_owned(),
+        ));
+    }
     if let Some(delay) = definition.spec.implementation.request_delay_seconds
-        && (!delay.is_finite() || delay.is_sign_negative())
+        && (!delay.is_finite() || delay.is_sign_negative() || delay > 86_400.0)
     {
         return Err(DefinitionError::Invalid(
-            "requestDelaySeconds must be finite and non-negative".to_owned(),
+            "requestDelaySeconds must be finite and between 0 and 86400".to_owned(),
         ));
     }
     if !matches!(
@@ -484,11 +490,9 @@ fn is_lower_hex(value: &str, length: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{API_VERSION, parse_yaml};
+    use super::{API_VERSION, parse_yaml, validate};
 
-    #[test]
-    fn parses_converted_definition() {
-        let source = r#"
+    const EXAMPLE: &str = r#"
 apiVersion: indexloom.io/v1alpha1
 kind: Indexer
 metadata:
@@ -526,6 +530,10 @@ spec:
         title:
           selector: .title
 "#;
+
+    #[test]
+    fn parses_converted_definition() {
+        let source = EXAMPLE;
 
         let definition = parse_yaml(source).expect("definition should parse");
         assert_eq!(definition.api_version, API_VERSION);
@@ -594,5 +602,40 @@ spec:
             serde_json::to_value(&schema.fields[1]).expect("field should serialize");
         assert_eq!(with_default["defaultValue"], "guest");
         assert!(without_default.get("defaultValue").is_none());
+    }
+    #[test]
+    fn preserves_encoding_delay_certificates_and_dynamic_search_options() {
+        for label in ["UTF-8", "windows-1251", "windows-1252", "ISO-8859-1"] {
+            let mut definition = parse_yaml(EXAMPLE).unwrap();
+            definition.spec.implementation.encoding = label.to_owned();
+            definition.spec.implementation.request_delay_seconds = Some(0.25);
+            definition.spec.implementation.certificates = vec!["legacy-fingerprint".into()];
+            definition.spec.implementation.search = serde_yaml::from_str("paths: [{path: /search, inputs: {offset: '{{ .Query.Offset }}'}}]\npreprocessingfilters: [{name: htmldecode}]\nrows: {selector: data, multiple: true}\nfields: {}\n").unwrap();
+            let source = serde_yaml::to_string(&definition).unwrap();
+            let parsed = parse_yaml(&source).unwrap();
+            assert_eq!(parsed.spec.implementation.encoding, label);
+            assert_eq!(parsed.spec.implementation.request_delay_seconds, Some(0.25));
+            assert_eq!(
+                parsed.spec.implementation.certificates,
+                ["legacy-fingerprint"]
+            );
+            assert_eq!(
+                parsed.spec.implementation.search,
+                definition.spec.implementation.search
+            );
+        }
+    }
+    #[test]
+    fn rejects_invalid_encoding_labels_and_unbounded_request_delays() {
+        let mut definition = parse_yaml(EXAMPLE).unwrap();
+        for label in ["", "   ", "кириллица"] {
+            definition.spec.implementation.encoding = label.into();
+            assert!(validate(&definition).is_err());
+        }
+        definition.spec.implementation.encoding = "UTF-8".into();
+        for delay in [f64::NAN, f64::INFINITY, -0.1, 86_401.0] {
+            definition.spec.implementation.request_delay_seconds = Some(delay);
+            assert!(validate(&definition).is_err());
+        }
     }
 }
