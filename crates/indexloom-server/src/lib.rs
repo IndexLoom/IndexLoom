@@ -34,15 +34,21 @@ mod embedded_web {
 use url::Url;
 
 pub mod auth;
+mod blackhole;
 pub mod catalog;
 mod download;
 mod execution;
 pub mod local;
 mod management;
 pub mod remote;
+mod search_cache;
+mod search_presets;
+mod search_processing;
+mod torrentpotato;
 mod torznab;
 mod tracker_login;
 mod tracker_sessions;
+mod usenet;
 
 const MAX_CONFIGURATION_BODY: usize = 128 * 1024;
 const MAX_USER_AGENT_BYTES: usize = 512;
@@ -61,6 +67,7 @@ pub struct AppState {
     executor_cache: execution::ExecutorCache,
     downloads: download::DownloadRegistry,
     search_permits: Arc<tokio::sync::Semaphore>,
+    search_cache: search_cache::SearchCache,
 }
 
 impl AppState {
@@ -77,6 +84,7 @@ impl AppState {
             executor_cache: execution::ExecutorCache::default(),
             downloads: download::DownloadRegistry::new(),
             search_permits: execution::search_permits(),
+            search_cache: search_cache::SearchCache::default(),
         }
     }
 
@@ -99,12 +107,14 @@ impl AppState {
             executor_cache: execution::ExecutorCache::default(),
             downloads: download::DownloadRegistry::new(),
             search_permits: execution::search_permits(),
+            search_cache: search_cache::SearchCache::default(),
         }
     }
 
     /// Drops cached authenticated indexer runtimes after a catalog refresh.
     pub async fn clear_execution_runtimes(&self) {
         self.executor_cache.clear().await;
+        self.search_cache.clear().await;
     }
 }
 
@@ -163,8 +173,11 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         )
         .merge(management::routes())
         .merge(execution::routes())
+        .merge(search_presets::routes())
         .merge(tracker_login::routes())
         .merge(download::routes())
+        .merge(blackhole::routes())
+        .merge(usenet::routes())
         .merge(auth::private_routes())
         .layer(DefaultBodyLimit::max(MAX_CONFIGURATION_BODY))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_admin));
@@ -173,6 +186,8 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         .route("/api/v1/health", get(health))
         .merge(auth::public_routes())
         .merge(torznab::routes())
+        .merge(torrentpotato::routes())
+        .merge(download::public_routes())
         .merge(protected)
         .layer(middleware::from_fn(security_headers));
 
@@ -634,6 +649,16 @@ impl ApiError {
             status: StatusCode::CONFLICT,
             body: ErrorBody {
                 code: "CONFLICT",
+                message,
+            },
+        }
+    }
+
+    const fn bad_gateway(message: &'static str) -> Self {
+        Self {
+            status: StatusCode::BAD_GATEWAY,
+            body: ErrorBody {
+                code: "UPSTREAM_FAILURE",
                 message,
             },
         }

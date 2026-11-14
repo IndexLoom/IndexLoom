@@ -7,6 +7,7 @@ mod extract_json;
 mod filters;
 mod http;
 mod mirrors;
+mod newznab;
 mod rows;
 mod templates;
 use templates::{
@@ -70,7 +71,7 @@ static HYPHENATED_CONFIG_REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Structured search fields supported by Cardigann templates.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SearchParameters {
     pub mode: Option<String>,
@@ -81,6 +82,24 @@ pub struct SearchParameters {
     pub episode: Option<u16>,
     pub imdb_id: Option<String>,
     pub tmdb_id: Option<String>,
+    pub tvdb_id: Option<String>,
+    pub tvmaze_id: Option<String>,
+    pub trakt_id: Option<String>,
+    pub douban_id: Option<String>,
+    pub tvrage_id: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub author: Option<String>,
+    pub title: Option<String>,
+    pub publisher: Option<String>,
+    pub label: Option<String>,
+    pub track: Option<String>,
+    pub group: Option<String>,
+    pub episode_code: Option<String>,
+    pub min_size: Option<u64>,
+    pub max_size: Option<u64>,
+    pub min_seeders: Option<u32>,
+    pub max_age_days: Option<u32>,
 }
 
 /// Fully resolved, execution-only configuration for one indexer instance.
@@ -410,7 +429,30 @@ impl CardigannExecutor {
         offset: usize,
         parameters: &SearchParameters,
     ) -> Result<IndexerSearchBatch, EngineError> {
-        if term.trim().is_empty() {
+        if matches!(
+            self.definition.spec.implementation.engine,
+            indexloom_definitions::DefinitionEngine::Newznab
+        ) {
+            return self.search_newznab(term, limit, offset, parameters).await;
+        }
+        if term.trim().is_empty()
+            && ![
+                parameters.imdb_id.as_deref(),
+                parameters.tmdb_id.as_deref(),
+                parameters.tvdb_id.as_deref(),
+                parameters.tvmaze_id.as_deref(),
+                parameters.trakt_id.as_deref(),
+                parameters.douban_id.as_deref(),
+                parameters.tvrage_id.as_deref(),
+                parameters.artist.as_deref(),
+                parameters.album.as_deref(),
+                parameters.author.as_deref(),
+                parameters.title.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|v| !v.trim().is_empty())
+        {
             return Err(EngineError::EmptySearchTerm);
         }
         let started = Instant::now();
@@ -526,6 +568,12 @@ impl CardigannExecutor {
     }
 
     async fn test_inner(&self) -> Result<String, EngineError> {
+        if matches!(
+            self.definition.spec.implementation.engine,
+            indexloom_definitions::DefinitionEngine::Newznab
+        ) {
+            return self.test_newznab().await;
+        }
         self.authenticate_if_needed().await?;
         if self.definition.spec.implementation.authentication.is_some() {
             return Ok("authentication and tracker test succeeded".to_owned());

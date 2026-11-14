@@ -14,6 +14,7 @@ use crate::{IndexerDefinition, SourceProject};
 #[allow(clippy::struct_excessive_bools)]
 pub struct IndexerCapabilities {
     pub description: String,
+    pub protocol: &'static str,
     pub language: String,
     pub source: &'static str,
     pub search_modes: Vec<SearchMode>,
@@ -123,11 +124,16 @@ pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
     let source = match definition.provenance.source.project {
         SourceProject::Jackett => "jackett",
         SourceProject::ProwlarrIndexers => "prowlarr-indexers",
+        SourceProject::User => "user",
     };
     let genre_search = search_modes
         .iter()
         .any(|mode| mode.parameters.iter().any(|p| p == "genre"));
     IndexerCapabilities {
+        protocol: match definition.spec.protocol {
+            crate::Protocol::Torrent => "torrent",
+            crate::Protocol::Usenet => "usenet",
+        },
         description: definition.metadata.description.clone(),
         language: definition.metadata.language.clone(),
         source,

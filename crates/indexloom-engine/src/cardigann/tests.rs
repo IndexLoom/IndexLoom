@@ -45,6 +45,7 @@ fn renders_structured_query_and_source_category_identifiers() {
         episode: Some(4),
         imdb_id: Some("tt1234567".to_owned()),
         tmdb_id: Some("12345".to_owned()),
+        ..SearchParameters::default()
     };
     let context = RenderContext::new(BTreeMap::new(), BTreeMap::new()).for_search_with_parameters(
         "example",
@@ -501,4 +502,23 @@ async fn paginated_search_rejects_rendered_cookie_headers_without_losing_session
         restored.engine.cookies.cookies(&restored.base_url).unwrap(),
         "sid=fixture-session"
     );
+}
+
+#[test]
+fn torznab_category_ids_map_to_original_cardigann_ids() {
+    let mut fixture = definition();
+    fixture.spec.implementation.capabilities = serde_yaml::from_str(
+        r#"categorymappings:
+  - { id: "42", cat: Movies/HD }
+  - { id: "99", cat: TV/Anime }
+  - { id: "12", cat: Books }
+"#,
+    )
+    .unwrap();
+    let movies = super::templates::resolve_category_ids(&fixture, Some("2000"));
+    assert_eq!(movies, vec!["42".to_owned()]);
+    let tv = super::templates::resolve_category_ids(&fixture, Some("5000"));
+    assert_eq!(tv, vec!["99".to_owned()]);
+    let native = super::templates::resolve_category_ids(&fixture, Some("12"));
+    assert_eq!(native, vec!["12".to_owned()]);
 }

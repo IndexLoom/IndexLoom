@@ -54,6 +54,8 @@ async fn fixture() -> (AppState, Arc<CardigannExecutor>, SearchResult, HeaderMap
         seeders: None,
         leechers: None,
         published_at: None,
+        protocol: indexloom_core::ReleaseProtocol::Torrent,
+        attributes: indexloom_core::ReleaseAttributes::default(),
     };
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -242,4 +244,19 @@ async fn feed_search_rows_do_not_publish_tracker_download_urls() {
     assert!(releases[0].download_url.is_none());
     assert!(releases[0].magnet_url.is_none());
     assert!(state.downloads.entries.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn rss_guid_does_not_reveal_upstream_tokens_and_is_stable() {
+    use super::feed_guid;
+    let (_state, _executor, mut release, _headers) = fixture().await;
+    release.source_guid = Some("https://tracker.example/download?passkey=secret-value".into());
+    release.title = "Test Release".into();
+    let first = feed_guid(&release);
+    let second = feed_guid(&release);
+    assert_eq!(first, second);
+    assert_eq!(first.len(), 64);
+    assert!(!first.contains("passkey"));
+    release.title = "Changed Title".into();
+    assert_ne!(feed_guid(&release), first);
 }

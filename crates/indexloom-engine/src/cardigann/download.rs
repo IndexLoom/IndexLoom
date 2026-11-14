@@ -16,6 +16,7 @@ pub use torrent::validate_torrent;
 pub enum DownloadArtifact {
     Torrent(Vec<u8>),
     Magnet(String),
+    Nzb(Vec<u8>),
 }
 
 /// Validates a `BitTorrent` v1/v2 exact topic rather than merely a `magnet:` prefix.
@@ -105,6 +106,14 @@ impl CardigannExecutor {
             || release.definition_id != self.definition.metadata.id
         {
             return Err(EngineError::ReleaseIndexerMismatch);
+        }
+        if release.protocol == indexloom_core::ReleaseProtocol::Usenet
+            && matches!(
+                self.definition.spec.implementation.engine,
+                indexloom_definitions::DefinitionEngine::Newznab
+            )
+        {
+            return Ok(DownloadArtifact::Nzb(self.download_newznab(release).await?));
         }
         if let Some(magnet) = &release.magnet_url {
             validate_magnet(magnet)?;

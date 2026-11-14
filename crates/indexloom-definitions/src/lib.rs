@@ -83,6 +83,8 @@ pub enum SourceProject {
     Jackett,
     /// Prowlarr's Cardigann compatibility catalog.
     ProwlarrIndexers,
+    /// User-supplied protocol definitions, distinct from GPL tracker catalog.
+    User,
 }
 
 /// Runtime-neutral definition envelope.
@@ -106,11 +108,12 @@ pub struct IndexerSpec {
 }
 
 /// Supported result protocols.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Protocol {
     /// `BitTorrent` metadata and releases.
     Torrent,
+    Usenet,
 }
 
 /// Upstream access model.
@@ -161,6 +164,8 @@ pub struct CardigannImplementation {
 pub enum DefinitionEngine {
     /// Cardigann-compatible request and extraction behavior.
     Cardigann,
+    /// Native Newznab XML query and NZB download adapter.
+    Newznab,
 }
 
 /// User-facing configuration contract derived from one definition.
@@ -418,13 +423,18 @@ pub fn validate(definition: &IndexerDefinition) -> Result<(), DefinitionError> {
             "spec.baseUrls must contain HTTP(S) URLs".to_owned(),
         ));
     }
-    if definition.provenance.generated_by != GENERATED_BY {
+    let source = &definition.provenance.source;
+    let custom = matches!(source.project, SourceProject::User);
+    if (custom
+        && (definition.provenance.generated_by != "indexloom-user/v1"
+            || source.license != "NOASSERTION"))
+        || (!custom && definition.provenance.generated_by != GENERATED_BY)
+    {
         return Err(DefinitionError::Invalid(
-            "unsupported provenance.generatedBy value".to_owned(),
+            "invalid definition provenance".to_owned(),
         ));
     }
-    let source = &definition.provenance.source;
-    if source.license != CARDIGANN_LICENSE {
+    if !custom && source.license != CARDIGANN_LICENSE {
         return Err(DefinitionError::Invalid(
             "converted Cardigann definitions must retain GPL-2.0-only".to_owned(),
         ));
@@ -446,6 +456,7 @@ pub fn validate(definition: &IndexerDefinition) -> Result<(), DefinitionError> {
             "invalid provenance revision or SHA-256".to_owned(),
         ));
     }
+    validate_protocol_profile(definition, custom)?;
     let encoding = definition.spec.implementation.encoding.trim();
     if encoding.is_empty() || encoding.len() > 64 || !encoding.is_ascii() {
         return Err(DefinitionError::Invalid(
@@ -466,6 +477,33 @@ pub fn validate(definition: &IndexerDefinition) -> Result<(), DefinitionError> {
     {
         return Err(DefinitionError::Invalid(
             "Cardigann capabilities and search must be mappings".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_protocol_profile(
+    definition: &IndexerDefinition,
+    custom: bool,
+) -> Result<(), DefinitionError> {
+    match (
+        definition.spec.protocol,
+        definition.spec.implementation.engine,
+    ) {
+        (Protocol::Torrent, DefinitionEngine::Cardigann)
+        | (Protocol::Usenet, DefinitionEngine::Newznab) => {}
+        _ => {
+            return Err(DefinitionError::Invalid(
+                "protocol and definition engine are incompatible".to_owned(),
+            ));
+        }
+    }
+    if custom
+        && (definition.spec.protocol != Protocol::Usenet
+            || !definition.metadata.id.starts_with("usenet-"))
+    {
+        return Err(DefinitionError::Invalid(
+            "unsupported custom definition".to_owned(),
         ));
     }
     Ok(())

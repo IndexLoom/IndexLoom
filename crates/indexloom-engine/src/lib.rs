@@ -526,6 +526,8 @@ pub enum EngineError {
     RequestTimeout,
     #[error("invalid torrent metadata")]
     InvalidTorrent,
+    #[error("invalid NZB metadata")]
+    InvalidNzb,
     #[error("invalid magnet URI")]
     InvalidMagnet,
     #[error("invalid Cardigann download definition: {0}")]

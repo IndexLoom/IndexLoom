@@ -13,5 +13,31 @@
   "size": 1234567,
   "seeders": 42,
   "leechers": 3,
-  "publishedAt": null
+  "publishedAt": null,
+  "protocol": "torrent",
+  "attributes": {
+    "files": null,
+    "grabs": null,
+    "poster": null,
+    "genres": [],
+    "languages": [],
+    "subtitles": [],
+    "artist": null,
+    "album": null,
+    "author": null,
+    "publisher": null,
+    "group": null,
+    "uploader": null,
+    "downloadVolumeFactor": null,
+    "uploadVolumeFactor": null,
+    "minimumRatio": null,
+    "minimumSeedTime": null,
+    "imdbId": null,
+    "tmdbId": null,
+    "tvdbId": null,
+    "tvmazeId": null,
+    "traktId": null,
+    "doubanId": null,
+    "tvrageId": null
+  }
 }
