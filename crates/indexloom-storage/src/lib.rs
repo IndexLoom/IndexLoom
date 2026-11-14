@@ -21,6 +21,8 @@ pub mod auth;
 mod catalog;
 mod routing;
 pub mod totp;
+mod tracker_sessions;
+pub use tracker_sessions::TrackerSession;
 
 pub use catalog::{CatalogDefinitionInput, CatalogStatus, CatalogSyncReport};
 pub use routing::{
@@ -256,6 +258,8 @@ pub struct IndexerConfigurationRecord {
 
 /// Decrypted execution-only configuration that must never be serialized.
 pub struct ResolvedIndexerConfiguration {
+    /// Monotonic credential/configuration revision used to fence session writes.
+    pub session_revision: i64,
     /// Optional per-indexer browser `User-Agent` override.
     pub user_agent: Option<String>,
     /// Optional `FlareSolverr` connector ID.
@@ -272,6 +276,7 @@ impl fmt::Debug for ResolvedIndexerConfiguration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("ResolvedIndexerConfiguration")
+            .field("session_revision", &self.session_revision)
             .field("user_agent", &self.user_agent)
             .field("flaresolverr_instance_id", &self.flaresolverr_instance_id)
             .field("proxy_id", &self.proxy_id)
@@ -318,6 +323,7 @@ pub struct FlareSolverrInput {
 
 #[derive(FromRow)]
 struct IndexerRow {
+    session_revision: i64,
     id: String,
     definition_id: String,
     display_name: String,
@@ -355,7 +361,9 @@ impl Store {
             .await?;
 
         sqlx::migrate!("../../migrations/sqlite").run(&pool).await?;
-        Ok(Self { pool })
+        let store = Self { pool };
+        store.evict_expired_tracker_sessions().await?;
+        Ok(store)
     }
 
     /// Opens a native per-app SQLite file without interpreting its path as a URL.
@@ -374,7 +382,9 @@ impl Store {
             .connect_with(options)
             .await?;
         sqlx::migrate!("../../migrations/sqlite").run(&pool).await?;
-        Ok(Self { pool })
+        let store = Self { pool };
+        store.evict_expired_tracker_sessions().await?;
+        Ok(store)
     }
 
     /// Confirms that the storage connection is usable.
@@ -398,7 +408,7 @@ impl Store {
     ) -> Result<Vec<IndexerConfigurationRecord>, StorageError> {
         let rows = sqlx::query_as::<_, IndexerRow>(
             "SELECT i.id, i.definition_id, i.display_name, i.enabled, \
-                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, \
+                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, i.session_revision, \
                     d.catalog_available, d.content_yaml, s.nonce, s.ciphertext \
              FROM indexers i \
              JOIN indexer_definitions d ON d.id = i.definition_id \
@@ -448,6 +458,7 @@ impl Store {
         let values = parse_values(&row.configuration_json)?;
         let secrets = decrypt_row_secrets(&row, vault)?;
         Ok(ResolvedIndexerConfiguration {
+            session_revision: row.session_revision,
             user_agent: row.user_agent,
             flaresolverr_instance_id: row.flaresolverr_instance_id,
             proxy_id: row.proxy_id,
@@ -477,7 +488,7 @@ impl Store {
         let update = sqlx::query(
             "UPDATE indexers \
              SET configuration_json = ?, user_agent = ?, \
-                 flaresolverr_instance_id = ?, updated_at = ? \
+                 flaresolverr_instance_id = ?, updated_at = ?, session_revision = session_revision + 1 \
              WHERE id = ?",
         )
         .bind(configuration_json)
@@ -493,6 +504,10 @@ impl Store {
             )));
         }
         save_secrets(&mut transaction, indexer_id, secrets, vault, &now).await?;
+        sqlx::query("DELETE FROM indexer_sessions WHERE indexer_id = ?")
+            .bind(indexer_id)
+            .execute(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -639,7 +654,7 @@ impl Store {
     async fn indexer_row(&self, indexer_id: &str) -> Result<IndexerRow, StorageError> {
         sqlx::query_as::<_, IndexerRow>(
             "SELECT i.id, i.definition_id, i.display_name, i.enabled, \
-                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, \
+                    i.configuration_json, i.user_agent, i.flaresolverr_instance_id, i.proxy_id, i.session_revision, \
                     d.catalog_available, d.content_yaml, s.nonce, s.ciphertext \
              FROM indexers i \
              JOIN indexer_definitions d ON d.id = i.definition_id \

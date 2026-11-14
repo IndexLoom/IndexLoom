@@ -1,0 +1,12 @@
+# Independently authored fixture covering the real kinozal-magnet workflow:
+# before GET with .DownloadUri.Query, infohash/title and usebeforeresponse.
+before:
+  path: api/info
+  inputs:
+    id: '{{ .DownloadUri.Query.id }}'
+infohash:
+  usebeforeresponse: true
+  hash:
+    selector: '#hash'
+    filters: [{name: regexp, args: '([a-fA-F0-9]{40})'}]
+  title: {selector: h1}

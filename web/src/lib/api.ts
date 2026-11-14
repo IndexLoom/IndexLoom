@@ -590,3 +590,35 @@ function withoutLanguages(filters: SearchFilters): Omit<SearchFilters, "language
   const { languages: _languages, ...trackerFilters } = filters;
   return trackerFilters;
 }
+
+/** Consume a server-issued, one-time download handle with the current credential. */
+export async function downloadRelease(token: string, path: string, title: string): Promise<void> {
+  if (!/^\/api\/v1\/downloads\/[a-f0-9]{64}$/.test(path)) {
+    throw new ApiError(400, "Invalid download handle");
+  }
+  const response = await fetch(path, {
+    cache: "no-store",
+    redirect: "error",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw await responseError(response);
+  if (response.headers.get("Content-Type")?.startsWith("application/json")) {
+    const body = await response.json() as { magnetUrl?: string };
+    if (!body.magnetUrl?.startsWith("magnet:?")) throw new ApiError(502, "Invalid magnet response");
+    window.location.assign(body.magnetUrl);
+    return;
+  }
+  if (!response.headers.get("Content-Type")?.startsWith("application/x-bittorrent")) {
+    throw new ApiError(502, "Invalid torrent response");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${title.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").slice(0, 150) || "download"}.torrent`;
+  link.rel = "noreferrer";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}

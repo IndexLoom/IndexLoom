@@ -1,0 +1,1 @@
+TRACKER_PREFIX{"data":{"data":[{"promotion":{"down":0},"releases":[{"id":42,"names":["Example Movie &amp; More"],"bytes":1024,"created":"2026-11-14T09:30:45Z","free":true}]},{"promotion":{"down":1},"releases":[{"id":43,"names":["Example Movie paid"],"bytes":2048,"created":"2026-11-14T09:30:45Z","free":false}]}]}}

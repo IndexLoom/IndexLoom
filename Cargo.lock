@@ -1643,10 +1643,20 @@ dependencies = [
 name = "indexloom-engine"
 version = "0.3.0"
 dependencies = [
+ "async-trait",
+ "axum",
+ "base64 0.23.1",
+ "chrono",
+ "cookie_store",
+ "encoding_rs",
  "fancy-regex",
+ "getrandom 0.4.3",
  "gtmpl",
  "indexloom-core",
  "indexloom-definitions",
+ "markup5ever",
+ "publicsuffix",
+ "quick-xml",
  "regex",
  "reqwest 0.13.5",
  "scraper",
@@ -1656,6 +1666,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
+ "unicode-normalization",
  "url",
  "uuid",
 ]
@@ -1669,12 +1680,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexloom-native"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "indexloom-core",
+ "serde_json",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "indexloom-server"
 version = "0.3.0"
 dependencies = [
  "anyhow",
  "argon2",
  "async-stream",
+ "async-trait",
  "axum",
  "base64 0.23.1",
  "flate2",
@@ -2519,6 +2547,15 @@ checksum = "6f42ea446cab60335f76979ec15e12619a2165b5ae2c12166bef27d283a9fadf"
 dependencies = [
  "idna",
  "psl-types",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

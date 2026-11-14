@@ -1,0 +1,10 @@
+paths: [{path: /rss, response: {type: xml}}]
+preprocessingfilters: [{name: trim}]
+rows: {selector: 'channel > item'}
+fields:
+  title: {selector: title}
+  details: {selector: link}
+  download: {selector: enclosure, attribute: url}
+  size: {selector: enclosure, attribute: length}
+  date: {selector: pubDate, filters: [{name: dateparse, args: 'ddd, dd MMM yyyy HH:mm:ss zzz'}]}
+  seeders: {selector: 'torznab\:attr[name="seeders"]', attribute: value}

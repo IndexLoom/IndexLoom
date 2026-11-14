@@ -12,7 +12,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{Path, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -81,8 +81,8 @@ struct CachedExecutor {
 }
 
 #[derive(Clone, Debug)]
-struct ExecutorHandle {
-    executor: Arc<CardigannExecutor>,
+pub(crate) struct ExecutorHandle {
+    pub(crate) executor: Arc<CardigannExecutor>,
     display_name: String,
     definition_id: String,
 }
@@ -447,11 +447,16 @@ async fn test_one(state: AppState, indexer_id: String) -> IndexerTestOutcome {
 
 async fn search(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, ApiError> {
     let prepared = prepare_search(&state, request).await?;
     SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
-    let mut tasks = spawn_search_tasks(&state, &prepared);
+    let mut tasks = spawn_search_tasks(
+        &state,
+        &prepared,
+        Some(crate::download::credential_scope(&headers)),
+    );
     let mut indexers = Vec::new();
     while let Some(result) = tasks.join_next().await {
         indexers.push(search_join_result(result));
@@ -472,13 +477,18 @@ async fn search(
 
 async fn search_stream(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<SearchRequest>,
 ) -> Result<Response, ApiError> {
     let prepared = prepare_search(&state, request).await?;
     SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let total = prepared.indexer_ids.len();
     let query = prepared.query.clone();
-    let mut tasks = spawn_search_tasks(&state, &prepared);
+    let mut tasks = spawn_search_tasks(
+        &state,
+        &prepared,
+        Some(crate::download::credential_scope(&headers)),
+    );
     let output = async_stream::stream! {
         yield Ok::<String, Infallible>(ndjson_line(&SearchStreamEvent::Started {
             query: query.clone(),
@@ -616,7 +626,7 @@ pub(crate) async fn search_for_feed(
     };
     let prepared = prepare_search(state, request).await?;
     SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
-    let mut tasks = spawn_search_tasks(state, &prepared);
+    let mut tasks = spawn_search_tasks(state, &prepared, None);
     let mut results = Vec::new();
     while let Some(result) = tasks.join_next().await {
         let batch = search_join_result(result);
@@ -632,7 +642,11 @@ pub(crate) async fn search_for_feed(
     Ok(results)
 }
 
-fn spawn_search_tasks(state: &AppState, prepared: &PreparedSearch) -> JoinSet<SearchIndexerView> {
+fn spawn_search_tasks(
+    state: &AppState,
+    prepared: &PreparedSearch,
+    download_owner: Option<[u8; 32]>,
+) -> JoinSet<SearchIndexerView> {
     let mut tasks = JoinSet::new();
     for indexer_id in &prepared.indexer_ids {
         let state = state.clone();
@@ -643,7 +657,7 @@ fn spawn_search_tasks(state: &AppState, prepared: &PreparedSearch) -> JoinSet<Se
         let filters = prepared.filters.clone();
         tasks.spawn(async move {
             let _permit = semaphore.acquire_owned().await.ok();
-            search_one(&state, &indexer_id, &query, limit, &filters).await
+            search_one(&state, &indexer_id, &query, limit, &filters, download_owner).await
         });
     }
     tasks
@@ -687,6 +701,7 @@ async fn search_one(
     query: &str,
     limit: usize,
     filters: &SearchParameters,
+    download_owner: Option<[u8; 32]>,
 ) -> SearchIndexerView {
     match build_executor(state, indexer_id).await {
         Ok(handle) => match handle
@@ -698,16 +713,22 @@ async fn search_one(
                 indexer_instance_id,
                 definition_id,
                 response_time_ms,
-                results,
+                mut results,
                 ..
-            }) => SearchIndexerView {
-                indexer_instance_id,
-                definition_id: Some(definition_id),
-                indexer_name: handle.display_name,
-                response_time_ms,
-                results,
-                error: None,
-            },
+            }) => {
+                state
+                    .downloads
+                    .publish(&handle.executor, &mut results, download_owner)
+                    .await;
+                SearchIndexerView {
+                    indexer_instance_id,
+                    definition_id: Some(definition_id),
+                    indexer_name: handle.display_name,
+                    response_time_ms,
+                    results,
+                    error: None,
+                }
+            }
             Err(error) => SearchIndexerView {
                 indexer_instance_id: indexer_id.to_owned(),
                 definition_id: Some(handle.definition_id),
@@ -728,12 +749,22 @@ async fn search_one(
     }
 }
 
-async fn build_executor(state: &AppState, indexer_id: &str) -> Result<ExecutorHandle, String> {
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep execution-profile resolution and its revision-bound session backend together."
+)]
+pub(crate) async fn build_executor(
+    state: &AppState,
+    indexer_id: &str,
+) -> Result<ExecutorHandle, String> {
     let record = state
         .store
         .get_indexer(indexer_id, &state.vault)
         .await
         .map_err(|error| error.to_string())?;
+    if !record.enabled || !record.catalog_available {
+        return Err("configured indexer is disabled or unavailable".to_owned());
+    }
     let mut resolved = state
         .store
         .resolve_indexer_configuration(indexer_id, &state.vault)
@@ -815,7 +846,15 @@ async fn build_executor(state: &AppState, indexer_id: &str) -> Result<ExecutorHa
             proxy,
             flaresolverr,
         })
-        .map_err(|error| error.to_string())?,
+        .map_err(|error| error.to_string())?
+        .with_session_persistence(Arc::new(
+            super::tracker_sessions::StoredTrackerSession {
+                store: state.store.clone(),
+                vault: state.vault.clone(),
+                indexer_id: indexer_id.to_owned(),
+                revision: resolved.session_revision,
+            },
+        )),
     );
     let executor = state
         .executor_cache
@@ -836,6 +875,7 @@ fn execution_fingerprint(
 ) -> Result<[u8; 32], String> {
     let mut hasher = Sha256::new();
     hash_part(&mut hasher, b"runtime-v1");
+    hash_part(&mut hasher, &resolved.session_revision.to_be_bytes());
     hash_part(&mut hasher, record.definition_yaml.as_bytes());
     hash_optional(&mut hasher, resolved.user_agent.as_deref());
     hash_optional(&mut hasher, resolved.flaresolverr_instance_id.as_deref());

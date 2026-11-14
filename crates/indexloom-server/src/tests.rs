@@ -11,7 +11,7 @@ use tower::ServiceExt;
 use super::{AdminToken, AppState, normalize_flaresolverr_endpoint, router};
 
 const TOKEN: &str = "test-admin-token-with-at-least-32-bytes";
-const DEFINITION: &str = r#"
+pub(crate) const DEFINITION: &str = r#"
 apiVersion: indexloom.io/v1alpha1
 kind: Indexer
 metadata: { id: example, name: Example, description: Example, language: en-US }

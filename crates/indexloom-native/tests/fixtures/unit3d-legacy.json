@@ -1,0 +1,48 @@
+{
+  "data": [
+    {
+      "type": "torrent",
+      "id": "A123456789012345678901234567890123456789",
+      "attributes": {
+        "name": "Example.Movie.2026.2160p.WEB-DL",
+        "category": "Movie",
+        "category_id": 1,
+        "size": 12900000000,
+        "num_file": 2,
+        "times_completed": 98,
+        "seeders": 34,
+        "leechers": 5,
+        "created_at": "2026-11-01T12:34:56.000000Z",
+        "download_link": "https://tracker.invalid/torrent/download/5201?token=REDACTED",
+        "details_link": "https://tracker.invalid/torrents/5201",
+        "imdb_id": "1234567",
+        "tmdb_id": "987",
+        "tvdb_id": null,
+        "freeleech": true,
+        "double_upload": true
+      }
+    },
+    {
+      "type": "torrent",
+      "id": "5202",
+      "attributes": {
+        "name": "Example.Series.S01E02.1080p.WEB-DL",
+        "category": "TV",
+        "category_id": 2,
+        "size": "2000000000",
+        "num_file": "1",
+        "times_completed": "42",
+        "seeders": "10",
+        "leechers": "0",
+        "created_at": "2026-11-01 11:34:56",
+        "download_link": "/torrent/download/5202?token=REDACTED",
+        "details_link": "/torrents/5202",
+        "freeleech": false,
+        "double_upload": false
+      }
+    }
+  ],
+  "links": {
+    "next": "https://tracker.invalid/api/torrents/filter?page=2&api_token=REDACTED"
+  }
+}

@@ -1,0 +1,33 @@
+[
+  {
+    "id": 4101,
+    "name": "Example.Film.2026.1080p.BluRay-GROUP",
+    "size": 8300512414,
+    "seeders": 12,
+    "leechers": 2,
+    "files": 3,
+    "times_completed": 11,
+    "imdb": "tt1234567",
+    "category": "Movies HD",
+    "upload_date": "2026-07-25 22:20:19",
+    "freeleech": 0,
+    "internal": 0,
+    "doubleup": 0,
+    "download_link": "https://retired.invalid/download.php?id=4101&passkey=REDACTED"
+  },
+  {
+    "id": 4102,
+    "name": "Пример.Series.S01E02.2160p.WEB-DL",
+    "size": 15514501683,
+    "seeders": 63,
+    "leechers": 4,
+    "files": 1,
+    "times_completed": 80,
+    "imdb": "tt7654321",
+    "category": "TV-Series 4K",
+    "upload_date": "2026-07-25 23:32:22",
+    "freeleech": 1,
+    "internal": 1,
+    "doubleup": 1
+  }
+]

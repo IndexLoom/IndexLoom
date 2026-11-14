@@ -1,0 +1,1 @@
+<?xml version="1.0"?><rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel><item><title>Example &amp; Movie</title><link>https://example.invalid/details/42</link><enclosure url="/download/42.torrent" length="4096"/><pubDate>Sat, 14 Nov 2026 09:30:45 +00:00</pubDate><torznab:attr name="seeders" value="12"/></item></channel></rss>

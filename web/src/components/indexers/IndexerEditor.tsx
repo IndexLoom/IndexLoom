@@ -43,6 +43,8 @@ import {
 } from "../../lib/api";
 import { AdminTokenGate, useAdminSession } from "../AdminSession";
 
+import { TrackerLoginPanel } from "./TrackerLoginPanel";
+
 export function IndexerEditor({
   indexer,
   connectors,
@@ -82,6 +84,7 @@ export function IndexerEditor({
   );
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loginRevision, setLoginRevision] = useState(0);
   const configured = new Set(indexer.configuredSecrets);
 
   function setValue(field: ConfigurationField, value: ConfigurationValue) {
@@ -146,6 +149,7 @@ export function IndexerEditor({
             .filter(Boolean),
         }),
       ]);
+      setLoginRevision(revision => revision + 1);
       onSaved({
         ...configuration,
         displayName: organization.displayName,
@@ -308,6 +312,10 @@ export function IndexerEditor({
           ),
         )}
       </div>
+      {indexer.capabilities.authentication && <TrackerLoginPanel
+        indexerId={indexer.id} token={token} revision={loginRevision}
+        onUnauthorized={onUnauthorized} onComplete={() => setStatus("Tracker login completed.")}
+      />}
       <div className="form-actions">
         <button className="primary-button" disabled={saving} type="submit">
           {t(saving ? "Saving changes…" : "Save changes")}

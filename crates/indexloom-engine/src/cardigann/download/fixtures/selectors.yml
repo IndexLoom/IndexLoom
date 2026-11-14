@@ -1,0 +1,10 @@
+# Independently authored fixture covering the real limetorrents workflow:
+# ordered selectors, templating, attributes and URL filters.
+selectors:
+  - selector: a.missing
+    attribute: href
+  - selector: a.primary
+    attribute: href
+  - selector: a.fallback
+    attribute: href
+    filters: [{name: replace, args: ['/old-download/', '/download/']}]

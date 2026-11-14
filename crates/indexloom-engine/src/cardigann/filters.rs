@@ -1,8 +1,7 @@
 //! Cardigann filters, selectors, primitive parsers and dates.
 use super::{
-    BrowserCookie, CARDIGANN_REGEX_BACKTRACK_LIMIT, ConfigurationValue, ElementRef, EngineError,
-    FancyRegex, FancyRegexBuilder, Html, JsonValue, Mapping, OffsetDateTime, Regex, Selector,
-    TemplateValue, Url, YamlValue,
+    CARDIGANN_REGEX_BACKTRACK_LIMIT, ConfigurationValue, EngineError, FancyRegex,
+    FancyRegexBuilder, Html, JsonValue, Mapping, OffsetDateTime, Regex, TemplateValue, YamlValue,
 };
 
 pub(super) fn apply_case(value: &str, cases: &Mapping) -> String {
@@ -21,87 +20,25 @@ pub(super) fn apply_case(value: &str, cases: &Mapping) -> String {
     fallback.unwrap_or_else(|| value.to_owned())
 }
 
-pub(super) fn apply_filters(mut value: String, filters: &YamlValue) -> Result<String, EngineError> {
-    let Some(filters) = filters.as_sequence() else {
-        return Ok(value);
-    };
-    for filter in filters {
-        let Some(filter) = mapping(filter) else {
-            continue;
-        };
-        let name = filter.get(key("name")).and_then(scalar).unwrap_or_default();
-        let args = filter_args(filter.get(key("args")));
-        match name.as_str() {
-            "replace" if args.len() >= 2 => value = value.replace(&args[0], &args[1]),
-            "re_replace" if args.len() >= 2 => {
-                let regex = cardigann_regex(&args[0])?;
-                value = regex
-                    .try_replacen(&value, 0, args[1].as_str())
-                    .map_err(|error| EngineError::InvalidFilter(error.to_string()))?
-                    .into_owned();
-            }
-            "regexp" if !args.is_empty() => {
-                let regex = cardigann_regex(&args[0])?;
-                value = regex
-                    .captures(&value)
-                    .map_err(|error| EngineError::InvalidFilter(error.to_string()))?
-                    .and_then(|captures| captures.get(1).or_else(|| captures.get(0)))
-                    .map_or_else(String::new, |capture| capture.as_str().to_owned());
-            }
-            "append" if !args.is_empty() => value.push_str(&args.join("")),
-            "prepend" if !args.is_empty() => value = format!("{}{value}", args.join("")),
-            "trim" => {
-                let trimmed = value.trim().to_owned();
-                value = trimmed;
-            }
-            "split" if args.len() >= 2 => {
-                let index = args[1].parse::<usize>().unwrap_or(0);
-                let part = value
-                    .split(&args[0])
-                    .nth(index)
-                    .unwrap_or_default()
-                    .to_owned();
-                value = part;
-            }
-            "tolower" => value = value.to_lowercase(),
-            "toupper" => value = value.to_uppercase(),
-            "urlencode" => value = url::form_urlencoded::byte_serialize(value.as_bytes()).collect(),
-            "urldecode" => {
-                let encoded = format!("value={value}");
-                value = url::form_urlencoded::parse(encoded.as_bytes())
-                    .next()
-                    .map_or_else(String::new, |(_, decoded)| decoded.into_owned());
-            }
-            "querystring" if !args.is_empty() => {
-                if let Ok(url) = Url::parse(&value) {
-                    value = url
-                        .query_pairs()
-                        .find(|(name, _)| name.as_ref() == args[0])
-                        .map_or_else(String::new, |(_, value)| value.into_owned());
-                }
-            }
-            // dateparse/timeago/fuzzytime are normalized later when possible;
-            // validation and display-only filters do not alter the source text.
-            _ => {}
-        }
-    }
-    Ok(value)
+pub(super) fn apply_filters(value: String, filters: &YamlValue) -> Result<String, EngineError> {
+    super::transform::apply(value, filters, &TemplateValue::Nil, "UTF-8")
 }
 
 pub(super) fn cardigann_regex(pattern: &str) -> Result<FancyRegex, EngineError> {
+    if pattern.len() > 16_384 {
+        return Err(EngineError::CardigannFilter {
+            name: "regex".into(),
+            reason: "pattern exceeds 16 KiB limit",
+        });
+    }
     let mut builder = FancyRegexBuilder::new(pattern);
     builder.backtrack_limit(CARDIGANN_REGEX_BACKTRACK_LIMIT);
-    builder
-        .build()
-        .map_err(|error| EngineError::InvalidFilter(error.to_string()))
-}
-
-pub(super) fn filter_args(value: Option<&YamlValue>) -> Vec<String> {
-    match value {
-        Some(YamlValue::Sequence(values)) => values.iter().filter_map(scalar).collect(),
-        Some(value) => scalar(value).into_iter().collect(),
-        None => Vec::new(),
-    }
+    builder.delegate_size_limit(2 * 1024 * 1024);
+    builder.delegate_dfa_size_limit(4 * 1024 * 1024);
+    builder.build().map_err(|_| EngineError::CardigannFilter {
+        name: "regex".into(),
+        reason: "invalid regular expression",
+    })
 }
 
 pub(super) fn normalize_contains_selector(value: &str) -> (String, Vec<String>) {
@@ -141,42 +78,9 @@ pub(super) fn check_error_selectors(
 }
 
 pub(super) fn selector_matches(body: &str, selector: &str) -> Result<bool, EngineError> {
-    let (css, contains) = normalize_contains_selector(selector);
-    let selector =
-        Selector::parse(&css).map_err(|error| EngineError::InvalidSelector(error.to_string()))?;
+    let selector = super::selectors::Css::parse(selector)?;
     let document = Html::parse_document(body);
-    Ok(document.select(&selector).any(|element| {
-        contains
-            .iter()
-            .all(|needle| element_text(element).contains(needle))
-    }))
-}
-
-pub(super) fn element_text(element: ElementRef<'_>) -> String {
-    element
-        .text()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_owned()
-}
-
-pub(super) fn browser_cookies(header: Option<&str>) -> Vec<BrowserCookie> {
-    header
-        .into_iter()
-        .flat_map(|header| header.split(';'))
-        .filter_map(|part| {
-            let (name, value) = part.trim().split_once('=')?;
-            Some(BrowserCookie {
-                name: name.trim().to_owned(),
-                value: value.trim().to_owned(),
-                domain: None,
-                path: None,
-                secure: false,
-                http_only: false,
-            })
-        })
-        .collect()
+    Ok(!selector.select(document.root_element(), true)?.is_empty())
 }
 
 pub(super) fn mapping(value: &YamlValue) -> Option<&Mapping> {

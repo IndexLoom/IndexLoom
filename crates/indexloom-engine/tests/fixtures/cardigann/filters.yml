@@ -1,0 +1,52 @@
+# Independently authored conformance cases for the upstream filter inventory.
+- input: ' test-release '
+  filters: [{name: replace, args: ['-', ' ']}, {name: trim}]
+  expected: test release
+- input: 'a,b,c'
+  filters: [{name: split, args: [',', '-1']}]
+  expected: c
+- input: 'movie-42'
+  filters: [{name: regexp, args: 'movie-(\d+)'}]
+  expected: '42'
+- input: 'foo foobar'
+  filters: [{name: re_replace, args: ['foo(?!bar)', 'bar']}]
+  expected: 'bar foobar'
+- input: 'ab'
+  filters: [{name: re_replace, args: ['(a)(b)', '$2$1 $$ $&']}]
+  expected: 'ba $ ab'
+- input: '--Space--'
+  filters: [{name: trim, args: '-'}, {name: tolower}, {name: toupper}, {name: prepend, args: '['}, {name: append, args: ']'}]
+  expected: '[SPACE]'
+- input: 'a b+c/日本'
+  filters: [{name: urlencode}, {name: urldecode}]
+  expected: 'a b+c/日本'
+- input: 'https://example.invalid/?q=one%20two&x=1#part'
+  filters: [{name: querystring, args: q}]
+  expected: 'one two'
+- input: 'hello_世界?'
+  filters: [{name: base64encode}, {name: base64decode}]
+  expected: 'hello_世界?'
+- input: 'aGVsbG8='
+  filters: [{name: base64decode}]
+  expected: hello
+- input: '<b>"&literal"</b>'
+  filters: [{name: htmlencode}, {name: htmldecode}]
+  expected: '<b>"&literal"</b>'
+- input: '&copy; &#x41; &#65; &nbsp; &NotEqualTilde;'
+  filters: [{name: htmldecode}]
+  expected: "© A A \u00a0 ≂̸"
+- input: 'Crème Brûlée ŠĐĆŽ'
+  filters: [{name: diacritics, args: replace}]
+  expected: 'Creme Brulee SĐCZ'
+- input: '{"data":{"names":["Drama","Comedy"]}}'
+  filters: [{name: jsonjoinarray, args: ['$.data.names', ', ']}]
+  expected: 'Drama, Comedy'
+- input: 'bad/file:name?.mkv'
+  filters: [{name: validfilename}]
+  expected: 'bad_file_name_.mkv'
+- input: 'Action/COMEDY; drama and Action'
+  filters: [{name: validate, args: 'Drama, Action, drama, Missing'}]
+  expected: 'drama, action'
+- input: "secret\nvalue\u00a0"
+  filters: [{name: strdump, args: diagnostic}, {name: hexdump}]
+  expected: "secret\nvalue\u00a0"

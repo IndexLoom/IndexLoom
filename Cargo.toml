@@ -5,6 +5,7 @@ members = [
   "crates/indexloom-definitions",
   "crates/indexloom-engine",
   "crates/indexloom-importers",
+  "crates/indexloom-native",
   "crates/indexloom-server",
   "crates/indexloom-storage",
 ]
