@@ -64,3 +64,5 @@
 .il-indexers .management-panel { min-width: 0; }
 .il-indexers .il-config-dialog .capability-disclosure { border: 0; border-radius: 0; background: transparent; }
 .il-indexers .il-config-dialog .indexer-card header { position: static; }
+
+.il-indexers .il-action-disabled { opacity: .45; cursor: not-allowed; }

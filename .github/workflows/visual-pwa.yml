@@ -232,6 +232,11 @@ jobs:
           });
           await browser.close();
           JS
+      - name: Verify single-indexer actions across responsive widths
+        env:
+          INDEXLOOM_PLAYWRIGHT_ENTRY: /tmp/indexloom-playwright/node_modules/playwright/index.mjs
+          INDEXLOOM_PREVIEW_URL: http://127.0.0.1:4173
+        run: node web/scripts/check-indexer-browser.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
