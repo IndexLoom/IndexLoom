@@ -84,6 +84,8 @@ jobs:
           name: web-dist
           path: web/dist
       - name: Build web-enabled and headless Rust binaries
+        env:
+          INDEXLOOM_BUILD_VERSION: ${{ needs.version.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail

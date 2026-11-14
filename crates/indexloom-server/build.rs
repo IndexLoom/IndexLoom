@@ -9,6 +9,7 @@ use std::{
 };
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=INDEXLOOM_BUILD_VERSION");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_EMBEDDED_WEB");
     if env::var_os("CARGO_FEATURE_EMBEDDED_WEB").is_none() {
         return;

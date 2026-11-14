@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { ruMonitoring } from "./messages.ru.monitoring";
 import { ruMessages } from "./messages.ru";
 import { ruExtra } from "./messages.ru.extra";
 import { ruDynamic } from "./messages.ru.dynamic";
@@ -59,7 +60,7 @@ export function translate(message: string, variables?: Record<string, string | n
   return t(message, variables, area);
 }
 const STORAGE_KEY = "indexloom.locale.v1";
-const fallbackMessages: Readonly<Record<string, string>> = { ...ruMessages, ...ruExtra, ...ruDynamic };
+const fallbackMessages: Readonly<Record<string, string>> = { ...ruMessages, ...ruExtra, ...ruDynamic, ...ruMonitoring };
 const englishToGenre = new Map<string, string>();
 
 for (const genre of Object.keys(genreRu)) {

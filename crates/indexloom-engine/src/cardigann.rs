@@ -1,4 +1,5 @@
 mod challenge;
+pub mod compatibility;
 pub use challenge::{LoginChallengeDescriptor, LoginField, LoginProgress};
 pub mod download;
 mod extract;
@@ -303,7 +304,7 @@ impl CardigannExecutor {
     /// Tests transport and, when described by the definition, authentication.
     pub async fn test(&self) -> IndexerTestOutcome {
         let started = Instant::now();
-        let result = self.test_mirrors().await;
+        let result = self.test_checked().await;
         IndexerTestOutcome {
             indexer_id: self.indexer_instance_id.clone(),
             indexer_name: self.definition.metadata.name.clone(),
@@ -314,6 +315,13 @@ impl CardigannExecutor {
                 Err(error) => error.to_string(),
             },
         }
+    }
+
+    /// Tests connectivity with a typed error for monitoring classification.
+    /// # Errors
+    /// Returns transport, authentication or definition errors from the tracker test.
+    pub async fn test_checked(&self) -> Result<String, EngineError> {
+        self.test_mirrors().await
     }
 
     async fn test_single(&self) -> Result<String, EngineError> {
@@ -382,7 +390,9 @@ impl CardigannExecutor {
         offset: usize,
         parameters: &SearchParameters,
     ) -> Result<IndexerSearchBatch, EngineError> {
-        if term.trim().is_empty() {
+        // An explicit RSS request may browse recent releases without keywords.
+        // Ordinary searches still require a term or a structured identifier.
+        if term.trim().is_empty() && parameters.mode.as_deref() != Some("rss") {
             return Err(EngineError::EmptySearchTerm);
         }
         let _operation = self.operation.lock().await;
@@ -436,6 +446,7 @@ impl CardigannExecutor {
             return self.search_newznab(term, limit, offset, parameters).await;
         }
         if term.trim().is_empty()
+            && parameters.mode.as_deref() != Some("rss")
             && ![
                 parameters.imdb_id.as_deref(),
                 parameters.tmdb_id.as_deref(),
@@ -472,7 +483,9 @@ impl CardigannExecutor {
             })
             .transpose()?
             .unwrap_or_else(|| term.to_owned());
-        if let Some(mode) = parameters.mode.as_deref() {
+        if let Some(mode) = parameters.mode.as_deref()
+            && mode != "rss"
+        {
             let supported = mapping(&self.definition.spec.implementation.capabilities)
                 .and_then(|caps| caps.get(key("modes")))
                 .and_then(mapping)

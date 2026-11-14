@@ -81,6 +81,7 @@ async fn begin(
     headers: HeaderMap,
 ) -> Result<Json<LoginProgress>, ApiError> {
     let actor = auth::tracker_login_actor(&state, &headers).await?;
+    let started = std::time::Instant::now();
     let result = runtime(&state, &id)
         .await?
         .begin_interactive_login(&actor)
@@ -90,6 +91,19 @@ async fn begin(
         success = result.is_ok(),
         "redacted tracker login event"
     );
+    crate::monitoring::record(
+        &state,
+        Some(&id),
+        if matches!(&result, Ok(LoginProgress::Pending { .. })) {
+            indexloom_storage::monitoring::Operation::AuthPending
+        } else {
+            indexloom_storage::monitoring::Operation::Auth
+        },
+        result.as_ref().err().map(crate::monitoring::classify),
+        started.elapsed(),
+        0,
+    )
+    .await;
     result.map(Json).map_err(challenge_error)
 }
 
@@ -101,29 +115,40 @@ async fn submit(
 ) -> Result<Json<LoginProgress>, ApiError> {
     let actor = auth::tracker_login_actor(&state, &headers).await?;
     validate_challenge(&challenge)?;
-    if solution.answers.len() > 16
+    // Consume an owned challenge even when submitted answers exceed the input budget.
+    let answers = if solution.answers.len() > 16
         || solution
             .answers
             .iter()
             .any(|(k, v)| k.len() > 128 || v.len() > 512)
     {
-        // Let the engine consume a valid owned challenge even on malformed input.
-        return runtime(&state, &id)
-            .await?
-            .submit_login_challenge(&actor, &challenge, BTreeMap::new())
-            .await
-            .map(Json)
-            .map_err(challenge_error);
-    }
+        BTreeMap::new()
+    } else {
+        solution.answers
+    };
+    let started = std::time::Instant::now();
     let result = runtime(&state, &id)
         .await?
-        .submit_login_challenge(&actor, &challenge, solution.answers)
+        .submit_login_challenge(&actor, &challenge, answers)
         .await;
     tracing::info!(
         event = "tracker_login_submit",
         success = result.is_ok(),
         "redacted tracker login event"
     );
+    crate::monitoring::record(
+        &state,
+        Some(&id),
+        if matches!(&result, Ok(LoginProgress::Pending { .. })) {
+            indexloom_storage::monitoring::Operation::AuthPending
+        } else {
+            indexloom_storage::monitoring::Operation::Auth
+        },
+        result.as_ref().err().map(crate::monitoring::classify),
+        started.elapsed(),
+        0,
+    )
+    .await;
     result.map(Json).map_err(challenge_error)
 }
 

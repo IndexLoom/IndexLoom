@@ -5,7 +5,7 @@ const t = (message: string, variables?: Record<string, string | number>) => tran
 import { useAdminSession } from "./AdminSession";
 import { useEffect, useState } from "react";
 
-export type View = "search" | "indexers" | "history" | "settings";
+export type View = "search" | "indexers" | "history" | "monitoring" | "settings";
 
 type AppShellProps = {
   activeView: View;
@@ -17,6 +17,7 @@ const navigation: Array<{ id: View; label: string }> = [
   { id: "search", label: "Search" },
   { id: "indexers", label: "Indexers" },
   { id: "history", label: "History" },
+  { id: "monitoring", label: "Monitoring" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -118,6 +119,9 @@ function NavIcon({ view }: { view: View }) {
         <path d="M5 5.3v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6M5 11.3v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
       </svg>
     );
+  }
+  if (view === "monitoring") {
+    return <svg {...common}><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>;
   }
   if (view === "history") {
     return (
