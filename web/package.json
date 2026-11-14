@@ -15,7 +15,8 @@
     "test:operations": "node --test src/components/monitoring/operations.test.mjs",
     "test:events": "node scripts/check-events.mjs",
     "test:history": "node --test scripts/check-search-history.mjs",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test:notifications": "node scripts/check-notifications-browser.mjs"
   },
   "dependencies": {
     "react": "19.2.8",

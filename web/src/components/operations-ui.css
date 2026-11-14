@@ -74,3 +74,45 @@
 .operations-settings .inline-error, .operations-settings [role=alert] { color: #ffbac9; }
 .operations-settings .operations-toolbar > label:has(input[type=checkbox]) { display: flex; align-items: center; align-self: center; gap: 8px; }
 @media (max-width:40rem) { .operations-settings.operations-settings, .monitoring-workspace.monitoring-workspace { padding: 16px 12px 28px; } }
+/* Notifications use the same compact operational palette and native form semantics. */
+.notifications-settings { display: grid; }
+.notification-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.notification-heading > div { flex: 1 1 260px; }
+.notification-channel-list, .notification-log { list-style: none; padding: 0; margin: 0; min-width: 0; }
+.notification-channel-list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+.notification-channel-name { display: grid; gap: 4px; flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; font-size: .875rem; }
+.notification-channel-name span { font-size: .75rem; }
+.notification-check { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }
+.operations-settings .notification-check input { appearance: none; width: 18px; height: 18px; margin: 0; border: 1px solid #796095; border-radius: 4px; background: #0e0c12; display: grid; place-content: center; }
+.notification-check input:checked { background: #b99aff; border-color: #b99aff; }
+.notification-check input:checked::before { content: ''; width: 8px; height: 4px; border-left: 2px solid #131117; border-bottom: 2px solid #131117; transform: translateY(-1px) rotate(-45deg); }
+.notification-check input:disabled { opacity: .5; }
+.notification-grid, .notification-event-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(240px,100%),1fr)); gap: 10px; }
+.notification-editor fieldset, .notification-templates fieldset { display: grid; gap: 12px; }
+.notifications-settings label:not(.notification-check) { display: grid; gap: 5px; min-width: 0; }
+.notifications-settings :is(input:not([type=checkbox]),textarea) { width: 100%; box-sizing: border-box; }
+.notification-secrets { display: grid; gap: 10px; }
+.notification-secret { display: flex; gap: 8px; align-items: end; }
+.notification-secret label { flex: 1; }
+.notification-preview { display: grid; gap: 8px; background: #0e0c12; padding: 12px; border-left: 2px solid var(--accent); white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8125rem; }
+.notification-placeholders { display: block; overflow-wrap: anywhere; font-size: .75rem; color: var(--muted); }
+.notification-delete { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: #351b28; }
+.notification-delete p { flex-basis: 100%; }
+.notification-log { display: grid; gap: 0; font-size: .8125rem; }
+.notification-log li { display: grid; grid-template-columns: 1fr auto; column-gap: 16px; row-gap: 5px; border-bottom: 1px solid var(--border-soft); padding: 12px 0; overflow-wrap: anywhere; min-width: 0; }
+.notification-log li > div { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.notification-log li > .muted { grid-column: 1 / -1; font-variant-numeric: tabular-nums; }
+.notification-status { display: inline-block; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: .75rem; }
+.notification-status[data-status=sent] { color: #a8e5c5; background: #142b24; border-color: #3b775e; }
+.notification-status[data-status=failed] { color: #ffbac9; background: #351b28; border-color: #99566e; }
+.notification-status[data-status=retry] { color: #f4d392; background: #30281b; border-color: #8e7545; }
+.notification-sr { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.notification-notice:empty { display: none; }
+@media (max-width:40rem) {
+  .notification-log li { grid-template-columns: minmax(0,1fr); }
+  .notification-check { min-height: 44px; }
+}
+@media (forced-colors:active) {
+  .notification-check input:checked { background: Highlight; }
+  .notification-check input:checked::before { border-color: HighlightText; }
+}

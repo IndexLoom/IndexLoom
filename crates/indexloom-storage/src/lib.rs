@@ -25,6 +25,7 @@ pub mod integrations;
 pub mod management;
 pub mod monitoring;
 mod newznab;
+pub mod notifications;
 mod routing;
 mod search_presets;
 pub mod totp;

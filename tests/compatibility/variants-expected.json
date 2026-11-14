@@ -21,6 +21,7 @@
   "prowlarr-indexers/definitions/v11/borgzelle.yml": "runtime-config",
   "prowlarr-indexers/definitions/v11/crazyspirits-api.yml": "runtime-config",
   "prowlarr-indexers/definitions/v11/ebookbay.yml": "runtime-config",
+  "prowlarr-indexers/definitions/v11/explosiv-world.yml": "runtime-config",
   "prowlarr-indexers/definitions/v11/extremebits.yml": "runtime-config",
   "prowlarr-indexers/definitions/v11/krazyzone.yml": "runtime-config",
   "prowlarr-indexers/definitions/v11/leech24.yml": "runtime-config",

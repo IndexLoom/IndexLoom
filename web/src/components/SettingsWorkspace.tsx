@@ -10,6 +10,7 @@ import { IntegrationSettings } from "./IntegrationSettings";
 import { UpdatesSettings } from "./UpdatesSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { SecuritySettings } from "./SecuritySettings";
+import { NotificationsSettings } from "./NotificationsSettings";
 import { EmailSettings } from "./EmailSettings";
 import { ApiError, type CatalogStatus, fetchCatalogStatus } from "../lib/api";
 import {
@@ -18,12 +19,12 @@ import {
   paletteKeys, searchBlocks, themes, useAppearance,
 } from "../lib/ui-preferences";
 
-type Tab = "logs" | "backups" | "themes" | "layout" | "css" | "database" | "security" | "email" | "applications" | "automation" | "updates";
+type Tab = "notifications" | "logs" | "backups" | "themes" | "layout" | "css" | "database" | "security" | "email" | "applications" | "automation" | "updates";
 const labels: Record<Tab, string> = {
   logs: "Logs / Diagnostics", backups: "Backups", updates: "Updates",
   themes: "Appearance", layout: "Layout", css: "Custom CSS", database: "Indexer database",
   applications: "Applications", automation: "Automation",
-  security: "Security & users", email: "Email & notifications",
+  security: "Security & users", email: "Email", notifications: "Notifications",
 };
 const paletteLabels: Record<PaletteKey, string> = {
   page: "Background", surface: "Surface", raised: "Elevated surface",
@@ -88,7 +89,7 @@ export function SettingsWorkspace() {
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
-  const availableTabs = (Object.keys(labels) as Tab[]).filter((key) => key !== "email" || canManageMail);
+  const availableTabs = (Object.keys(labels) as Tab[]).filter((key) => !["email", "notifications"].includes(key) || canManageMail);
   function moveTab(current: Tab, event: KeyboardEvent<HTMLButtonElement>) {
     if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -272,6 +273,7 @@ export function SettingsWorkspace() {
       {tab === "database" ? <CatalogDiagnostics /> : null}
       {tab === "security" ? <SecuritySettings /> : null}
       {tab === "email" && canManageMail ? <EmailSettings /> : null}
+      {tab === "notifications" && canManageMail ? <NotificationsSettings /> : null}
       {["themes", "layout", "css"].includes(tab) ? <footer className="appearance-footer">
         <div>
           <button className="quiet-button" onClick={exportProfile} type="button">{t("Export profile")}</button>
