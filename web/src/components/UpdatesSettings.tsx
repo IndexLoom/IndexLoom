@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
-import { translate } from "../lib/i18n";
+import { formatDateTime, translate } from "../lib/i18n";
 import { useSystemRevision } from "../lib/events";
 const t = (message: string) => translate(message, undefined, "settings");
 type Release = { tag_name: string; html_url: string; published_at: string | null; prerelease: boolean; body: string | null; assets: { id: number; name: string; size: number; browser_download_url: string }[] };
@@ -29,12 +29,13 @@ export function UpdatesSettings() {
     return () => controller.abort();
   }, [token, preview, check, revision]);
   if (!token) return <AdminTokenGate onSubmit={acceptToken} />;
-  return <div className="appearance-content">
+  return <div className="appearance-content operations-panel">
     <div className="setting-heading"><h2>{t("Updates")}</h2><p>{t("Check official releases and download packages for your platform. Installation is manual.")}</p></div>
-    <label><input type="checkbox" checked={preview} onChange={event => setPreview(event.target.checked)} />{t("Include prereleases")}</label>{" "}
-    <button type="button" disabled={busy} onClick={() => setCheck(value => value + 1)}>{t("Check for updates")}</button>
-    <p role="status">{busy ? t("Checking updates…") : data ? `${t("Current version")}: ${data.currentVersion} · ${t("Latest release")}: ${data.releases[0]?.tag_name ?? t("No releases published")} · ${new Date(data.checkedAt * 1000).toLocaleString()}` : ""}</p>
+    <div className="operations-toolbar"><label><input type="checkbox" checked={preview} onChange={event => setPreview(event.target.checked)} />{t("Include prereleases")}</label>{" "}
+    <button type="button" disabled={busy} onClick={() => setCheck(value => value + 1)}>{t("Check for updates")}</button></div>
+    <p role="status">{busy ? t("Checking updates…") : data ? t("Updated") + " · " + formatDateTime(new Date(data.checkedAt * 1000).toISOString()) : ""}</p>
     {error ? <p role="alert">{error}</p> : null}
+    {data ? <><dl className="operations-checks"><div><dt>{t("Current version")}</dt><dd>{data.currentVersion}</dd></div><div><dt>{t("Latest release")}</dt><dd>{data.releases[0]?.tag_name ?? t("No releases published")}</dd></div><div><dt>{t("Package verification")}</dt><dd>{t("Not verified locally")}</dd></div><div><dt>{t("Installation")}</dt><dd>{t("Manual installation required")}</dd></div></dl><p>{t("Release metadata retrieved; packages have not been downloaded or verified.")}</p></> : null}
     <p>{t("Checks are cached for five minutes. SHA256 checksums verify file integrity, not publisher identity. Use the server update download command to verify a package before installing.")}</p>
     <p>{t("Docker updates use your container update policy. iOS requires signed platform distribution. IndexLoom never overwrites the running application.")}</p>
     <h3>{t("Version history")}</h3>
@@ -42,7 +43,7 @@ export function UpdatesSettings() {
       <summary>{release.tag_name} · {release.published_at ? new Date(release.published_at).toLocaleDateString() : t("Date unavailable")} {release.prerelease ? t("Prerelease") : ""}</summary>
       <a href={githubLink(release.html_url)} target="_blank" rel="noreferrer">{t("View release on GitHub")}</a>
       <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{release.body}</pre>
-      <ul>{release.assets.map(asset => <li key={asset.id}><a href={githubLink(asset.browser_download_url)} target="_blank" rel="noreferrer">{asset.name}</a> · {platform(asset.name)} · {asset.size.toLocaleString()} {t("bytes")} · {t("Not verified locally")}</li>)}</ul>
+      <div className="operations-scroll" tabIndex={0} role="region" aria-label={release.tag_name}><table className="operations-table"><thead><tr>{["Download", "Platform", "Size", "Package verification"].map(label => <th scope="col" key={label}>{t(label)}</th>)}</tr></thead><tbody>{release.assets.map(asset => <tr key={asset.id}><td><a href={githubLink(asset.browser_download_url)} target="_blank" rel="noreferrer">{asset.name}</a></td><td>{platform(asset.name)}</td><td>{(asset.size / 1024 / 1024).toLocaleString(undefined, { maximumFractionDigits: 2 })} {t("MiB")}</td><td>{t("Not verified locally")}</td></tr>)}</tbody></table></div>
     </details>)}
   </div>;
 }

@@ -1,47 +1,8 @@
-import { translate, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../../lib/i18n";
+import { useEffect, useState } from "react";
+import { translate, formatNumber } from "../../lib/i18n";
+import { ApiError, type Indexer, type IndexerGroup, type IndexerSelection, type IndexerTestJob,
+  fetchIndexerTestJob, startIndexerTests } from "../../lib/api";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "indexers");
-import {
-  type FormEvent,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-import {
-  ApiError,
-  type ConfigurationField,
-  type ConfigurationValue,
-  type FlareSolverrInstance,
-  type FlareSolverrUpdate,
-  type Indexer,
-  type IndexerGroup,
-  type IndexerGroupUpdate,
-  type IndexerSelection,
-  type IndexerTestJob,
-  type OutboundProxy,
-  type OutboundProxyUpdate,
-  type ProxyKind,
-  type RoutingSettings,
-  fetchFlareSolverr,
-  fetchGroups,
-  fetchIndexerTestJob,
-  fetchIndexers,
-  fetchProxies,
-  fetchRouting,
-  removeGroup,
-  removeFlareSolverr,
-  removeProxy,
-  saveGroup,
-  saveFlareSolverr,
-  saveIndexerConfiguration,
-  saveIndexerOrganization,
-  saveProxy,
-  saveRouting,
-  startIndexerTests,
-} from "../../lib/api";
-import { AdminTokenGate, useAdminSession } from "../AdminSession";
 
 export function IndexerTestPanel({
   indexers,
@@ -60,6 +21,7 @@ export function IndexerTestPanel({
     groupIds: [],
   });
   const [job, setJob] = useState<IndexerTestJob | null>(null);
+  const [starting, setStarting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,6 +66,8 @@ export function IndexerTestPanel({
   }
 
   async function start(chosen: IndexerSelection) {
+    if (starting || job?.status === "running") return;
+    setStarting(true);
     setStatus(null);
     try {
       setJob(await startIndexerTests(token, chosen));
@@ -111,6 +75,8 @@ export function IndexerTestPanel({
       if (error instanceof ApiError && error.status === 401)
         return onUnauthorized();
       setStatus(error instanceof Error ? error.message : "test start failed");
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -128,17 +94,17 @@ export function IndexerTestPanel({
       <div className="test-panel">
         <div className="bulk-actions">
           <button
-            className="primary-button"
-            disabled={job?.status === "running"}
+            className="il-action il-primary"
+            disabled={starting || job?.status === "running"}
             onClick={() =>
               void start({ all: true, indexerIds: [], groupIds: [] })
             }
             type="button"
           >{t("Test all enabled")}{" "}</button>
           <button
-            className="quiet-button"
+            className="il-action"
             disabled={
-              job?.status === "running" ||
+              starting || job?.status === "running" ||
               (selection.indexerIds.length === 0 &&
                 selection.groupIds.length === 0)
             }
@@ -186,7 +152,7 @@ export function IndexerTestPanel({
           </div>
         </details>
         {status ? (
-          <p className="form-status" role="status">
+          <p className="form-status" role="alert">
             {t(status)}
           </p>
         ) : null}
@@ -211,7 +177,7 @@ export function IndexerTestPanel({
                           result.success ? "status-pill healthy" : "status-pill"
                         }
                       >
-                        {result.success ? "success" : "failed"}
+                        {t(result.success ? "success" : "failed")}
                       </span>
                     </td>
                     <td>{result.responseTimeMs} ms</td>

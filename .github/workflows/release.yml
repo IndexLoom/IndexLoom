@@ -52,7 +52,7 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: web
-      - run: pnpm typecheck && pnpm build
+      - run: pnpm i18n:check && pnpm test:operations && pnpm typecheck && pnpm build
         working-directory: web
       - uses: actions/upload-artifact@v4
         with:
@@ -196,7 +196,7 @@ jobs:
           retention-days: 1
 
   # Only after BOTH platform builds succeed, publish the manifest list.
-  # Never replace :edge with a single-architecture image or incomplete build.
+  # Never replace :latest or :edge with a single-architecture image or incomplete build.
   docker:
     needs: [version, docker-platform]
     runs-on: ubuntu-24.04
@@ -232,11 +232,18 @@ jobs:
           docker buildx imagetools create \
             -t "$IMAGE:$TAG" \
             -t "$IMAGE:edge" \
+            -t "$IMAGE:latest" \
             "${refs[@]}"
           docker buildx imagetools inspect --raw "$IMAGE:$TAG" \
             | jq -e '[.manifests[] | select(.platform.os == "linux" and
                 (.platform.architecture == "amd64" or .platform.architecture == "arm64"))
                 | .platform.architecture] | sort == ["amd64", "arm64"]'
+          # Both moving tags must resolve to the same verified multi-arch index.
+          manifest_digest=$(docker buildx imagetools inspect "$IMAGE:$TAG" | awk '/^Digest:/ {print $2; exit}')
+          for alias in edge latest; do
+            alias_digest=$(docker buildx imagetools inspect "$IMAGE:$alias" | awk '/^Digest:/ {print $2; exit}')
+            test "$alias_digest" = "$manifest_digest"
+          done
           docker buildx imagetools inspect "$IMAGE:$TAG"
 
   publish:
@@ -257,7 +264,7 @@ jobs:
         with:
           name: indexloom-native-ios-arm64-unsigned
           path: dist/mobile/ios
-      - name: Verify packages and publish pre-release
+      - name: Verify packages and publish stable release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -273,6 +280,6 @@ jobs:
           cp dist/mobile/ios/indexloom-ios-arm64-unsigned-xcarchive.zip dist/release-assets/
           mv dist/*.tar.gz dist/*.zip dist/release-assets/
           (cd dist/release-assets && sha256sum * > SHA256SUMS)
-          gh release create "$TAG" dist/release-assets/* --target "$GITHUB_SHA" --prerelease \
+          gh release create "$TAG" dist/release-assets/* --target "$GITHUB_SHA" --latest \
             --title "IndexLoom $TAG" \
-            --notes "IndexLoom pre-release: server web-enabled and headless binaries for Linux, Windows, macOS; Android ARM64 APK; unsigned iOS ARM64 IPA and Xcode archive (sign before installation). Docker multi-arch: ghcr.io/indexloom/indexloom:$TAG. Indexer catalog updates independently."
+            --notes "IndexLoom release: web-enabled and headless binaries for Linux, Windows and macOS, Android ARM64 APK, unsigned iOS ARM64 IPA and Xcode archive (sign before installation). Multi-architecture Docker images: ghcr.io/indexloom/indexloom:$TAG, ghcr.io/indexloom/indexloom:latest, and ghcr.io/indexloom/indexloom:edge. Indexer catalog updates independently."

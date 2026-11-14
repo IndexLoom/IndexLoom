@@ -265,7 +265,7 @@ No Jackett, Prowlarr or Node.js runtime is required. The browser UI is not a
 native desktop window.
 
 Container images are published for amd64 and arm64 to
-`ghcr.io/indexloom/indexloom:edge` and a versioned pre-release tag.
+`ghcr.io/indexloom/indexloom:latest`, `ghcr.io/indexloom/indexloom:edge`, and a versioned release tag.
 The standalone binaries and Docker images require the same
 `INDEXLOOM_ADMIN_TOKEN`, `INDEXLOOM_MASTER_KEY`, and writable SQLite
 database configuration. Release downloads live in GitHub Releases.

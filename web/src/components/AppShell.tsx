@@ -1,9 +1,8 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAppearance } from "../lib/ui-preferences";
 import { LanguageSwitcher, translate } from "../lib/i18n";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "navigation");
 import { useAdminSession } from "./AdminSession";
-import { useEffect, useState } from "react";
 
 export type View = "search" | "indexers" | "history" | "monitoring" | "settings";
 
@@ -55,6 +54,7 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
           {orderedNavigation.map((item) => (
             <button
               aria-current={item.id === activeView ? "page" : undefined}
+              aria-label={t(item.label)}
               className={item.id === activeView ? "nav-item active" : "nav-item"}
               key={item.id}
               onClick={() => onNavigate(item.id)}
@@ -78,15 +78,15 @@ export function AppShell({ activeView, children, onNavigate }: AppShellProps) {
         </div>
       </aside>
       <main className="workspace" id="main-workspace" tabIndex={-1}>
-        <div className="workspace-topbar">
-          <span className="topbar-location">{t("Workspace")}{" "}<span>/</span> {t(navigation.find((item) => item.id === activeView)?.label ?? "")}</span>
+        <header className="workspace-topbar">
+          <span className="topbar-location">{t("Workspace")}<span aria-hidden="true">/</span><strong>{t(navigation.find((item) => item.id === activeView)?.label ?? "")}</strong></span>
           <div className="topbar-actions">
             <LanguageSwitcher compact />
             {installPrompt ? <button className="topbar-settings" onClick={install} type="button">{t("Install app")}</button> : null}
             <button className="topbar-settings" onClick={() => onNavigate("settings")} type="button">{t("Appearance")}</button>
             {config?.mode !== "disabled" ? <button className="topbar-settings" onClick={clearToken} type="button">{t("Sign out")}</button> : null}
           </div>
-        </div>
+        </header>
         {children}
       </main>
     </div>

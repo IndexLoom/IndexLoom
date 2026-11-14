@@ -1,0 +1,76 @@
+/* Operational surfaces deliberately keep a stable, compact dark palette. */
+.operations-settings, .monitoring-workspace {
+  --surface: #131117; --surface-raised: #1d1924; --color-bg-raised: #1d1924;
+  --color-bg-sunken: #0e0c12; --text: #eeeaf5; --muted: #b5adbf;
+  --border: #3b3248; --border-soft: #2a2433; --accent: #b99aff;
+  color-scheme: dark; color: var(--text); min-width: 0;
+}
+.operations-settings .page-heading, .monitoring-workspace .page-heading { margin: 0; padding: 0 0 12px; }
+.operations-settings .page-heading h1, .monitoring-workspace h1 { font-size: 1.5rem; margin: 0 0 6px; }
+.operations-settings .appearance-tabs { margin: 0 0 16px; gap: 4px; padding: 8px 0; }
+.operations-settings .appearance-tabs button { padding: 8px 11px; min-height: 36px; font-size: .8125rem; }
+.operations-settings .appearance-tabs button.active { background: #30223f; border-color: #796095; color: #e2cfff; }
+.operations-settings .appearance-content { gap: 12px; margin: 0; padding: 16px; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; align-content: start; }
+.operations-settings h2 { font-size: 1rem; margin: 0; }
+.operations-settings h3 { font-size: .875rem; margin: 10px 0 0; }
+.operations-settings p { margin: 0; font-size: .8125rem; line-height: 1.55; max-width: 110ch; }
+.operations-settings .setting-heading { margin-top: 0; }
+.operations-settings .appearance-footer { margin-top: 16px; padding-top: 12px; }
+.operations-settings :is(button,input,select,textarea), .monitoring-workspace :is(button,input,select,textarea) { font: inherit; font-size: .8125rem; accent-color: var(--accent); max-width: 100%; }
+.operations-settings :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),select,textarea), .monitoring-workspace :is(input:not([type=checkbox]),select) { background: #0e0c12; color: var(--text); border: 1px solid var(--border); border-radius: 5px; min-height: 36px; padding: 7px 9px; min-width: 0; }
+.operations-settings :is(select, input[type=file]) { width: 100%; }
+.operations-settings :is(input[type=checkbox],input[type=radio]) { width: 16px; height: 16px; flex: 0 0 auto; }
+.operations-settings button, .monitoring-workspace button { background: #211a2c; color: var(--text); border: 1px solid #4b3c5b; border-radius: 5px; min-height: 36px; padding: 6px 11px; cursor: pointer; }
+.operations-settings button:disabled, .monitoring-workspace button:disabled { opacity: .45; cursor: not-allowed; }
+.operations-settings :focus-visible, .monitoring-workspace :focus-visible { outline: 2px solid #c8aaff; outline-offset: 3px; }
+.operations-settings label { font-size: .8125rem; }
+.operations-toolbar, .operations-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.operations-toolbar > label { display: grid; gap: 5px; min-width: 140px; max-width: 100%; }
+.operations-toolbar > label:has(input[type=file]) { flex: 1; min-width: min(240px,100%); }
+.operations-settings .operations-danger { border-color: #a3677f; color: #ffd3de; }
+.operations-scroll { overflow-x: auto; max-width: 100%; min-width: 0; }
+.operations-table { width: 100%; border-collapse: collapse; text-align: start; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.operations-table :is(th,td) { padding: 9px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; text-align: start; }
+.operations-table th { background: #1d1924; font-size: .75rem; color: var(--muted); }
+.operations-table td:first-child { white-space: nowrap; }
+.operations-table .operations-message { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 220px; }
+.operations-settings .monitoring-status { display: inline-block; padding: 2px 6px; border: 1px solid var(--border); border-radius: 4px; white-space: nowrap; }
+:is(.operations-settings,.monitoring-workspace) [data-status="error"], .monitoring-workspace [data-status="circuit-open"], .monitoring-workspace [data-status="degraded"] { color: #ffbac9; background: #351b28; border-color: #99566e; }
+:is(.operations-settings,.monitoring-workspace) [data-status="warn"], .monitoring-workspace [data-status="half-open"] { color: #f4d392; background: #30281b; border-color: #8e7545; }
+.monitoring-workspace :is([data-status="healthy"],[data-status="enabled"],[data-status="success"]) { color: #a8e5c5; background: #142b24; border: 1px solid #3b775e; }
+.monitoring-workspace .monitoring-totals { gap: 0; border: 1px solid var(--border-soft); border-radius: 5px; background: #0e0c12; }
+.monitoring-workspace .monitoring-totals > span { padding: 10px 14px; flex: 1; min-width: 130px; }
+.monitoring-workspace .monitoring-totals strong { display: block; font-size: 1.25rem; margin-top: 4px; }
+.monitoring-workspace .monitoring-scroll td { padding: 8px 10px; }
+.monitoring-workspace .monitoring-scroll th button { background: transparent; border: 0; padding: 0; min-height: 28px; }
+.monitoring-workspace .monitoring-scroll td:not(:first-child) { font-variant-numeric: tabular-nums; }
+.operations-settings details { border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px; min-width: 0; }
+.operations-settings summary { cursor: pointer; font-size: .875rem; font-weight: 600; }
+.operations-settings details[open] summary { margin-bottom: 12px; }
+.operations-settings a { color: #c9acff; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.operations-settings pre { font-size: .8125rem; max-height: 24rem; overflow: auto; }
+.operations-checks { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 8px; margin: 0; }
+.operations-checks > div { padding: 12px; background: #0e0c12; border: 1px solid var(--border-soft); border-radius: 5px; }
+.operations-checks dt { font-size: .75rem; color: var(--muted); margin-bottom: 6px; }
+.operations-checks dd { margin: 0; font-size: .875rem; overflow-wrap: anywhere; }
+@media (hover:hover) { .operations-settings button:enabled:hover, .monitoring-workspace button:enabled:hover { border-color: #b99aff; background-color: #322440; } .operations-table tbody tr:hover, .monitoring-workspace tbody tr:hover { background: #1c1724; } }
+@media (max-width: 40rem) {
+  .operations-settings .appearance-content { padding: 12px; }
+  .operations-settings .appearance-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+  .operations-settings .appearance-tabs button { flex-shrink: 0; }
+  .operations-toolbar > label { flex: 1 1 140px; }
+  .operations-settings button, .monitoring-workspace button { min-height: 44px; }
+  .operations-settings .operations-checks { grid-template-columns: 1fr; }
+}
+@media (forced-colors:active) { .operations-settings :focus-visible, .monitoring-workspace :focus-visible { outline-color: Highlight; } }
+.operations-settings.operations-settings, .monitoring-workspace.monitoring-workspace { width: 100%; max-width: 1600px; margin-inline: auto; padding: 24px 28px 40px; background: #0c0b10; }
+.operations-settings fieldset { min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
+.operations-settings legend { padding-inline: 6px; font-size: .8125rem; font-weight: 600; color: var(--muted); }
+.operations-settings .appearance-controls { gap: 10px; }
+.operations-settings .appearance-controls label { gap: 5px; }
+.operations-settings :is(.automation-settings,.integration-settings) > ul { padding: 0; margin: 0; list-style: none; }
+.operations-settings :is(.automation-settings,.integration-settings) > ul > li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-soft); font-size: .8125rem; overflow-wrap: anywhere; }
+.operations-settings :is(.auth-form,.mail-template-editor) { max-width: 48rem; }
+.operations-settings .inline-error, .operations-settings [role=alert] { color: #ffbac9; }
+.operations-settings .operations-toolbar > label:has(input[type=checkbox]) { display: flex; align-items: center; align-self: center; gap: 8px; }
+@media (max-width:40rem) { .operations-settings.operations-settings, .monitoring-workspace.monitoring-workspace { padding: 16px 12px 28px; } }
