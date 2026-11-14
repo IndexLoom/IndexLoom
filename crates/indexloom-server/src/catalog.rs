@@ -275,6 +275,7 @@ fn validate_catalog(
         let source = match definition.provenance.source.project {
             SourceProject::Jackett => "jackett",
             SourceProject::ProwlarrIndexers => "prowlarr-indexers",
+            SourceProject::User => "user",
         };
         definitions.push(CatalogDefinitionInput {
             id: definition.metadata.id,

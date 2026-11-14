@@ -140,6 +140,8 @@ struct TestRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SearchRequest {
+    #[serde(default)]
+    result_options: crate::search_processing::ResultOptions,
     query: String,
     #[serde(default)]
     selection: IndexerSelection,
@@ -186,6 +188,8 @@ struct SearchIndexerView {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchResponse {
+    #[serde(flatten)]
+    processed: crate::search_processing::ProcessedResults,
     query: String,
     indexers: Vec<SearchIndexerView>,
     result_count: usize,
@@ -202,6 +206,8 @@ enum SearchStreamEvent {
         indexer: SearchIndexerView,
     },
     Finished {
+        #[serde(flatten)]
+        processed: crate::search_processing::ProcessedResults,
         query: String,
         completed: usize,
         total: usize,
@@ -211,6 +217,7 @@ enum SearchStreamEvent {
 
 #[derive(Debug)]
 struct PreparedSearch {
+    result_options: crate::search_processing::ResultOptions,
     query: String,
     indexer_ids: Vec<String>,
     limit_per_indexer: usize,
@@ -456,6 +463,7 @@ async fn search(
         &state,
         &prepared,
         Some(crate::download::credential_scope(&headers)),
+        false,
     );
     let mut indexers = Vec::new();
     while let Some(result) = tasks.join_next().await {
@@ -463,6 +471,12 @@ async fn search(
     }
     sort_search_indexers(&mut indexers);
     let result_count: usize = indexers.iter().map(|indexer| indexer.results.len()).sum();
+    let processed = crate::search_processing::process(
+        indexers
+            .iter()
+            .flat_map(|indexer| indexer.results.iter().cloned()),
+        &prepared.result_options,
+    );
     SEARCH_RELEASES.fetch_add(
         u64::try_from(result_count).unwrap_or(u64::MAX),
         Ordering::Relaxed,
@@ -472,6 +486,7 @@ async fn search(
         query: prepared.query,
         indexers,
         result_count,
+        processed,
     }))
 }
 
@@ -484,10 +499,12 @@ async fn search_stream(
     SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
     let total = prepared.indexer_ids.len();
     let query = prepared.query.clone();
+    let result_options = prepared.result_options.clone();
     let mut tasks = spawn_search_tasks(
         &state,
         &prepared,
         Some(crate::download::credential_scope(&headers)),
+        false,
     );
     let output = async_stream::stream! {
         yield Ok::<String, Infallible>(ndjson_line(&SearchStreamEvent::Started {
@@ -496,10 +513,12 @@ async fn search_stream(
         }));
         let mut completed = 0_usize;
         let mut result_count = 0_usize;
+        let mut all_results = Vec::new();
         while let Some(result) = tasks.join_next().await {
             let indexer = search_join_result(result);
             completed += 1;
             result_count += indexer.results.len();
+            all_results.extend(indexer.results.iter().cloned());
             yield Ok(ndjson_line(&SearchStreamEvent::Indexer { indexer }));
         }
         SEARCH_RELEASES.fetch_add(
@@ -507,7 +526,9 @@ async fn search_stream(
             Ordering::Relaxed,
         );
         SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
+        let processed = crate::search_processing::process(all_results, &result_options);
         yield Ok(ndjson_line(&SearchStreamEvent::Finished {
+            processed,
             query,
             completed,
             total,
@@ -535,12 +556,18 @@ async fn prepare_search(
 ) -> Result<PreparedSearch, ApiError> {
     validate_selection(&request.selection)?;
     let query = request.query.trim();
-    if query.is_empty() || query.len() > 500 {
+    let structured = has_structured_query(&request.filters);
+    if (query.is_empty() && !structured) || query.len() > 500 {
         return Err(ApiError::bad_request(
-            "search query must contain 1 to 500 bytes",
+            "search requires keywords or a recognized structured field (max 500 bytes)",
         ));
     }
     validate_search_filters(&request.filters)?;
+    request
+        .result_options
+        .validate()
+        .map_err(ApiError::bad_request)?;
+
     validate_search_languages(&request.languages)?;
     if !(1..=200).contains(&request.limit_per_indexer) {
         return Err(ApiError::bad_request(
@@ -595,6 +622,7 @@ async fn prepare_search(
         ));
     }
     Ok(PreparedSearch {
+        result_options: request.result_options,
         query: query.to_owned(),
         indexer_ids,
         limit_per_indexer: request.limit_per_indexer,
@@ -602,50 +630,80 @@ async fn prepare_search(
     })
 }
 
-/// Shared bounded search for experimental Torznab/RSS consumers.
-/// Never bypasses selection, indexer egress, limits, or concurrency controls.
+/// Bounded credential-free feed search with externally usable encrypted tickets.
+/// A caller may select one configured indexer, otherwise all enabled sources.
 pub(crate) async fn search_for_feed(
     state: &AppState,
     query: String,
-    category: Option<String>,
+    filters: SearchParameters,
+    only_indexer: Option<String>,
     limit: usize,
 ) -> Result<Vec<SearchResult>, ApiError> {
+    if let Some(id) = only_indexer.as_deref() {
+        validate_identifier(id)?;
+    }
+    let result_options = crate::search_processing::ResultOptions {
+        min_size: filters.min_size,
+        max_size: filters.max_size,
+        min_seeders: filters.min_seeders,
+        max_age_days: filters.max_age_days,
+        ..crate::search_processing::ResultOptions::default()
+    };
     let request = SearchRequest {
+        result_options: result_options.clone(),
         query,
         selection: IndexerSelection {
-            all: true,
-            indexer_ids: Vec::new(),
+            all: only_indexer.is_none(),
+            indexer_ids: only_indexer.into_iter().collect(),
             group_ids: Vec::new(),
         },
         limit_per_indexer: limit.clamp(1, 200),
-        filters: SearchParameters {
-            category,
-            ..Default::default()
-        },
+        filters,
         languages: Vec::new(),
     };
     let prepared = prepare_search(state, request).await?;
     SEARCH_REQUESTS.fetch_add(1, Ordering::Relaxed);
-    let mut tasks = spawn_search_tasks(state, &prepared, None);
+    let mut tasks = spawn_search_tasks(state, &prepared, None, true);
     let mut results = Vec::new();
     while let Some(result) = tasks.join_next().await {
         let batch = search_join_result(result);
         results.extend(batch.results);
     }
-    results.sort_by_key(|left| std::cmp::Reverse(left.published_at));
-    results.truncate(limit);
+    let mut processed = crate::search_processing::process(results, &result_options).unique_results;
+    processed.truncate(limit.min(200));
+    // Mint encrypted tickets only for final, deduplicated releases. Doing this
+    // per-indexer would otherwise create up to 50,000 SQL writes per RSS query.
+    // Never return raw upstream URLs if the indexer disappeared meanwhile.
+    for release in &mut processed {
+        let id = release.indexer_instance_id.clone();
+        if let Ok(handle) = build_executor(state, &id).await {
+            crate::download::publish_feed(state, &handle.executor, std::slice::from_mut(release))
+                .await;
+        } else {
+            release.download_url = None;
+            release.details_url = None;
+            release.magnet_url = None;
+            release.source_guid = None;
+        }
+    }
+    processed.retain(|r| {
+        r.download_url
+            .as_deref()
+            .is_some_and(|link| link.starts_with("/api/v1/dl/"))
+    });
     SEARCH_RELEASES.fetch_add(
-        u64::try_from(results.len()).unwrap_or(u64::MAX),
+        u64::try_from(processed.len()).unwrap_or(u64::MAX),
         Ordering::Relaxed,
     );
     SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
-    Ok(results)
+    Ok(processed)
 }
 
 fn spawn_search_tasks(
     state: &AppState,
     prepared: &PreparedSearch,
     download_owner: Option<[u8; 32]>,
+    feed: bool,
 ) -> JoinSet<SearchIndexerView> {
     let mut tasks = JoinSet::new();
     for indexer_id in &prepared.indexer_ids {
@@ -657,7 +715,16 @@ fn spawn_search_tasks(
         let filters = prepared.filters.clone();
         tasks.spawn(async move {
             let _permit = semaphore.acquire_owned().await.ok();
-            search_one(&state, &indexer_id, &query, limit, &filters, download_owner).await
+            search_one(
+                &state,
+                &indexer_id,
+                &query,
+                limit,
+                &filters,
+                download_owner,
+                feed,
+            )
+            .await
         });
     }
     tasks
@@ -702,42 +769,77 @@ async fn search_one(
     limit: usize,
     filters: &SearchParameters,
     download_owner: Option<[u8; 32]>,
+    feed: bool,
 ) -> SearchIndexerView {
     match build_executor(state, indexer_id).await {
-        Ok(handle) => match handle
-            .executor
-            .search_with_parameters(query, limit, filters)
-            .await
-        {
-            Ok(IndexerSearchBatch {
-                indexer_instance_id,
-                definition_id,
-                response_time_ms,
-                mut results,
-                ..
-            }) => {
-                state
-                    .downloads
-                    .publish(&handle.executor, &mut results, download_owner)
+        Ok(handle) => {
+            let cached_or_fetched = if let Some(cached) = state
+                .search_cache
+                .get(
+                    indexer_id,
+                    query,
+                    limit,
+                    filters,
+                    download_owner,
+                    &handle.executor,
+                )
+                .await
+            {
+                Ok(cached)
+            } else {
+                let fetched = handle
+                    .executor
+                    .search_with_parameters(query, limit, filters)
                     .await;
-                SearchIndexerView {
-                    indexer_instance_id,
-                    definition_id: Some(definition_id),
-                    indexer_name: handle.display_name,
-                    response_time_ms,
-                    results,
-                    error: None,
+                if let Ok(batch) = &fetched {
+                    state
+                        .search_cache
+                        .put(
+                            indexer_id,
+                            query,
+                            limit,
+                            filters,
+                            download_owner,
+                            handle.executor.clone(),
+                            batch.clone(),
+                        )
+                        .await;
                 }
+                fetched
+            };
+            match cached_or_fetched {
+                Ok(IndexerSearchBatch {
+                    indexer_instance_id,
+                    definition_id,
+                    response_time_ms,
+                    mut results,
+                    ..
+                }) => {
+                    if !feed {
+                        state
+                            .downloads
+                            .publish(&handle.executor, &mut results, download_owner)
+                            .await;
+                    }
+                    SearchIndexerView {
+                        indexer_instance_id,
+                        definition_id: Some(definition_id),
+                        indexer_name: handle.display_name,
+                        response_time_ms,
+                        results,
+                        error: None,
+                    }
+                }
+                Err(error) => SearchIndexerView {
+                    indexer_instance_id: indexer_id.to_owned(),
+                    definition_id: Some(handle.definition_id),
+                    indexer_name: handle.display_name,
+                    response_time_ms: 0,
+                    results: Vec::new(),
+                    error: Some(error.to_string()),
+                },
             }
-            Err(error) => SearchIndexerView {
-                indexer_instance_id: indexer_id.to_owned(),
-                definition_id: Some(handle.definition_id),
-                indexer_name: handle.display_name,
-                response_time_ms: 0,
-                results: Vec::new(),
-                error: Some(error.to_string()),
-            },
-        },
+        }
         Err(message) => SearchIndexerView {
             indexer_instance_id: indexer_id.to_owned(),
             definition_id: None,
@@ -935,6 +1037,28 @@ fn zeroize_resolved_credentials(
     }
 }
 
+/// When specialized clients supply a real identifier, never silently replace it
+/// with the literal asterisk (which would turn an ID lookup into a wildcard).
+fn has_structured_query(filters: &SearchParameters) -> bool {
+    [
+        filters.imdb_id.as_deref(),
+        filters.tmdb_id.as_deref(),
+        filters.tvdb_id.as_deref(),
+        filters.tvmaze_id.as_deref(),
+        filters.trakt_id.as_deref(),
+        filters.douban_id.as_deref(),
+        filters.tvrage_id.as_deref(),
+        filters.artist.as_deref(),
+        filters.album.as_deref(),
+        filters.author.as_deref(),
+        filters.title.as_deref(),
+        filters.group.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| !value.trim().is_empty())
+}
+
 fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
     for value in [
         filters.mode.as_deref(),
@@ -942,6 +1066,20 @@ fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
         filters.genre.as_deref(),
         filters.imdb_id.as_deref(),
         filters.tmdb_id.as_deref(),
+        filters.tvdb_id.as_deref(),
+        filters.tvmaze_id.as_deref(),
+        filters.trakt_id.as_deref(),
+        filters.douban_id.as_deref(),
+        filters.tvrage_id.as_deref(),
+        filters.artist.as_deref(),
+        filters.album.as_deref(),
+        filters.author.as_deref(),
+        filters.title.as_deref(),
+        filters.publisher.as_deref(),
+        filters.label.as_deref(),
+        filters.track.as_deref(),
+        filters.group.as_deref(),
+        filters.episode_code.as_deref(),
     ]
     .into_iter()
     .flatten()
@@ -957,6 +1095,12 @@ fn validate_search_filters(filters: &SearchParameters) -> Result<(), ApiError> {
         .is_some_and(|year| !(1800..=2100).contains(&year))
         || filters.season.is_some_and(|season| season > 1000)
         || filters.episode.is_some_and(|episode| episode > 10_000)
+        || filters.max_age_days.is_some_and(|age| age > 36500)
+        || filters.min_seeders.is_some_and(|s| s > 10_000_000)
+        || filters
+            .min_size
+            .zip(filters.max_size)
+            .is_some_and(|(a, b)| a > b)
     {
         return Err(ApiError::bad_request(
             "search numeric filter is out of range",

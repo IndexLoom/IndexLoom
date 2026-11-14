@@ -693,3 +693,147 @@ fn normalizes_flaresolverr_base_url() {
     assert!(normalize_flaresolverr_endpoint("file:///etc/passwd").is_err());
     assert!(normalize_flaresolverr_endpoint("http://user:pass@host/v1").is_err());
 }
+
+#[tokio::test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "End-to-end API checks for source secrets, authentication, presets and deletion."
+)]
+async fn newznab_management_and_search_presets_are_authenticated_and_redacted() {
+    let app = router(test_state().await, PathBuf::from("missing-web-root"));
+    let source_body = serde_json::json!({
+        "name":"Usenet Test","endpoint":"https://usenet.example.org/api",
+        "apiKey":"super-secret-newznab-api-key-987654321","enabled":true
+    });
+    let denied = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/usenet/indexers/usenet-test")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(source_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    let created = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/usenet/indexers/usenet-test")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(source_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    let list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/usenet/indexers")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let body = to_bytes(list.into_body(), 65536).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list[0]["id"], "usenet-test");
+    assert_eq!(list[0]["keyConfigured"], true);
+    assert!(!String::from_utf8_lossy(&body).contains("super-secret-newznab-api-key"));
+
+    let source = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/indexers")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(source.status(), StatusCode::OK);
+    let source_body = to_bytes(source.into_body(), 1_000_000).await.unwrap();
+    assert!(String::from_utf8_lossy(&source_body).contains("\"protocol\":\"usenet\""));
+    assert!(!String::from_utf8_lossy(&source_body).contains("super-secret-newznab-api-key"));
+
+    let preset = serde_json::json!({
+        "name":"Movie favorites",
+        "document":{
+            "filters":{"mode":"movie-search","imdbId":"tt1234"},
+            "resultOptions":{"deduplicate":true,"sortBy":"seeders","minSeeders":4},
+            "selection":{"all":true,"indexerIds":[],"groupIds":[]}
+        }
+    });
+    let saved = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/search/presets/movie-favs")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(preset.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let fetched = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search/presets")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body = to_bytes(fetched.into_body(), 65_536).await.unwrap();
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list[0]["name"], "Movie favorites");
+    assert_eq!(list[0]["document"]["resultOptions"]["minSeeders"], 4);
+
+    let invalid=app.clone().oneshot(Request::builder().method("PUT")
+        .uri("/api/v1/usenet/indexers/usenet-local")
+        .header(header::AUTHORIZATION,format!("Bearer {TOKEN}"))
+        .header(header::CONTENT_TYPE,"application/json")
+        .body(Body::from(r#"{"name":"Bad","endpoint":"https://127.0.0.1/api","apiKey":"sufficientlongkey"}"#)).unwrap()
+    ).await.unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    let removed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/usenet/indexers/usenet-test")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(removed.status(), StatusCode::OK);
+    let _ = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/search/presets/movie-favs")
+                .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+}

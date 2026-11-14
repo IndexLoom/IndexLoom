@@ -109,6 +109,8 @@ fn executor(
         seeders: None,
         leechers: None,
         published_at: None,
+        protocol: indexloom_core::ReleaseProtocol::Torrent,
+        attributes: indexloom_core::ReleaseAttributes::default(),
     };
     (executor, mock, release)
 }

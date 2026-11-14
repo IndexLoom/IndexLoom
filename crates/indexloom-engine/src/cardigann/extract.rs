@@ -106,6 +106,37 @@ pub(super) fn fields(
                 "banner",
                 "genre",
                 "description",
+                "files",
+                "filecount",
+                "grabs",
+                "downloads",
+                "completed",
+                "posterurl",
+                "cover",
+                "coverurl",
+                "genres",
+                "languages",
+                "language",
+                "audiolanguages",
+                "subtitles",
+                "subtitlelanguages",
+                "subtitleslanguages",
+                "artist",
+                "album",
+                "author",
+                "publisher",
+                "group",
+                "newsgroup",
+                "uploader",
+                "postername",
+                "downloadvolumefactor",
+                "downloadfactor",
+                "uploadvolumefactor",
+                "uploadfactor",
+                "minimumratio",
+                "minratio",
+                "minimumseedtime",
+                "minseedtime",
             ]
             .contains(&field)
                 || modifiers.contains(&"optional")
@@ -186,6 +217,7 @@ pub(super) fn normalized_result(
     let info_hash = result_value(values, &["infohash", "info_hash"])
         .and_then(normalize_info_hash)
         .or_else(|| magnet_url.as_deref().and_then(info_hash_from_magnet));
+    let attributes = release_attributes(values, base);
     Some(SearchResult {
         id: Uuid::now_v7(),
         indexer_instance_id: indexer_instance_id.to_owned(),
@@ -217,7 +249,78 @@ pub(super) fn normalized_result(
             parse_date(value)
                 .or_else(|| super::dates::fuzzy(value, None, super::OffsetDateTime::now_utc()))
         }),
+        protocol: indexloom_core::ReleaseProtocol::Torrent,
+        attributes,
     })
+}
+
+fn release_attributes(
+    values: &BTreeMap<String, String>,
+    base: &Url,
+) -> indexloom_core::ReleaseAttributes {
+    use indexloom_core::ReleaseAttributes;
+    let number = |keys: &[&str]| {
+        result_value(values, keys).and_then(|raw| raw.trim().replace(',', "").parse::<u64>().ok())
+    };
+    let text = |keys: &[&str]| {
+        result_value(values, keys)
+            .filter(|value| value.len() <= 512 && !value.chars().any(char::is_control))
+            .map(ToOwned::to_owned)
+    };
+    let factor = |keys: &[&str]| {
+        result_value(values, keys)
+            .and_then(|v| v.trim_end_matches('%').parse::<f64>().ok())
+            .filter(|v| v.is_finite() && (0.0..=100.0).contains(v))
+    };
+    let tokens = |keys: &[&str]| {
+        result_value(values, keys)
+            .map(|v| {
+                v.split([',', ';', '|'])
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty() && v.len() <= 48 && !v.chars().any(char::is_control))
+                    .take(16)
+                    .map(ToOwned::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut poster = result_value(values, &["poster", "posterurl", "cover", "coverurl"])
+        .and_then(|value| normalize_http_link(base, value));
+    if let Some(url) = poster.as_deref().and_then(|raw| Url::parse(raw).ok()) {
+        // Avoid reflecting tokens or tracker session identifiers from image URLs.
+        if url.query().is_some()
+            || url.fragment().is_some()
+            || url.username() != ""
+            || url.password().is_some()
+        {
+            poster = None;
+        }
+    }
+    ReleaseAttributes {
+        files: number(&["files", "filecount"]).and_then(|n| u32::try_from(n).ok()),
+        grabs: number(&["grabs", "downloads", "completed"]),
+        poster,
+        genres: tokens(&["genres", "genre"]),
+        languages: tokens(&["languages", "language", "audiolanguages"]),
+        subtitles: tokens(&["subtitles", "subtitlelanguages", "subtitleslanguages"]),
+        artist: text(&["artist"]),
+        album: text(&["album"]),
+        author: text(&["author"]),
+        publisher: text(&["publisher"]),
+        group: text(&["group", "newsgroup"]),
+        uploader: text(&["uploader", "postername"]),
+        download_volume_factor: factor(&["downloadvolumefactor", "downloadfactor"]),
+        upload_volume_factor: factor(&["uploadvolumefactor", "uploadfactor"]),
+        minimum_ratio: factor(&["minimumratio", "minratio"]),
+        minimum_seed_time: number(&["minimumseedtime", "minseedtime"]),
+        imdb_id: text(&["imdbid", "imdb"]),
+        tmdb_id: text(&["tmdbid"]),
+        tvdb_id: text(&["tvdbid"]),
+        tvmaze_id: text(&["tvmazeid"]),
+        trakt_id: text(&["traktid"]),
+        douban_id: text(&["doubanid"]),
+        tvrage_id: text(&["rageid", "tvrageid"]),
+    }
 }
 
 pub(super) fn result_value<'a>(

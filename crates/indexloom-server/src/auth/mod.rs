@@ -561,6 +561,7 @@ fn required_access(method: &Method, path: &str) -> AccessLevel {
         || *method == Method::GET
         || *method == Method::HEAD
         || (*method == Method::POST && matches!(path, "/api/v1/search" | "/api/v1/search/stream"))
+        || path.starts_with("/api/v1/search/presets")
     {
         return AccessLevel::Viewer;
     }
@@ -1352,6 +1353,25 @@ async fn send_user_verification(
         .ok_or_else(|| ApiError::not_found("account does not exist"))?;
     send_verification_for_user(&state, &user).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// A preset belongs to the stable user id, not a short-lived session token.
+pub(super) async fn search_preset_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<String, ApiError> {
+    if state.auth_settings.mode == AuthMode::Disabled {
+        return Ok("local".to_owned());
+    }
+    if state.auth_settings.mode.legacy_token()
+        && state
+            .admin_token
+            .as_ref()
+            .is_some_and(|token| token.authorizes(headers))
+    {
+        return Ok("operator".to_owned());
+    }
+    Ok(user_for_bearer(state, headers).await?.id)
 }
 
 /// Manual tracker login always requires an explicit bearer credential, including

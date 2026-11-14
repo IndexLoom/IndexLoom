@@ -59,6 +59,23 @@ pub(super) fn template_regex_replace(
     Ok(TemplateValue::String(rendered))
 }
 
+/// Translate Torznab/Newznab numeric categories to canonical tracker categories.
+/// The 1000-wide blocks are standardized across compatible clients.
+pub(super) fn standard_category(code: &str) -> Option<&'static str> {
+    let code: u16 = code.parse().ok()?;
+    match code / 1000 {
+        1 => Some("Console"),
+        2 => Some("Movies"),
+        3 => Some("Audio"),
+        4 => Some("PC"),
+        5 => Some("TV"),
+        6 => Some("XXX"),
+        7 => Some("Books"),
+        8 => Some("Other"),
+        _ => None,
+    }
+}
+
 pub(super) fn resolve_category_ids(
     definition: &IndexerDefinition,
     requested: Option<&str>,
@@ -69,35 +86,54 @@ pub(super) fn resolve_category_ids(
     let Some(caps) = mapping(&definition.spec.implementation.capabilities) else {
         return Vec::new();
     };
+    let wanted = requested
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .take(32)
+        .collect::<Vec<_>>();
+    let matches = |normalized: &str, native: &str| {
+        wanted.iter().any(|value| {
+            *value == native
+                || *value == normalized
+                || normalized.starts_with(&format!("{value}/"))
+                || standard_category(value).is_some_and(|root| {
+                    normalized == root || normalized.starts_with(&format!("{root}/"))
+                })
+        })
+    };
+    let mut ids = std::collections::BTreeSet::new();
     if let Some(mappings) = caps
         .get(key("categorymappings"))
         .and_then(YamlValue::as_sequence)
     {
-        let ids = mappings
-            .iter()
-            .filter_map(mapping)
-            .filter(|item| {
-                item.get(key("cat"))
-                    .and_then(scalar)
-                    .is_some_and(|category| {
-                        category == requested || category.starts_with(&format!("{requested}/"))
-                    })
-            })
-            .filter_map(|item| item.get(key("id")).and_then(scalar))
-            .collect::<Vec<_>>();
-        if !ids.is_empty() {
-            return ids;
+        for entry in mappings.iter().filter_map(mapping) {
+            if let (Some(category), Some(native)) = (
+                entry.get(key("cat")).and_then(scalar),
+                entry.get(key("id")).and_then(scalar),
+            ) && matches(&category, &native)
+            {
+                ids.insert(native);
+            }
         }
     }
-    let Some(categories) = caps.get(key("categories")).and_then(mapping) else {
-        return Vec::new();
-    };
-    categories
-        .iter()
-        .filter(|(name, _)| scalar(name).as_deref() == Some(requested))
-        .flat_map(|(_, ids)| ids.as_sequence().cloned().unwrap_or_default())
-        .filter_map(|value| scalar(&value))
-        .collect()
+    if let Some(categories) = caps.get(key("categories")).and_then(mapping) {
+        for (name, values) in categories {
+            if let Some(category) = scalar(name) {
+                for native in values
+                    .as_sequence()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(scalar)
+                {
+                    if matches(&category, &native) {
+                        ids.insert(native);
+                    }
+                }
+            }
+        }
+    }
+    ids.into_iter().collect()
 }
 
 pub(super) fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {

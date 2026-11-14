@@ -155,6 +155,18 @@ pub(crate) fn release(
 ) -> Result<NativeRelease, Error> {
     let details = adapter.link(details)?;
     let download = adapter.link(download)?;
+    let attributes = indexloom_core::ReleaseAttributes {
+        files: metadata.files.and_then(|v| u32::try_from(v).ok()),
+        grabs: metadata.grabs,
+        imdb_id: metadata.imdb_id.clone(),
+        tmdb_id: metadata.tmdb_id.clone(),
+        tvdb_id: metadata.tvdb_id.clone(),
+        download_volume_factor: metadata.download_volume_factor,
+        upload_volume_factor: metadata.upload_volume_factor,
+        languages: metadata.audio_languages.clone(),
+        subtitles: metadata.subtitle_languages.clone(),
+        ..Default::default()
+    };
     Ok(NativeRelease {
         result: SearchResult {
             id: Uuid::now_v7(),
@@ -172,6 +184,8 @@ pub(crate) fn release(
             seeders: None,
             leechers: None,
             published_at: None,
+            protocol: indexloom_core::ReleaseProtocol::Torrent,
+            attributes,
         },
         metadata,
         download,

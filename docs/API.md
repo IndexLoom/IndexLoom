@@ -34,23 +34,32 @@ user identities or other high-cardinality labels**. API authentication and
 `Cache-Control: no-store` apply. Configure an authenticated scraper to monitor
 the endpoint; unauthenticated public exposure is not recommended.
 
-## Experimental Torznab / RSS
+## Torznab, Newznab, Usenet and downloads
 
-`GET /api/v1/torznab?t=caps&apikey=<separate-key>` publishes a minimal
-Torznab-compatible capabilities document. `t=search&q=<UTF-8-query>`
-returns RSS 2.0 with Torznab attributes, escaped XML, search limits
-and optional one-category filtering. Other Torznab search modes are
-not yet supported, and the exact compatibility depends on enabled
-Cardigann definitions. This integration is experimental.
+The server has dedicated RSS endpoints for compatibility clients:
+`GET /api/v1/torznab`, `GET /api/v1/torznab/{indexer}`,
+`GET /api/v1/newznab`, and `GET /api`. The integration API key
+`INDEXLOOM_TORZNAB_API_KEY` (32+ random characters) is **separate** from
+administrator authentication. Available operations include `t=caps`,
+`t=search`, `t=tvsearch`, `t=movie`, `t=music`, `t=book`, and
+`t=get&id=<stable-guid>`. Search supports extended media identifiers,
+category IDs and RSS attributes. All downloads are proxied via encrypted,
+7-day opaque `/api/v1/dl/{ticket}` URLs rather than public tracker URLs.
 
-The endpoint is **disabled by default**. Enable with a separate,
-random 32+-byte `INDEXLOOM_TORZNAB_API_KEY` in the server environment;
-the normal administrator bearer token is not accepted. Many
-Torznab clients include API keys in URL query strings: use HTTPS,
-mask the query in proxy logs, and do not expose the port publicly.
-The endpoint uses the existing bounded search engine and excludes
-disabled/retired indexers. Search errors are currently normalized to
-an XML error rather than reporting detailed per-indexer failures.
+Usenet sources are configured by the administrator with
+`GET /api/v1/usenet/indexers` and `PUT` / `DELETE`
+`/api/v1/usenet/indexers/{id}`. Only HTTPS public domain endpoints are
+accepted. IndexLoom searches Newznab and safely exports NZB files; it is
+not an NNTP downloader.
+
+`GET /api/v1/torrentpotato` or `GET /potato` supplies TorrentPotato-style JSON.
+The optional administrator-controlled `POST /api/v1/blackhole/{ticket}` exports
+validated `.torrent`, `.nzb`, or `.magnet` files to the volume specified by
+`INDEXLOOM_BLACKHOLE_DIRECTORY`. No arbitrary client-chosen filesystem path
+or overwrite is allowed.
+
+See [Stage B search/API](STAGE_B_SEARCH_API.md) for example queries,
+permissions, deployment, limitations, and credentials guidance.
 
 ## Multilingual search
 
@@ -119,8 +128,14 @@ all enabled indexers and ignores the two ID arrays.
   `EventSource`, so the administrator token remains in the Authorization
   header rather than a URL.
 
-Optional `filters` JSON fields are `mode`, `category`, `genre`,
-`year`, `season`, `episode`, `imdbId` and `tmdbId`. Standard
+Optional `filters` JSON fields include `mode`, `category`, `genre`,
+`year`, `season`, `episode`, `imdbId`, `tmdbId`, `tvdbId`, `tvmazeId`,
+`traktId`, `doubanId`, `tvrageId`, `artist`, `album`, `author`,
+`title`, `publisher`, `label`, `track`, `group`, `minSize`, `maxSize`,
+`maxAgeDays`, and `episodeCode`. `resultOptions` configures bounded
+global deduplication, sorting and filtering and the response includes
+`uniqueResults`, `duplicateCount`, and `filteredCount` without removing
+the original grouped `indexers` results. Standard
 Cardigann variables including `.Query.Genre`, `.Query.Year`,
 `.Query.Season`, `.Query.Ep`, `.Query.IMDBID` and `.Categories`
 receive those values. `category` is a normalized category name offered by

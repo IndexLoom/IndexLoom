@@ -19,7 +19,10 @@ use zeroize::Zeroize;
 
 pub mod auth;
 mod catalog;
+mod download_tickets;
+mod newznab;
 mod routing;
+mod search_presets;
 pub mod totp;
 mod tracker_sessions;
 pub use tracker_sessions::TrackerSession;

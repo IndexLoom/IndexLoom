@@ -20,6 +20,44 @@ pub struct SearchQuery {
     pub limit: Option<u32>,
 }
 
+/// Torrent or Usenet search result protocol.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReleaseProtocol {
+    #[default]
+    Torrent,
+    Usenet,
+}
+
+/// Optional sanitized metadata retained from Cardigann and Newznab.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ReleaseAttributes {
+    pub files: Option<u32>,
+    pub grabs: Option<u64>,
+    pub poster: Option<String>,
+    pub genres: Vec<String>,
+    pub languages: Vec<String>,
+    pub subtitles: Vec<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub author: Option<String>,
+    pub publisher: Option<String>,
+    pub group: Option<String>,
+    pub uploader: Option<String>,
+    pub download_volume_factor: Option<f64>,
+    pub upload_volume_factor: Option<f64>,
+    pub minimum_ratio: Option<f64>,
+    pub minimum_seed_time: Option<u64>,
+    pub imdb_id: Option<String>,
+    pub tmdb_id: Option<String>,
+    pub tvdb_id: Option<String>,
+    pub tvmaze_id: Option<String>,
+    pub trakt_id: Option<String>,
+    pub douban_id: Option<String>,
+    pub tvrage_id: Option<String>,
+}
+
 /// A normalized result returned by an indexer.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +92,10 @@ pub struct SearchResult {
     pub leechers: Option<u32>,
     /// Optional publication time.
     pub published_at: Option<OffsetDateTime>,
+    #[serde(default)]
+    pub protocol: ReleaseProtocol,
+    #[serde(default)]
+    pub attributes: ReleaseAttributes,
 }
 
 #[cfg(test)]
@@ -61,7 +103,7 @@ mod tests {
     use serde_json::Value;
     use uuid::Uuid;
 
-    use super::SearchResult;
+    use super::{ReleaseAttributes, ReleaseProtocol, SearchResult};
 
     #[test]
     fn search_result_matches_the_frontend_contract_fixture() {
@@ -81,6 +123,8 @@ mod tests {
             seeders: Some(42),
             leechers: Some(3),
             published_at: None,
+            protocol: ReleaseProtocol::Torrent,
+            attributes: ReleaseAttributes::default(),
         };
         let rust_json = serde_json::to_value(result).expect("result should serialize");
         let frontend_fixture: Value = serde_json::from_str(include_str!(

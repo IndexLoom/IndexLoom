@@ -47,6 +47,7 @@ import { ProxyPanel, GroupPanel } from "./indexers/RoutingPanels";
 import { IndexerTestPanel } from "./indexers/IndexerTestPanel";
 import { IndexerConfigurationPanel } from "./indexers/IndexerConfigurationPanel";
 import { FlareSolverrPanel } from "./indexers/FlareSolverrPanel";
+import { UsenetPanel } from "./indexers/UsenetPanel";
 
 type ManagerState =
   | { kind: "loading" }
@@ -65,7 +66,8 @@ type ManagementView =
   | "tests"
   | "routing"
   | "groups"
-  | "flaresolverr";
+  | "flaresolverr"
+  | "usenet";
 
 const managementNavigation: Array<{
   id: ManagementView;
@@ -84,6 +86,7 @@ const managementNavigation: Array<{
     description: "Global and scoped proxies",
   },
   { id: "groups", label: "Groups", description: "Organize indexers" },
+  { id:"usenet",label:"Usenet",description:"Newznab NZB indexers" },
   {
     id: "flaresolverr",
     label: "FlareSolverr",
@@ -359,6 +362,12 @@ function IndexersManager({
             proxies={state.proxies}
             token={token}
           />
+        ) : null}
+
+        {managementView === "usenet" ? (
+          <UsenetPanel token={token} onUnauthorized={onUnauthorized}
+            onChanged={() => void fetchIndexers(token,new AbortController().signal).then(indexers=>
+              setState(current => current.kind==="ready" ? {...current,indexers} : current))}/>
         ) : null}
 
         {managementView === "flaresolverr" ? (

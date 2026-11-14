@@ -136,6 +136,11 @@ export type SearchFilters = {
   episode?: number;
   imdbId?: string;
   tmdbId?: string;
+  tvdbId?: string; tvmazeId?: string; traktId?: string; doubanId?: string;
+  tvrageId?: string; artist?: string; album?: string; author?: string;
+  title?: string; publisher?: string; label?: string; track?: string;
+  group?: string; episodeCode?: string;
+  minSize?: number; maxSize?: number; minSeeders?: number; maxAgeDays?: number;
 };
 
 export type IndexerSelection = {
@@ -173,6 +178,19 @@ export type IndexerTestJob = {
   finishedAt: string | null;
 };
 
+export type ReleaseProtocol = "torrent" | "usenet";
+export type ReleaseAttributes = {
+  files: number | null; grabs: number | null; poster: string | null;
+  genres: string[]; languages: string[]; subtitles: string[];
+  artist: string | null; album: string | null; author: string | null;
+  publisher: string | null; group: string | null; uploader: string | null;
+  downloadVolumeFactor: number | null; uploadVolumeFactor: number | null;
+  minimumRatio: number | null; minimumSeedTime: number | null;
+  imdbId: string | null; tmdbId: string | null; tvdbId: string | null;
+  tvmazeId: string | null; traktId: string | null; doubanId: string | null;
+  tvrageId: string | null;
+};
+
 export type SearchResult = {
   id: string;
   indexerInstanceId: string;
@@ -189,6 +207,8 @@ export type SearchResult = {
   seeders: number | null;
   leechers: number | null;
   publishedAt: string | null;
+  protocol: ReleaseProtocol;
+  attributes: ReleaseAttributes;
 };
 
 export type SearchIndexerResults = {
@@ -200,10 +220,61 @@ export type SearchIndexerResults = {
   error: string | null;
 };
 
+export type UsenetSource = {
+  id:string; name:string; endpoint:string; enabled:boolean; keyConfigured:boolean;
+};
+export type UsenetSourceUpdate = {
+  name:string; endpoint:string; enabled:boolean; apiKey?:string;
+};
+export function fetchUsenetSources(token:string):Promise<UsenetSource[]>{
+  return authenticatedJson<UsenetSource[]>("/api/v1/usenet/indexers",token);
+}
+export function saveUsenetSource(token:string,id:string,update:UsenetSourceUpdate):Promise<UsenetSource>{
+  return authenticatedJson<UsenetSource>("/api/v1/usenet/indexers/"+encodeURIComponent(id),token,{
+    method:"PUT",body:JSON.stringify(update)
+  });
+}
+export function deleteUsenetSource(token:string,id:string):Promise<{deleted:boolean}>{
+  return authenticatedJson<{deleted:boolean}>("/api/v1/usenet/indexers/"+encodeURIComponent(id),token,{method:"DELETE"});
+}
+
+export type SortField = "publishedAt" | "size" | "seeders" | "leechers" | "grabs" | "files" | "indexer" | "title";
+export type ResultOptions = {
+  deduplicate: boolean;
+  sortBy: SortField;
+  descending: boolean;
+  minSize?: number; maxSize?: number; minSeeders?: number; maxAgeDays?: number;
+  protocol?: ReleaseProtocol; categories: string[];
+  includeIndexers: string[]; excludeIndexers: string[];
+  titleContains?: string; indexerPriorities: Record<string,number>;
+};
+export type SearchPreset = {
+  id: string; name: string; createdAt: string; updatedAt: string;
+  document: { filters: SearchFilters; resultOptions: ResultOptions; selection: IndexerSelection };
+};
+export const DEFAULT_RESULT_OPTIONS:ResultOptions = {
+  deduplicate:true,sortBy:"publishedAt",descending:true,categories:[],
+  includeIndexers:[],excludeIndexers:[],indexerPriorities:{},
+};
+export function fetchSearchPresets(token:string):Promise<SearchPreset[]>{
+  return authenticatedJson<SearchPreset[]>("/api/v1/search/presets",token);
+}
+export function saveSearchPreset(token:string,id:string,name:string,document:SearchPreset["document"]):Promise<{saved:boolean}>{
+  return authenticatedJson<{saved:boolean}>("/api/v1/search/presets/"+encodeURIComponent(id),token,{
+    method:"PUT",body:JSON.stringify({name,document}),
+  });
+}
+export function deleteSearchPreset(token:string,id:string):Promise<{deleted:boolean}>{
+  return authenticatedJson<{deleted:boolean}>("/api/v1/search/presets/"+encodeURIComponent(id),token,{method:"DELETE"});
+}
+
 export type SearchResponse = {
   query: string;
   indexers: SearchIndexerResults[];
   resultCount: number;
+  uniqueResults: SearchResult[];
+  duplicateCount: number;
+  filteredCount: number;
 };
 
 export type SearchStreamEvent =
@@ -215,6 +286,9 @@ export type SearchStreamEvent =
       completed: number;
       total: number;
       resultCount: number;
+      uniqueResults: SearchResult[];
+      duplicateCount: number;
+      filteredCount: number;
     };
 
 export type FlareSolverrInstance = {
@@ -438,9 +512,10 @@ export function searchIndexers(
   selection: IndexerSelection,
   limitPerIndexer = 50,
   filters: SearchFilters = {},
+  resultOptions: ResultOptions = DEFAULT_RESULT_OPTIONS,
 ): Promise<SearchResponse> {
   return authenticatedJson<SearchResponse>("/api/v1/search", token, {
-    body: JSON.stringify({ query, selection, limitPerIndexer, filters: withoutLanguages(filters), languages: filters.languages ?? [] }),
+    body: JSON.stringify({ query, selection, limitPerIndexer, filters: withoutLanguages(filters), languages: filters.languages ?? [], resultOptions }),
     method: "POST",
   });
 }
@@ -453,9 +528,10 @@ export async function searchIndexersStream(
   signal?: AbortSignal,
   limitPerIndexer = 50,
   filters: SearchFilters = {},
+  resultOptions: ResultOptions = DEFAULT_RESULT_OPTIONS,
 ): Promise<void> {
   const response = await fetch("/api/v1/search/stream", {
-    body: JSON.stringify({ query, selection, limitPerIndexer, filters: withoutLanguages(filters), languages: filters.languages ?? [] }),
+    body: JSON.stringify({ query, selection, limitPerIndexer, filters: withoutLanguages(filters), languages: filters.languages ?? [], resultOptions }),
     cache: "no-store",
     headers: {
       Accept: "application/x-ndjson",

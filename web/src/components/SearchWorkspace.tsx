@@ -13,6 +13,8 @@ import {
   type SearchIndexerResults,
   type SearchResponse,
   type SearchFilters,
+  type ResultOptions, type SearchPreset,
+  DEFAULT_RESULT_OPTIONS, fetchSearchPresets, saveSearchPreset, deleteSearchPreset,
   fetchGroups,
   fetchHealth,
   fetchIndexers,
@@ -57,6 +59,11 @@ function AuthenticatedSearch({
   });
   const [query, setQuery] = useState(initialQuery);
   const [filters, setFilters] = useState<SearchFilters>({});
+  const [resultOptions, setResultOptions] = useState<ResultOptions>(DEFAULT_RESULT_OPTIONS);
+  const [presets, setPresets] = useState<SearchPreset[]>([]);
+  const [presetName, setPresetName] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState("");
+
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selection, setSelection] = useState<IndexerSelection>({
     all: true,
@@ -105,6 +112,49 @@ function AuthenticatedSearch({
     [],
   );
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchSearchPresets(token).then(setPresets).catch(() => {
+      if (!controller.signal.aborted) setPresets([]);
+    });
+    return () => controller.abort();
+  }, [token]);
+
+  async function savePreset() {
+    const name = presetName.trim();
+    if (!name || name.length > 100) { setNotice("Choose a preset name (1-100 characters)."); return; }
+    const id = selectedPreset || "preset-" + Date.now().toString(36);
+    try {
+      await saveSearchPreset(token, id, name, { filters, resultOptions, selection });
+      setPresets(await fetchSearchPresets(token));
+      setSelectedPreset(id);
+      setNotice("Search preset saved.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Failed to save search preset.");
+    }
+  }
+  async function removePreset() {
+    if (!selectedPreset) return;
+    try {
+      await deleteSearchPreset(token, selectedPreset);
+      setPresets(await fetchSearchPresets(token));
+      setSelectedPreset("");
+      setPresetName("");
+      setNotice("Search preset deleted.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Failed to delete preset.");
+    }
+  }
+  function selectPreset(id: string) {
+    setSelectedPreset(id);
+    const found = presets.find(preset => preset.id === id);
+    if (!found) return;
+    setPresetName(found.name);
+    setFilters(found.document.filters);
+    setResultOptions(found.document.resultOptions);
+    setSelection(found.document.selection);
+  }
+
   const enabledIndexers = useMemo(
     () =>
       workspace.kind === "ready"
@@ -149,7 +199,7 @@ function AuthenticatedSearch({
     setNotice(null);
     setSearchProgress(null);
     // Replace stale results immediately; an empty streamed response still has a result area.
-    setResponse({ query: submittedQuery, indexers: [], resultCount: 0 });
+    setResponse({ query: submittedQuery, indexers: [], resultCount: 0, uniqueResults: [], duplicateCount: 0, filteredCount: 0 });
     const indexers = new Map<string, SearchIndexerResults>();
     let resultCount = 0;
     try {
@@ -159,7 +209,7 @@ function AuthenticatedSearch({
         selection,
         (event) => {
           if (event.type === "started") {
-            setResponse({ query: event.query, indexers: [], resultCount: 0 });
+            setResponse({ query: event.query, indexers: [], resultCount: 0, uniqueResults: [], duplicateCount: 0, filteredCount: 0 });
             setSearchProgress({ completed: 0, total: event.total });
             return;
           }
@@ -174,6 +224,9 @@ function AuthenticatedSearch({
               query: submittedQuery,
               indexers: ordered,
               resultCount,
+              uniqueResults: [],
+              duplicateCount: 0,
+              filteredCount: 0,
             });
             setSearchProgress((current) => ({
               completed: (current?.completed ?? 0) + 1,
@@ -181,6 +234,12 @@ function AuthenticatedSearch({
             }));
             return;
           }
+          setResponse(current => current ? {
+            ...current,
+            uniqueResults: event.uniqueResults,
+            duplicateCount: event.duplicateCount,
+            filteredCount: event.filteredCount,
+          } : current);
           if (historyScope) recordSearch(historyScope, { query: submittedQuery, resultCount: event.resultCount, indexerCount: event.total, language: filters.languages?.[0] ?? null });
           setSearchProgress({
             completed: event.completed,
@@ -195,6 +254,7 @@ function AuthenticatedSearch({
         controller.signal,
         50,
         { ...filters, genre: filters.genre ? canonicalGenre(filters.genre) : undefined },
+        resultOptions,
       );
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -313,10 +373,58 @@ function AuthenticatedSearch({
             </label>
             <label>{t("Episode")}{" "}<input min={0} max={10000} type="number" value={filters.episode ?? ""} onChange={(event) => setFilters((current) => ({ ...current, episode: event.target.value ? Number(event.target.value) : undefined }))} />
             </label>
+            {([
+              ["TVDb ID","tvdbId"],["TVMaze ID","tvmazeId"],["Trakt ID","traktId"],
+              ["Douban ID","doubanId"],["TVRage ID","tvrageId"],["Artist","artist"],
+              ["Album","album"],["Author","author"],["Book / Movie title","title"],
+              ["Publisher","publisher"],["Music label","label"],["Track","track"],["Group","group"],
+            ] as const).map(([label,key]) => (
+              <label key={key}>{t(label)} <input value={filters[key] ?? ""}
+                onChange={event=>setFilters(old=>({...old,[key]:event.target.value||undefined}))}/></label>
+            ))}
             <label>{t("IMDb ID")}{" "}<input value={filters.imdbId ?? ""} placeholder="tt1234567" onChange={(event) => setFilters((current) => ({ ...current, imdbId: event.target.value || undefined }))} />
             </label>
             <label>{t("TMDb ID")}{" "}<input value={filters.tmdbId ?? ""} placeholder="12345" onChange={(event) => setFilters((current) => ({ ...current, tmdbId: event.target.value || undefined }))} />
             </label>
+          </div>
+          <div className="advanced-search-grid">
+            <label>{t("Sort by")} <select value={resultOptions.sortBy}
+              onChange={event=>setResultOptions(old=>({...old,sortBy:event.target.value as ResultOptions["sortBy"]}))}>
+              {(["publishedAt","size","seeders","leechers","grabs","files","indexer","title"] as const).map(key=>
+                <option key={key} value={key}>{t(key)}</option>)}
+            </select></label>
+            <label>{t("Order")} <select value={resultOptions.descending?"desc":"asc"}
+              onChange={event=>setResultOptions(old=>({...old,descending:event.target.value==="desc"}))}>
+              <option value="desc">{t("Descending")}</option><option value="asc">{t("Ascending")}</option>
+            </select></label>
+            <label>{t("Minimum size (MiB)")} <input type="number" min="0"
+              value={resultOptions.minSize == null ? "" : Math.floor(resultOptions.minSize/1048576)}
+              onChange={event=>setResultOptions(old=>({...old,minSize:event.target.value?Number(event.target.value)*1048576:undefined}))}/></label>
+            <label>{t("Minimum seeders")} <input type="number" min="0"
+              value={resultOptions.minSeeders??""}
+              onChange={event=>setResultOptions(old=>({...old,minSeeders:event.target.value?Number(event.target.value):undefined}))}/></label>
+            <label>{t("Maximum age (days)")} <input type="number" min="0" max="36500"
+              value={resultOptions.maxAgeDays??""}
+              onChange={event=>setResultOptions(old=>({...old,maxAgeDays:event.target.value?Number(event.target.value):undefined}))}/></label>
+            <label>{t("Protocol")} <select value={resultOptions.protocol??""}
+              onChange={event=>setResultOptions(old=>({...old,protocol:event.target.value?(event.target.value as ResultOptions["protocol"]):undefined}))}>
+              <option value="">{t("Both")}</option><option value="torrent">{t("BitTorrent")}</option>
+              <option value="usenet">{t("Usenet/NZB")}</option></select></label>
+            <label className="checkbox-field"><input type="checkbox" checked={resultOptions.deduplicate}
+              onChange={event=>setResultOptions(old=>({...old,deduplicate:event.target.checked}))}/>{t("Remove duplicates")}</label>
+            <label>{t("Title contains")} <input value={resultOptions.titleContains??""}
+              onChange={event=>setResultOptions(old=>({...old,titleContains:event.target.value||undefined}))}/></label>
+          </div>
+          <div className="form-actions">
+            <label>{t("Saved filters")} <select value={selectedPreset} onChange={event=>selectPreset(event.target.value)}>
+              <option value="">{t("Select saved preset")}</option>
+              {presets.map(preset=><option key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </select></label>
+            <input aria-label={t("Preset name")} placeholder={t("Preset name")} value={presetName}
+              onChange={event=>setPresetName(event.target.value)} />
+            <button type="button" className="quiet-button" onClick={()=>void savePreset()}>{t("Save preset")}</button>
+            <button type="button" className="quiet-button" disabled={!selectedPreset}
+              onClick={()=>void removePreset()}>{t("Delete preset")}</button>
           </div>
           <p className="muted">{t("Search fields are sent only to indexers whose definitions support them. Unsupported filters may produce per-indexer errors.")} {t("Restricts tracker selection; it does not translate the search query.")}</p>
           <button className="quiet-button" onClick={() => setFilters({})} type="button">{t("Clear filters")}</button>
@@ -384,6 +492,30 @@ function AuthenticatedSearch({
           </table>
         </div>
       </section>
+
+      {response?.uniqueResults && response.uniqueResults.length>0 ? (
+        <section className="data-section" aria-labelledby="unique-results-heading">
+          <div className="section-heading"><h2 id="unique-results-heading">{t("Unified results")}</h2>
+            <span className="muted">{response.uniqueResults.length} {t("unique")} ·
+              {response.duplicateCount} {t("duplicates removed")} ·
+              {response.filteredCount} {t("filtered")}</span></div>
+          <div className="table-frame results-frame"><table><thead><tr>
+            <th>{t("Title")}</th><th>{t("Indexer")}</th><th>{t("Size")}</th>
+            <th>{t("Seeders")}</th><th>{t("Links")}</th>
+          </tr></thead><tbody>
+            {response.uniqueResults.map(release=><tr key={release.id}>
+              <td><strong>{release.title}</strong>
+                <small>{release.attributes.artist||release.attributes.author||release.attributes.album||""}</small></td>
+              <td>{release.indexerInstanceId} · {release.protocol}</td>
+              <td>{formatBytes(release.size)}</td>
+              <td>{release.seeders??"—"}</td>
+              <td>{release.downloadUrl?.startsWith("/api/v1/downloads/") ?
+                <button type="button" className="text-button" disabled={downloading!==null}
+                  onClick={()=>void grab(release.id,release.downloadUrl!,release.title)}>{t("Download")}</button>:"—"}</td>
+            </tr>)}
+          </tbody></table></div>
+        </section>
+      ) : null}
 
       <section className="data-section" data-ui-section="results" aria-labelledby="results-heading">
         <div className="section-heading">

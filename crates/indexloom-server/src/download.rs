@@ -129,6 +129,159 @@ impl DownloadRegistry {
     }
 }
 
+/// Public endpoint: the random 256-bit ticket *is* the authorization.
+/// Tracker-specific URLs remain encrypted in the database until redeemed.
+pub(crate) fn public_routes() -> Router<AppState> {
+    Router::new().route("/api/v1/dl/{handle}", get(stable_download))
+}
+
+/// Create URL-stable, encrypted-at-rest tickets for Torznab/Newznab clients.
+/// Original private fields must never enter the RSS response.
+/// Stable feed identity uses a digest, never the tracker passkey, source URL or
+/// a random per-request UUID. Delimit inputs to avoid ambiguous concatenation.
+fn feed_guid(item: &SearchResult) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"indexloom-rss-guid-v1");
+    for part in [
+        item.indexer_instance_id.as_bytes(),
+        item.source_guid
+            .as_deref()
+            .or(item.source_id.as_deref())
+            .or(item.info_hash.as_deref())
+            .unwrap_or(&item.title)
+            .as_bytes(),
+        item.title.as_bytes(),
+    ] {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part);
+    }
+    hasher.update(item.size.unwrap_or(0).to_be_bytes());
+    let mut output = String::with_capacity(64);
+    for b in hasher.finalize() {
+        write!(&mut output, "{b:02x}").expect("hex write");
+    }
+    output
+}
+
+pub(crate) async fn publish_feed(
+    state: &AppState,
+    executor: &Arc<CardigannExecutor>,
+    results: &mut [SearchResult],
+) {
+    for release in results {
+        let original = release.clone();
+        let guid = feed_guid(&original);
+        release.download_url = None;
+        release.magnet_url = None;
+        release.source_guid = Some(guid.clone());
+        release.details_url = None;
+        if !executor.can_resolve_release(&original) {
+            continue;
+        }
+        let Ok(raw) = serde_json::to_string(&original) else {
+            continue;
+        };
+        if raw.len() > MAX_RELEASE_BYTES {
+            continue;
+        }
+        if let Ok(token) = state
+            .store
+            .create_download_ticket(&original.indexer_instance_id, &raw, &guid, &state.vault)
+            .await
+        {
+            release.download_url = Some(format!("/api/v1/dl/{token}"));
+        }
+    }
+}
+
+/// Resolve an encrypted source-bound ticket through the current configured runtime.
+pub(crate) async fn resolve_ticket_artifact(
+    state: &AppState,
+    handle: &str,
+) -> Result<DownloadArtifact, ApiError> {
+    if handle.len() != 64 || !handle.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ApiError::not_found("download ticket was not found"));
+    }
+    let _permit = state
+        .downloads
+        .permits
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::too_many_requests("too many active downloads"))?;
+    let (indexer_id, raw) = state
+        .store
+        .load_download_ticket(handle, &state.vault)
+        .await?
+        .ok_or_else(|| ApiError::not_found("download ticket expired or was revoked"))?;
+    let release: SearchResult = serde_json::from_str(&raw)
+        .map_err(|_| ApiError::not_found("download ticket is invalid"))?;
+    if release.indexer_instance_id != indexer_id {
+        return Err(ApiError::not_found("download ticket was revoked"));
+    }
+    let current = super::execution::build_executor(state, &indexer_id)
+        .await
+        .map_err(|_| ApiError::not_found("indexer is unavailable"))?;
+    if !current.executor.can_resolve_release(&release) {
+        return Err(ApiError::not_found("indexer release is unavailable"));
+    }
+    let artifact = current
+        .executor
+        .resolve_release(&release)
+        .await
+        .map_err(|_| ApiError::bad_gateway("tracker download failed"))?;
+    Ok(artifact)
+}
+
+async fn stable_download(
+    State(state): State<AppState>,
+    Path(handle): Path<String>,
+) -> Result<Response, ApiError> {
+    let artifact = resolve_ticket_artifact(&state, &handle).await?;
+    let mut response = match artifact {
+        DownloadArtifact::Torrent(bytes) => (
+            [
+                (header::CONTENT_TYPE, "application/x-bittorrent"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"indexloom.torrent\"",
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        DownloadArtifact::Nzb(bytes) => (
+            [
+                (header::CONTENT_TYPE, "application/x-nzb"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"indexloom.nzb\"",
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        DownloadArtifact::Magnet(uri) => {
+            let mut res = StatusCode::FOUND.into_response();
+            res.headers_mut().insert(
+                header::LOCATION,
+                axum::http::HeaderValue::from_str(&uri)
+                    .map_err(|_| ApiError::bad_gateway("invalid magnet redirect"))?,
+            );
+            res
+        }
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, "private,no-store".parse().unwrap());
+    response
+        .headers_mut()
+        .insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+    response
+        .headers_mut()
+        .insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
+    Ok(response)
+}
+
 pub(crate) fn routes() -> Router<AppState> {
     Router::new().route("/api/v1/downloads/{handle}", get(download))
 }
@@ -164,6 +317,17 @@ async fn download(
     let artifact = entry.executor.resolve_release(&entry.release).await
         .map_err(|_| ApiError { status: StatusCode::BAD_GATEWAY, body: super::ErrorBody { code: "DOWNLOAD_FAILED", message: "tracker download failed validation or could not be retrieved; search again to retry" } })?;
     let mut response = match artifact {
+        DownloadArtifact::Nzb(bytes) => (
+            [
+                (header::CONTENT_TYPE, "application/x-nzb"),
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"download.nzb\"",
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
         DownloadArtifact::Torrent(bytes) => (
             [
                 (header::CONTENT_TYPE, "application/x-bittorrent"),

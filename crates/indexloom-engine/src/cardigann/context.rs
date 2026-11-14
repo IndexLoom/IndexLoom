@@ -12,6 +12,94 @@ pub(super) struct RenderContext {
     pub(super) skip_andmatch: bool,
 }
 
+fn build_query_scope(
+    keywords: &str,
+    parameters: &SearchParameters,
+) -> HashMap<String, TemplateValue> {
+    let mut query = HashMap::from([
+        ("Album".to_owned(), TemplateValue::String(String::new())),
+        ("Artist".to_owned(), TemplateValue::String(String::new())),
+        ("Author".to_owned(), TemplateValue::String(String::new())),
+        ("DoubanID".to_owned(), TemplateValue::String(String::new())),
+        ("Season".to_owned(), TemplateValue::String(String::new())),
+        ("Ep".to_owned(), TemplateValue::String(String::new())),
+        ("Genre".to_owned(), TemplateValue::String(String::new())),
+        ("IMDBID".to_owned(), TemplateValue::String(String::new())),
+        (
+            "IMDBIDShort".to_owned(),
+            TemplateValue::String(String::new()),
+        ),
+        ("TMDBID".to_owned(), TemplateValue::String(String::new())),
+        ("TVDBID".to_owned(), TemplateValue::String(String::new())),
+        ("TVMazeID".to_owned(), TemplateValue::String(String::new())),
+        ("TraktID".to_owned(), TemplateValue::String(String::new())),
+        ("TVRageID".to_owned(), TemplateValue::String(String::new())),
+        ("Publisher".to_owned(), TemplateValue::String(String::new())),
+        ("Label".to_owned(), TemplateValue::String(String::new())),
+        ("Track".to_owned(), TemplateValue::String(String::new())),
+        ("Group".to_owned(), TemplateValue::String(String::new())),
+        ("MaxAge".to_owned(), TemplateValue::String(String::new())),
+        ("MinSize".to_owned(), TemplateValue::String(String::new())),
+        ("MaxSize".to_owned(), TemplateValue::String(String::new())),
+        ("Title".to_owned(), TemplateValue::String(String::new())),
+        ("Type".to_owned(), TemplateValue::String(String::new())),
+        ("Year".to_owned(), TemplateValue::String(String::new())),
+        ("id".to_owned(), TemplateValue::String(String::new())),
+    ]);
+    query.insert(
+        "Keywords".to_owned(),
+        TemplateValue::String(keywords.to_owned()),
+    );
+    for (field, value) in [
+        ("Genre", parameters.genre.as_deref()),
+        ("IMDBID", parameters.imdb_id.as_deref()),
+        ("TMDBID", parameters.tmdb_id.as_deref()),
+        ("Type", parameters.mode.as_deref()),
+        ("TVDBID", parameters.tvdb_id.as_deref()),
+        ("TVMazeID", parameters.tvmaze_id.as_deref()),
+        ("TraktID", parameters.trakt_id.as_deref()),
+        ("TVRageID", parameters.tvrage_id.as_deref()),
+        ("DoubanID", parameters.douban_id.as_deref()),
+        ("Artist", parameters.artist.as_deref()),
+        ("Album", parameters.album.as_deref()),
+        ("Author", parameters.author.as_deref()),
+        ("Title", parameters.title.as_deref()),
+        ("Publisher", parameters.publisher.as_deref()),
+        ("Label", parameters.label.as_deref()),
+        ("Track", parameters.track.as_deref()),
+        ("Group", parameters.group.as_deref()),
+    ] {
+        if let Some(value) = value {
+            query.insert(field.to_owned(), TemplateValue::String(value.to_owned()));
+        }
+    }
+    for (field, value) in [
+        ("Year", parameters.year),
+        ("Season", parameters.season),
+        ("Ep", parameters.episode),
+        (
+            "MaxAge",
+            parameters.max_age_days.and_then(|v| u16::try_from(v).ok()),
+        ),
+    ] {
+        if let Some(value) = value {
+            query.insert(field.to_owned(), TemplateValue::String(value.to_string()));
+        }
+    }
+    if let Some(episode) = parameters.episode_code.as_deref() {
+        query.insert("Ep".to_owned(), TemplateValue::String(episode.to_owned()));
+    }
+    for (field, value) in [
+        ("MinSize", parameters.min_size),
+        ("MaxSize", parameters.max_size),
+    ] {
+        if let Some(value) = value {
+            query.insert(field.to_owned(), TemplateValue::String(value.to_string()));
+        }
+    }
+    query
+}
+
 impl std::fmt::Debug for RenderContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RenderContext").finish_non_exhaustive()
@@ -50,6 +138,10 @@ impl RenderContext {
         self.for_search_with_parameters(keywords, result, &self.parameters, &self.categories)
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Declarative Cardigann query values are assembled together for template compatibility."
+    )]
     pub(super) fn for_search_with_parameters(
         &self,
         keywords: &str,
@@ -57,49 +149,7 @@ impl RenderContext {
         parameters: &SearchParameters,
         categories: &[String],
     ) -> TemplateValue {
-        let mut query = HashMap::from([
-            ("Album".to_owned(), TemplateValue::String(String::new())),
-            ("Artist".to_owned(), TemplateValue::String(String::new())),
-            ("Author".to_owned(), TemplateValue::String(String::new())),
-            ("DoubanID".to_owned(), TemplateValue::String(String::new())),
-            ("Season".to_owned(), TemplateValue::String(String::new())),
-            ("Ep".to_owned(), TemplateValue::String(String::new())),
-            ("Genre".to_owned(), TemplateValue::String(String::new())),
-            ("IMDBID".to_owned(), TemplateValue::String(String::new())),
-            (
-                "IMDBIDShort".to_owned(),
-                TemplateValue::String(String::new()),
-            ),
-            ("TMDBID".to_owned(), TemplateValue::String(String::new())),
-            ("TVDBID".to_owned(), TemplateValue::String(String::new())),
-            ("Title".to_owned(), TemplateValue::String(String::new())),
-            ("Type".to_owned(), TemplateValue::String(String::new())),
-            ("Year".to_owned(), TemplateValue::String(String::new())),
-            ("id".to_owned(), TemplateValue::String(String::new())),
-        ]);
-        query.insert(
-            "Keywords".to_owned(),
-            TemplateValue::String(keywords.to_owned()),
-        );
-        for (field, value) in [
-            ("Genre", parameters.genre.as_deref()),
-            ("IMDBID", parameters.imdb_id.as_deref()),
-            ("TMDBID", parameters.tmdb_id.as_deref()),
-            ("Type", parameters.mode.as_deref()),
-        ] {
-            if let Some(value) = value {
-                query.insert(field.to_owned(), TemplateValue::String(value.to_owned()));
-            }
-        }
-        for (field, value) in [
-            ("Year", parameters.year),
-            ("Season", parameters.season),
-            ("Ep", parameters.episode),
-        ] {
-            if let Some(value) = value {
-                query.insert(field.to_owned(), TemplateValue::String(value.to_string()));
-            }
-        }
+        let query = build_query_scope(keywords, parameters);
         let result = result
             .into_iter()
             .map(|(key, value)| (key, TemplateValue::String(value)))
