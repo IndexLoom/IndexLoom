@@ -239,9 +239,11 @@ jobs:
                 (.platform.architecture == "amd64" or .platform.architecture == "arm64"))
                 | .platform.architecture] | sort == ["amd64", "arm64"]'
           # Both moving tags must resolve to the same verified multi-arch index.
-          manifest_digest=$(docker buildx imagetools inspect "$IMAGE:$TAG" | awk '/^Digest:/ {print $2; exit}')
+          # Consume all inspect output: exiting awk early under pipefail causes
+          # a false failure (SIGPIPE) even after successfully pushing manifests.
+          manifest_digest=$(docker buildx imagetools inspect "$IMAGE:$TAG" | awk '/^Digest:/ {print $2}')
           for alias in edge latest; do
-            alias_digest=$(docker buildx imagetools inspect "$IMAGE:$alias" | awk '/^Digest:/ {print $2; exit}')
+            alias_digest=$(docker buildx imagetools inspect "$IMAGE:$alias" | awk '/^Digest:/ {print $2}')
             test "$alias_digest" = "$manifest_digest"
           done
           docker buildx imagetools inspect "$IMAGE:$TAG"
