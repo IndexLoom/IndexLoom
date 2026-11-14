@@ -9,21 +9,33 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=private \
 COPY web/ ./
 RUN pnpm build
 
-FROM rust:1.98.0-bookworm AS server-builder
+# Build dependencies once as an exportable Docker layer per native CPU architecture.
+# The old /source/target BuildKit cache mount was NOT exported by type=gha.
+FROM rust:1.98.0-bookworm AS chef
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends libsqlite3-dev pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install --locked cargo-chef --version 0.1.78
 WORKDIR /source
+
+FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
-# Local audited compatibility patches used by workspace [patch.crates-io].
 COPY vendor/ ./vendor/
 COPY migrations/ ./migrations/
-# Buildx executes amd64 and arm64 stages concurrently. Shared writeable Cargo
-# registry/target caches race when unpacking crates; private cache mounts keep
-# each writer isolated while retaining incremental cache benefits.
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=private \
-    --mount=type=cache,target=/source/target,sharing=private \
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS server-builder
+# BuildKit's GHA layer cache persists this dependency layer across release runs.
+# The recipe only changes with Cargo manifests/lockfile, not ordinary Rust source.
+COPY --from=planner /source/recipe.json ./recipe.json
+COPY vendor/ ./vendor/
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    cargo chef cook --release --recipe-path recipe.json
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+COPY migrations/ ./migrations/
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --locked --release --package indexloom-server \
     && cp /source/target/release/indexloom-server /tmp/indexloom-server
 

@@ -144,28 +144,98 @@ jobs:
     permissions:
       contents: read
 
-  docker:
+  # Compile ARM64 on GitHub's actual ARM64 runner, never under QEMU on x86.
+  # Buildx cache scopes are architecture-specific so the compiled Rust layer
+  # cannot be restored for an incompatible CPU target.
+  docker-platform:
     needs: version
-    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64, platform: linux/amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64, platform: linux/arm64 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - name: Build native ${{ matrix.platform }} image and push by digest
+        id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/indexloom/indexloom:${{ needs.version.outputs.tag }}
-            ghcr.io/indexloom/indexloom:edge
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: ${{ matrix.platform }}
+          tags: ghcr.io/indexloom/indexloom
+          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=indexloom-docker-${{ matrix.arch }}
+          cache-to: type=gha,scope=indexloom-docker-${{ matrix.arch }},mode=max
+      - name: Record immutable digest
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Only after BOTH platform builds succeed, publish the manifest list.
+  # Never replace :edge with a single-architecture image or incomplete build.
+  docker:
+    needs: [version, docker-platform]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: docker-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - name: Publish and verify multi-architecture manifest
+        shell: bash
+        env:
+          IMAGE: ghcr.io/indexloom/indexloom
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t digests < <(find "$RUNNER_TEMP/digests" -maxdepth 1 -type f -printf '%f\n' | sort)
+          test "${#digests[@]}" -eq 2
+          refs=()
+          for digest in "${digests[@]}"; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+            refs+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create \
+            -t "$IMAGE:$TAG" \
+            -t "$IMAGE:edge" \
+            "${refs[@]}"
+          docker buildx imagetools inspect --raw "$IMAGE:$TAG" \
+            | jq -e '[.manifests[] | select(.platform.os == "linux" and
+                (.platform.architecture == "amd64" or .platform.architecture == "arm64"))
+                | .platform.architecture] | sort == ["amd64", "arm64"]'
+          docker buildx imagetools inspect "$IMAGE:$TAG"
 
   publish:
     needs: [version, binaries, mobile, docker]
