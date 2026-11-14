@@ -18,6 +18,9 @@ use indexloom_storage::Store;
 
 use super::digest;
 
+#[cfg(test)]
+mod security_tests;
+
 #[derive(Clone)]
 pub struct OidcSettings {
     pub issuer: String,

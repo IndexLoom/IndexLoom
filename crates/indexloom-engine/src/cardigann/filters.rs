@@ -7,9 +7,7 @@ use super::{
 pub(super) fn apply_case(value: &str, cases: &Mapping) -> String {
     let mut fallback = None;
     for (candidate, replacement) in cases {
-        let Some(candidate) = scalar(candidate) else {
-            continue;
-        };
+        let candidate = candidate.clone();
         let replacement = scalar(replacement).unwrap_or_default();
         if candidate == "*" {
             fallback = Some(replacement);
@@ -61,7 +59,7 @@ pub(super) fn check_error_selectors(
     value: Option<&YamlValue>,
     body: &str,
 ) -> Result<(), EngineError> {
-    let Some(errors) = value.and_then(YamlValue::as_sequence) else {
+    let Some(errors) = value.and_then(YamlValue::as_array) else {
         return Ok(());
     };
     for error in errors {
@@ -84,10 +82,10 @@ pub(super) fn selector_matches(body: &str, selector: &str) -> Result<bool, Engin
 }
 
 pub(super) fn mapping(value: &YamlValue) -> Option<&Mapping> {
-    value.as_mapping()
+    value.as_object()
 }
-pub(super) fn key(value: &str) -> YamlValue {
-    YamlValue::String(value.to_owned())
+pub(super) fn key(value: &str) -> &str {
+    value
 }
 
 pub(super) fn scalar(value: &YamlValue) -> Option<String> {

@@ -19,7 +19,7 @@ const XML_BODY: &str = include_str!("../../tests/fixtures/cardigann/xml.response
 #[test]
 fn complete_string_filter_inventory() {
     for case in yaml(include_str!("../../tests/fixtures/cardigann/filters.yml"))
-        .as_sequence()
+        .as_array()
         .unwrap()
     {
         let actual = transform::apply(
@@ -511,7 +511,7 @@ fn complexity_budgets_reject_oversized_paths_patterns_and_pipelines() {
     assert!(jsonpath::select(&serde_json::json!({}), &"key.".repeat(129)).is_err());
     let wide = JsonValue::Array(vec![JsonValue::Null; 100_001]);
     assert!(jsonpath::select(&wide, "$[*]").is_err());
-    let filters = YamlValue::Sequence(vec![yaml("{name: trim}"); 129]);
+    let filters = YamlValue::Array(vec![yaml("{name: trim}"); 129]);
     assert!(transform::apply("value".into(), &filters, &TemplateValue::Nil, "UTF-8").is_err());
     let lookbehind = run(
         "prefixX",

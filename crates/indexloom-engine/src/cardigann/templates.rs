@@ -105,7 +105,7 @@ pub(super) fn resolve_category_ids(
     let mut ids = std::collections::BTreeSet::new();
     if let Some(mappings) = caps
         .get(key("categorymappings"))
-        .and_then(YamlValue::as_sequence)
+        .and_then(YamlValue::as_array)
     {
         for entry in mappings.iter().filter_map(mapping) {
             if let (Some(category), Some(native)) = (
@@ -118,17 +118,10 @@ pub(super) fn resolve_category_ids(
         }
     }
     if let Some(categories) = caps.get(key("categories")).and_then(mapping) {
-        for (name, values) in categories {
-            if let Some(category) = scalar(name) {
-                for native in values
-                    .as_sequence()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(scalar)
-                {
-                    if matches(&category, &native) {
-                        ids.insert(native);
-                    }
+        for (category, values) in categories {
+            for native in values.as_array().into_iter().flatten().filter_map(scalar) {
+                if matches(category, &native) {
+                    ids.insert(native);
                 }
             }
         }
@@ -137,7 +130,7 @@ pub(super) fn resolve_category_ids(
 }
 
 pub(super) fn all_search_paths(search: &Mapping) -> Result<Vec<&Mapping>, EngineError> {
-    if let Some(paths) = search.get(key("paths")).and_then(YamlValue::as_sequence) {
+    if let Some(paths) = search.get(key("paths")).and_then(YamlValue::as_array) {
         if paths.is_empty() {
             return Err(EngineError::InvalidSearchDefinition(
                 "search paths are empty",
@@ -179,7 +172,7 @@ pub(super) fn render_inputs(
     inputs
         .iter()
         .filter_map(|(name, value)| {
-            let name = scalar(name)?;
+            let name = name.clone();
             if name == "$raw" {
                 return None;
             }
@@ -227,10 +220,10 @@ pub(super) fn render_headers(
     };
     headers
         .iter()
-        .filter_map(|(name, values)| Some((scalar(name)?, values)))
+        .map(|(name, values)| (name.clone(), values))
         .map(|(name, values)| {
             let value = match values {
-                YamlValue::Sequence(values) => values
+                YamlValue::Array(values) => values
                     .iter()
                     .filter_map(scalar)
                     .map(|value| render_template(&value, context))
@@ -261,7 +254,7 @@ pub(super) fn path_matches_categories(
         return Ok(true);
     };
     let restrictions = restrictions
-        .as_sequence()
+        .as_array()
         .ok_or(EngineError::InvalidSearchDefinition(
             "path categories must be a sequence",
         ))?;
@@ -324,7 +317,7 @@ pub(super) fn supports_id_search(
         id.is_some()
             && modes
                 .values()
-                .filter_map(YamlValue::as_sequence)
+                .filter_map(YamlValue::as_array)
                 .flatten()
                 .filter_map(scalar)
                 .any(|v| v.eq_ignore_ascii_case(field))

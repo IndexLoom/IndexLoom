@@ -17,7 +17,7 @@ fn validates_all_search_paths_and_retries_only_transient_server_failures() {
     let source: YamlValue =
         serde_yaml::from_str("paths:\n  - path: /primary\n  - path: /fallback\n")
             .expect("valid search paths");
-    let paths = all_search_paths(source.as_mapping().unwrap()).unwrap();
+    let paths = all_search_paths(source.as_object().unwrap()).unwrap();
     assert_eq!(paths.len(), 2);
     assert!(retryable_search_error(
         &crate::EngineError::UnexpectedStatus(503)
@@ -31,7 +31,7 @@ fn validates_all_search_paths_and_retries_only_transient_server_failures() {
 
     let broken: YamlValue = serde_yaml::from_str("paths:\n  - path: /valid\n  - invalid")
         .expect("valid YAML with invalid path shape");
-    assert!(all_search_paths(broken.as_mapping().unwrap()).is_err());
+    assert!(all_search_paths(broken.as_object().unwrap()).is_err());
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn exposes_empty_values_for_unresolved_result_fields() {
             "title_primary:\n  optional: true\ntitle:\n  text: '{{ or (.Result.title_primary) (.Result.title_default) }}'\ntitle_default:\n  selector: a\n",
         )
         .expect("field fixture should parse");
-    let fields = fields.as_mapping().expect("fields should be a mapping");
+    let fields = fields.as_object().expect("fields should be a mapping");
     let resolved = BTreeMap::from([("title_default".to_owned(), "Example release".to_owned())]);
     let render_result = complete_result_fields(fields, &resolved);
     let context =
@@ -174,11 +174,11 @@ fn combines_path_and_search_level_inputs() {
         "paths:\n  - path: /\n    inputs:\n      q: '{{ .Keywords }}'\ninputs:\n  f: 0\n",
     )
     .expect("search fixture should parse");
-    let search = search.as_mapping().expect("search should be a mapping");
+    let search = search.as_object().expect("search should be a mapping");
     let path = search["paths"]
-        .as_sequence()
+        .as_array()
         .and_then(|paths| paths.first())
-        .and_then(YamlValue::as_mapping)
+        .and_then(YamlValue::as_object)
         .expect("path should be a mapping");
     let context = TemplateValue::Object(std::collections::HashMap::from([(
         "Keywords".to_owned(),

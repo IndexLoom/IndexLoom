@@ -54,6 +54,30 @@ explicit HTTP, SOCKS and FlareSolverr routing.
 - Keep the execution engine, storage, API, frontend and catalog tooling behind
   explicit crate and repository boundaries.
 
+## Security dependency patches
+
+The lockfile uses patched `libsqlite3-sys 0.39.1` and `rsa 0.10.0`.
+Two temporary local crates.io patches are kept in `vendor/`:
+
+- `sqlx-sqlite 0.9.0` changes only its SQLite dependency range to
+  `>=0.39.1, <0.40.0`, because the released SQLx version excludes the fixed
+  SQLite library. Track upstream [#4379](https://github.com/launchbadge/sqlx/issues/4379)
+  and [#4402](https://github.com/launchbadge/sqlx/issues/4402).
+- `openidconnect 4.1.0` uses the actual RSA 0.10 implementation, its SHA-2
+  types, and a fallible RNG adapter. RS256/384/512 and PS256/384/512 signing
+  and verification remain enabled; issuer, audience, nonce, verified email,
+  and administrator allowlist checks remain enforced.
+
+`indexloom-yaml` replaces `serde_yaml_ng` and `unsafe-libyaml` with safe Rust
+`serde-saphyr 2.1.1`. It preserves ordered Cardigann mappings, YAML 1.2 boolean
+and null semantics, interpolation text, and numeric-looking strings with
+leading zeros or underscores. Duplicate keys are rejected at every depth;
+the existing 2 MiB catalog definition limit also applies to direct parser
+calls, alongside the parser's resource budgets. Non-finite numbers and
+mapping keys that cannot be represented as JSON object keys are rejected.
+
+See [vendor patch notes](vendor/README.md) before updating either dependency.
+
 ## Architecture
 
 ```text

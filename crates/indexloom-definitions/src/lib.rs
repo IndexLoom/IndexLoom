@@ -246,7 +246,7 @@ impl IndexerDefinition {
         let mut user_agent_recommended = false;
 
         for setting in &self.spec.implementation.settings {
-            let Value::Mapping(mapping) = setting else {
+            let Value::Object(mapping) = setting else {
                 continue;
             };
             let Some(setting_type) = mapping_string(mapping, "type") else {
@@ -275,11 +275,9 @@ impl IndexerDefinition {
                 continue;
             };
             let label = mapping_string(mapping, "label").unwrap_or_else(|| name.clone());
-            let default_value = mapping
-                .get(Value::String("default".to_owned()))
-                .and_then(configuration_value);
+            let default_value = mapping.get("default").and_then(configuration_value);
             let options = mapping
-                .get(Value::String("options".to_owned()))
+                .get("options")
                 .map(configuration_options)
                 .unwrap_or_default();
             fields.push(ConfigurationField {
@@ -311,9 +309,7 @@ fn configuration_kind(setting_type: &str) -> Option<ConfigurationFieldKind> {
 }
 
 fn mapping_string(mapping: &serde_yaml::Mapping, key: &str) -> Option<String> {
-    mapping
-        .get(Value::String(key.to_owned()))
-        .and_then(scalar_string)
+    mapping.get(key).and_then(scalar_string)
 }
 
 fn scalar_string(value: &Value) -> Option<String> {
@@ -338,14 +334,14 @@ fn configuration_value(value: &Value) -> Option<ConfigurationValue> {
 }
 
 fn configuration_options(value: &Value) -> Vec<ConfigurationOption> {
-    let Value::Mapping(mapping) = value else {
+    let Value::Object(mapping) = value else {
         return Vec::new();
     };
     mapping
         .iter()
         .filter_map(|(value, label)| {
             Some(ConfigurationOption {
-                value: scalar_string(value)?,
+                value: value.clone(),
                 label: scalar_string(label)?,
             })
         })
@@ -472,8 +468,8 @@ pub fn validate(definition: &IndexerDefinition) -> Result<(), DefinitionError> {
     }
     if !matches!(
         definition.spec.implementation.capabilities,
-        Value::Mapping(_)
-    ) || !matches!(definition.spec.implementation.search, Value::Mapping(_))
+        Value::Object(_)
+    ) || !matches!(definition.spec.implementation.search, Value::Object(_))
     {
         return Err(DefinitionError::Invalid(
             "Cardigann capabilities and search must be mappings".to_owned(),

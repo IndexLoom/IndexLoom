@@ -12,7 +12,7 @@ impl RowFilters {
         let mut limits = Vec::new();
         if let Some(filters) = rows.get(key("filters")) {
             let filters = filters
-                .as_sequence()
+                .as_array()
                 .ok_or_else(|| error("rows", "filters must be a sequence"))?;
             if filters.len() > 128 {
                 return Err(error("rows", "too many filters"));
