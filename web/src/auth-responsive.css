@@ -48,8 +48,8 @@
 .mail-template-form textarea, .mail-test-form input {
   width: 100%;
   min-width: 0;
-  min-height: 46px;
-  padding: 11px 13px;
+  min-height: 38px;
+  padding: 7px 10px;
   border: 1px solid var(--border);
   border-radius: var(--ui-radius);
   background: var(--color-bg-sunken);
@@ -62,7 +62,7 @@
   border-color: var(--accent);
 }
 .auth-form .primary-button {
-  min-height: 46px; width: 100%;
+  min-height: 38px; width: 100%;
 }
 .auth-form .auth-remember {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -417,3 +417,195 @@
 .password-requirements li.satisfied { color: var(--text); }
 .password-requirements small { color: var(--muted); }
 @media(max-width: 540px) { .password-policy-editor { padding: 12px; } .password-policy-row { gap: 8px; } .password-policy-row > input[type="number"] { width: 70px; min-width: 70px; } }
+
+/* Canonical native controls. Keep these after workspace-specific field rules.
+   Native semantics/keyboard behavior remain intact; only the paint is custom. */
+:root :is(input:not(:where([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="hidden"], [type="submit"], [type="button"], [type="reset"], [type="image"])), select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--control-height);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  padding: 7px 10px;
+  background-color: var(--color-bg-sunken);
+  color: var(--text);
+  font-family: inherit;
+  font-size: .8125rem;
+  line-height: 1.4;
+  box-shadow: none;
+  caret-color: var(--accent);
+}
+:root textarea { resize: vertical; min-height: 96px; }
+:root .custom-css-editor textarea { min-height: 350px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+:root input[type="search"] { -webkit-appearance: none; appearance: none; }
+:root input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
+:root :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
+:root select:not([multiple]):not([size]), :root select[size="1"] {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-inline-end: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23a49db5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  cursor: pointer;
+}
+html[data-appearance="light"] select:not([multiple]):not([size]), html[data-appearance="light"] select[size="1"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%235e596c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+:root select:dir(rtl) { background-position: left 10px center; }
+:root select[multiple], :root select[size]:not([size="1"]) { min-height: 100px; padding: 6px; }
+:root select option, :root select optgroup { color: var(--text); background: var(--surface); }
+:root input:is([type="date"], [type="datetime-local"], [type="time"], [type="month"], [type="week"]) { color-scheme: inherit; }
+:root input::-webkit-date-and-time-value { text-align: start; min-height: 1.4em; }
+:root input::-webkit-calendar-picker-indicator { cursor: pointer; }
+:root input[type="file"] { padding: 4px; }
+:root input[type="file"]::file-selector-button {
+  min-height: 28px; margin-inline-end: 10px; padding: 4px 10px;
+  border: 1px solid var(--border); border-radius: max(0px, calc(var(--ui-radius) - 2px));
+  color: var(--text); background: var(--surface-raised); font: inherit; cursor: pointer;
+}
+:root input[type="range"] { accent-color: var(--accent); min-width: 0; max-width: 100%; min-height: 32px; }
+:root input[type="color"] { min-width: 34px; min-height: 32px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); padding: 3px; }
+:root input:is([type="checkbox"], [type="radio"]) {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  vertical-align: middle;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  background: var(--color-bg-sunken);
+  color: var(--color-text-on-accent);
+  box-shadow: none;
+  cursor: pointer;
+}
+:root input[type="radio"] { border-radius: 50%; }
+:root input:is([type="checkbox"], [type="radio"])::before {
+  content: "";
+  display: block;
+  visibility: hidden;
+}
+:root input[type="checkbox"]::before {
+  width: 5px; height: 9px; margin-top: -2px;
+  border: solid currentColor; border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+:root input[type="radio"]::before { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+:root input:is([type="checkbox"], [type="radio"]):checked,
+:root input[type="checkbox"]:indeterminate { background: var(--accent); border-color: var(--accent); }
+:root input:is([type="checkbox"], [type="radio"]):checked::before { visibility: visible; }
+:root input[type="checkbox"]:indeterminate::before {
+  visibility: visible; width: 9px; height: 2px; margin: 0;
+  border: 0; background: currentColor; transform: none;
+}
+:root :is(button, .select-button, input[type="submit"], input[type="button"], input[type="reset"]) {
+  font-family: inherit;
+  cursor: pointer;
+}
+:root :is(.primary-button, .quiet-button, .select-button, .topbar-settings, .sidebar-appearance, .auth-oidc) {
+  min-height: var(--button-height); padding: 7px 12px; border-radius: var(--ui-radius);
+  font-size: .8125rem; line-height: 1.35;
+}
+:root input:is([type="submit"], [type="button"], [type="reset"]) {
+  min-height: var(--button-height); padding: 7px 12px;
+  border: 1px solid var(--border); border-radius: var(--ui-radius);
+  background: var(--surface); color: var(--text); font-size: .8125rem;
+}
+:root .primary-button { color: var(--color-text-on-accent); background: var(--accent); border-color: var(--accent); box-shadow: none; }
+:root :is(.quiet-button, .select-button, .topbar-settings, .auth-oidc) { color: var(--text); background-color: var(--surface); border: 1px solid var(--border); }
+:root .text-button { min-height: 32px; color: var(--muted); }
+:root .text-button.danger { color: var(--danger); }
+:root :is(input, select, textarea)[aria-invalid="true"] { border-color: var(--danger); border-style: dashed; }
+@supports selector(:user-invalid) {
+  :root :is(input, select, textarea):user-invalid { border-color: var(--danger); border-style: dashed; }
+}
+:root :is(button, input, select, textarea):disabled,
+:root [aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+:root :is(input, select, textarea):disabled { background-color: var(--surface-raised); }
+:root input:is([type="checkbox"], [type="radio"]):disabled { color: var(--text); }
+:root :is(input, textarea)[readonly] { color: var(--muted); }
+:root input:-webkit-autofill {
+  -webkit-text-fill-color: var(--text);
+  caret-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--color-bg-sunken) inset;
+}
+/* Deliberately outranks old class-level outline resets, without !important. */
+:root :is(button, a, summary, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 3px;
+}
+@media (hover: hover) {
+  :root :is(input, select, textarea):not(:disabled):not([readonly]):not([aria-invalid="true"]):not(:invalid):hover { border-color: var(--muted); }
+  :root :is(.quiet-button, .select-button, .topbar-settings, .auth-oidc):not(:disabled):hover { background-color: var(--surface-raised); border-color: var(--muted); }
+  :root .primary-button:not(:disabled):hover { background: var(--accent-strong); }
+}
+@media (prefers-contrast: more) {
+  :root :is(input, select, textarea, button) { border-color: var(--muted); }
+  :root .nav-item.active { outline: 2px solid var(--accent); outline-offset: -2px; }
+}
+@media (forced-colors: active) {
+  :root { --color-focus-ring: Highlight; }
+  :root input:is([type="checkbox"], [type="radio"]) {
+    -webkit-appearance: auto; appearance: auto;
+    background: Canvas; color: CanvasText; forced-color-adjust: auto;
+  }
+  :root input:is([type="checkbox"], [type="radio"])::before { content: none; }
+  :root select:not([multiple]):not([size]), :root select[size="1"], html[data-appearance="light"] select:not([multiple]):not([size]), html[data-appearance="light"] select[size="1"] {
+    -webkit-appearance: auto; appearance: auto; background-image: none;
+  }
+  :root input:-webkit-autofill { -webkit-text-fill-color: CanvasText; -webkit-box-shadow: none; }
+  :root .nav-item.active { outline: 2px solid Highlight; outline-offset: -3px; }
+}
+
+/* Intrinsic sizing: contain wide content at its scroll surface, not the page. */
+:where(.workspace, .search-view, .settings-view, .management-panel, .configuration-section,
+  .search-toolbar, .indexer-toolbar, .field-grid, .connector-form, .appearance-controls) > * { min-width: 0; }
+.form-actions, .bulk-actions, .result-actions, .page-heading, .editor-header-actions { flex-wrap: wrap; }
+.search-toolbar { grid-template-columns: minmax(0, 1fr) minmax(140px, 220px) auto; }
+.indexer-toolbar { grid-template-columns: repeat(auto-fit, minmax(min(165px, 100%), 1fr)); }
+.advanced-search-grid { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
+.appearance-controls { grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); }
+.topbar-actions { min-width: 0; }
+:root .language-picker select { min-width: 0; width: 100%; }
+:root .language-picker.compact select { min-height: 36px; max-width: 150px; }
+@media (min-width: 641px) and (max-width: 1060px) {
+  .indexer-browser, .connector-layout { grid-template-columns: minmax(0, 1fr); }
+  .search-toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .search-toolbar > input { grid-column: 1 / -1; }
+  .workspace-topbar { flex-wrap: wrap; }
+}
+@media (max-width: 640px) {
+  .workspace-topbar { flex-wrap: wrap; padding-block: 8px; gap: 8px; }
+  .workspace-topbar .topbar-location { white-space: normal; overflow: visible; flex: 1 0 100%; }
+  .topbar-actions { justify-content: flex-start; flex-wrap: wrap; width: 100%; }
+  .search-toolbar { grid-template-columns: minmax(0, 1fr); }
+  .indexer-toolbar { grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); }
+  .field-grid, .connector-form, .credential-gate-form, .test-choice-grid { grid-template-columns: minmax(0, 1fr); }
+  .overview-grid, .search-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-metric { min-height: 68px; padding: 12px; }
+  .overview-metric strong { font-size: 22px; }
+  .overview-metric span { font-size: 11px; overflow-wrap: anywhere; }
+  .app-shell .nav-item span { max-width: 100%; overflow-wrap: anywhere; line-height: 1.15; }
+  html[data-sidebar] .app-shell .nav-item { min-width: 0; }
+  html[data-sidebar] .app-shell .nav-item.active { box-shadow: inset 0 2px var(--accent); }
+  .table-frame table, .monitoring-scroll table { min-width: 590px; }
+  .notification-event { flex-wrap: wrap; }
+  .notification-event > div { flex: 1; min-width: 0; }
+  .mail-test-form label { min-width: 0; }
+  :root :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { font-size: 16px; }
+  :root :is(.primary-button, .quiet-button, .select-button, .topbar-settings, .auth-oidc) { min-height: 40px; }
+  :root .language-picker.compact select { max-width: 100%; font-size: 16px; min-height: 40px; }
+}
+@media (max-width: 350px) {
+  /* Never remove an account or appearance action to make the bar fit. */
+  .topbar-actions .topbar-settings:first-child:not(:last-child) { display: inline-block; }
+  .indexer-toolbar { grid-template-columns: minmax(0, 1fr); }
+}

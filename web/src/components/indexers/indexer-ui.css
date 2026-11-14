@@ -1,0 +1,66 @@
+.il-indexers { --il-surface: #111015; --il-border: #302b39; --il-muted: #b4aabd; --il-accent: #d6b7ff; min-width: 0; }
+.il-indexers .overview-grid { display: flex; flex-wrap: wrap; gap: 1rem 2rem; padding-block: .8rem; border-block: 1px solid var(--il-border); }
+.il-indexers .overview-metric { background: none; border: 0; box-shadow: none; padding: 0; display: flex; gap: .6rem; align-items: baseline; }
+.il-indexers .overview-metric strong { font-size: 1.2rem; }
+.il-indexers .management-tabs { display: flex; flex-wrap: wrap; gap: .25rem; border-bottom: 1px solid var(--il-border); }
+.il-indexers .management-tabs button { background: transparent; border: 0; border-radius: 0; padding: .7rem .9rem; min-height: 40px; }
+.il-indexers .management-tabs button span { display: none; }
+.il-indexers .management-tabs button.active { color: var(--il-accent); box-shadow: inset 0 -2px var(--il-accent); }
+.il-indexers .indexer-toolbar { display: grid; grid-template-columns: minmax(12rem, 2fr) repeat(5, minmax(7rem, 1fr)); gap: .65rem; padding-block: 1rem; }
+.il-indexers .catalog-filter { min-width: 0; }
+.il-indexers :is(input:not([type=checkbox]), select, textarea) { width: 100%; min-width: 0; min-height: 38px; padding: .45rem .6rem; border: 1px solid var(--il-border); border-radius: 5px; background: #18151e; color: #f3edf9; font: inherit; }
+.il-indexers :is(label, small, .muted) { color: var(--il-muted); }
+.il-indexers .indexer-browser { display: block; }
+.il-indexers .indexer-directory { max-height: none; overflow: visible; border: 0; background: transparent; }
+.il-indexer-row { display: grid; grid-template-columns: minmax(0, 1fr) 8rem auto; align-items: center; gap: .75rem; border-bottom: 1px solid var(--il-border); padding: .85rem .25rem; }
+.il-indexer-identity { min-width: 0; }
+.il-indexer-identity strong { display: block; color: #f5eefc; font-size: .95rem; }
+.il-indexer-identity small { display: block; overflow-wrap: anywhere; margin-top: .2rem; }
+.il-tags { display: flex; flex-wrap: wrap; gap: .25rem .6rem; font-size: .73rem; color: var(--il-muted); margin-top: .35rem; }
+.il-tag { color: var(--il-accent); }
+.il-row-state { display: grid; gap: .4rem; justify-items: start; }
+.il-row-actions { display: flex; flex-wrap: wrap; gap: .3rem; }
+.il-indexers .il-action { display: inline-flex; justify-content: center; align-items: center; min-height: 36px; padding: .4rem .65rem; border: 1px solid var(--il-border); border-radius: 5px; color: #eee4f8; background: #1c1724; font: inherit; font-size: .8rem; text-decoration: none; cursor: pointer; }
+.il-indexers .il-primary { background: #7040a0; border-color: #a66ddd; color: white; }
+.il-indexers .il-action:is(:disabled, [aria-disabled=true]) { opacity: .45; cursor: default; }
+.il-indexers :is(button, a, input, select, summary):focus-visible { outline: 2px solid #d6b7ff; outline-offset: 3px; }
+.il-row-result { grid-column: 1 / -1; font-size: .8rem; overflow-wrap: anywhere; margin: 0; color: var(--il-accent); }
+.il-row-result:empty { display: none; }
+.il-config-dialog { color: #f3edf9; background: #111015; border: 1px solid #574368; border-radius: 10px; width: min(52rem, calc(100vw - 2rem)); max-width: calc(100vw - 1rem); max-height: calc(100dvh - 2rem); padding: 0; overscroll-behavior: contain; }
+.il-config-dialog::backdrop { background: #000b; }
+.il-indexers .il-config-dialog .indexer-card { border: 0; background: transparent; box-shadow: none; padding: 1.25rem; min-width: 0; }
+.il-config-dialog header { display: flex; justify-content: space-between; gap: 1rem; }
+.il-config-dialog h3 { overflow-wrap: anywhere; margin: .25rem 0; }
+.il-indexers .il-editor-section { margin: 1.25rem 0; padding: .8rem 0 0; border: 0; border-top: 1px solid var(--il-border); min-width: 0; }
+.il-editor-section legend { color: var(--il-accent); font-weight: 600; padding-right: .75rem; }
+.il-indexers .il-editor-section .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.il-config-dialog .wide-field { grid-column: 1 / -1; }
+.il-config-dialog label { display: grid; gap: .35rem; min-width: 0; }
+.il-config-dialog .checkbox-field { display: flex; align-items: center; gap: .5rem; min-height: 32px; }
+.il-config-dialog .capability-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.il-config-dialog .capability-facts div { background: transparent; padding: 0; }
+.il-config-dialog .capability-table { overflow: auto; max-height: 16rem; }
+.il-config-dialog :is(th,td) { padding: .4rem .5rem; text-align: start; font-size: .8rem; }
+.il-config-dialog .form-actions { position: sticky; bottom: -1.25rem; background: #111015; border-top: 1px solid var(--il-border); padding-block: .8rem; display: flex; gap: .6rem; flex-wrap: wrap; }
+.il-indexers .show-more { padding: 1rem 0; }
+.il-indexers .test-panel { background: transparent; border: 0; box-shadow: none; }
+.il-indexers .management-panel > section > fieldset { border: 1px solid var(--il-border); padding: 1rem; margin-block: 1rem; }
+@media (hover:hover) { .il-indexers .il-action:not(:disabled):not([aria-disabled=true]):hover { background: #32233f; border-color: #9760c4; } .il-indexer-row:hover { background: #ffffff03; } }
+@media (max-width: 75rem) { .il-indexers .indexer-toolbar { grid-template-columns: repeat(3, minmax(0,1fr)); } .il-indexer-row { grid-template-columns: minmax(0,1fr) auto; } .il-row-actions { grid-column: 1 / -1; } }
+@media (max-width: 35rem) { .il-indexers .indexer-toolbar { grid-template-columns: repeat(2,minmax(0,1fr)); } .il-indexers .catalog-filter:first-child { grid-column: 1 / -1; } .il-indexers .il-editor-section .field-grid, .il-config-dialog .capability-facts { grid-template-columns: minmax(0,1fr); } .il-indexers .il-config-dialog .indexer-card { padding: .85rem; } .il-config-dialog header { flex-wrap: wrap; } .il-row-actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); width: 100%; } .il-indexers .il-action { padding: .4rem .25rem; min-height: 40px; font-size: .75rem; } }
+.il-indexers .il-bulk-panel { min-width: 0; }
+.il-bulk-panel > label, .il-bulk-panel fieldset > label { display: grid; gap: .35rem; margin-block: .65rem; }
+.il-bulk-panel .il-action { margin: .25rem .3rem .25rem 0; }
+.il-bulk-list { max-height: 24rem; overflow: auto; border-top: 1px solid var(--il-border); }
+.il-bulk-choice { display: flex; align-items: center; gap: .6rem; padding: .6rem 0; border-bottom: 1px solid var(--il-border); }
+.il-indexers .test-choice-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.il-indexers .test-choice-grid fieldset { min-width: 0; }
+.il-config-dialog .capability-disclosure summary { display: flex; flex-wrap: wrap; gap: .5rem; min-height: 40px; cursor: pointer; }
+.il-config-dialog .capability-chip-list { display: flex; flex-wrap: wrap; gap: .35rem; }
+.il-config-dialog .capability-chip { padding: .3rem .5rem; background: #201829; border-radius: 4px; overflow-wrap: anywhere; }
+@media (max-width: 35rem) { .il-indexers .test-choice-grid { grid-template-columns: minmax(0,1fr); } }
+.il-indexers .catalog-section { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.il-indexers .indexer-browser { min-height: 0; }
+.il-indexers .management-panel { min-width: 0; }
+.il-indexers .il-config-dialog .capability-disclosure { border: 0; border-radius: 0; background: transparent; }
+.il-indexers .il-config-dialog .indexer-card header { position: static; }

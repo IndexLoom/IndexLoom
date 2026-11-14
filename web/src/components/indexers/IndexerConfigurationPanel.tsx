@@ -1,47 +1,8 @@
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { translate, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../../lib/i18n";
+import { ApiError, type FlareSolverrInstance, type Indexer, type IndexerGroup, type OutboundProxy,
+  fetchIndexerTestJob, saveIndexerOrganization, startIndexerTests } from "../../lib/api";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "indexers");
-import {
-  type FormEvent,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-import {
-  ApiError,
-  type ConfigurationField,
-  type ConfigurationValue,
-  type FlareSolverrInstance,
-  type FlareSolverrUpdate,
-  type Indexer,
-  type IndexerGroup,
-  type IndexerGroupUpdate,
-  type IndexerSelection,
-  type IndexerTestJob,
-  type OutboundProxy,
-  type OutboundProxyUpdate,
-  type ProxyKind,
-  type RoutingSettings,
-  fetchFlareSolverr,
-  fetchGroups,
-  fetchIndexerTestJob,
-  fetchIndexers,
-  fetchProxies,
-  fetchRouting,
-  removeGroup,
-  removeFlareSolverr,
-  removeProxy,
-  saveGroup,
-  saveFlareSolverr,
-  saveIndexerConfiguration,
-  saveIndexerOrganization,
-  saveProxy,
-  saveRouting,
-  startIndexerTests,
-} from "../../lib/api";
-import { AdminTokenGate, useAdminSession } from "../AdminSession";
 
 import { IndexerEditor } from "./IndexerEditor";
 export function IndexerConfigurationPanel({
@@ -71,7 +32,53 @@ export function IndexerConfigurationPanel({
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [modeFilter, setModeFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const editorPanelRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [results, setResults] = useState<Record<string, string>>({});
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    if (!selectedId) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    dialogRef.current?.showModal();
+    return () => { dialogRef.current?.close(); trigger?.focus(); };
+  }, [selectedId]);
+
+  async function runAction(indexer: Indexer, action: "test" | "toggle") {
+    if (busy[indexer.id]) return;
+    setBusy(current => ({ ...current, [indexer.id]: true }));
+    setResults(current => ({ ...current, [indexer.id]: t(action === "test" ? "Testing…" : "Saving changes…") }));
+    try {
+      if (action === "toggle") {
+        const updated = await saveIndexerOrganization(token, indexer.id, {
+          displayName: indexer.displayName, enabled: !indexer.enabled,
+          proxyId: indexer.proxyId, groupIds: indexer.groupIds, tags: indexer.tags,
+        });
+        if (mounted.current) onSaved(updated);
+        if (mounted.current) setResults(current => ({ ...current, [indexer.id]: t(updated.enabled ? "Enabled" : "Disabled") }));
+      } else {
+        let job = await startIndexerTests(token, { all: false, indexerIds: [indexer.id], groupIds: [] });
+        const deadline = Date.now() + 180_000;
+        while (job.status !== "completed" && mounted.current) {
+          if (Date.now() > deadline) throw new Error(t("Test is still running. Check the Tests tab for completion."));
+          await new Promise(resolve => window.setTimeout(resolve, 1000));
+          if (!mounted.current) return;
+          job = await fetchIndexerTestJob(token, job.id);
+        }
+        if (!mounted.current) return;
+        const result = job.results.find(item => item.indexerId === indexer.id);
+        setResults(current => ({ ...current, [indexer.id]: result
+          ? `${t(result.success ? "success" : "failed")} · ${result.responseTimeMs} ms · ${result.message}`
+          : t("No test result returned.") }));
+      }
+    } catch (error) {
+      if (!mounted.current) return;
+      if (error instanceof ApiError && error.status === 401) onUnauthorized();
+      else setResults(current => ({ ...current, [indexer.id]: error instanceof Error ? error.message : t("Request failed") }));
+    } finally {
+      if (mounted.current) setBusy(current => ({ ...current, [indexer.id]: false }));
+    }
+  }
   const deferredFilter = useDeferredValue(filter.trim().toLocaleLowerCase());
   const languages = useMemo(() => [...new Set(indexers.map((item) => item.capabilities.language))].sort(), [indexers]);
   const categories = useMemo(() => [...new Set(indexers.flatMap((item) => item.capabilities.categories))].sort(), [indexers]);
@@ -103,11 +110,7 @@ export function IndexerConfigurationPanel({
 
   function selectIndexer(id: string) {
     setSelectedId(id);
-    if (window.matchMedia("(max-width: 51.25rem)").matches) {
-      window.requestAnimationFrame(() => {
-        editorPanelRef.current?.scrollIntoView({ block: "start" });
-      });
-    }
+
   }
 
   return (
@@ -193,40 +196,30 @@ export function IndexerConfigurationPanel({
               <p className="panel-empty">{t("No indexers match the current filters.")}{" "}</p>
             ) : null}
             {visible.map((indexer) => (
-              <button
-                aria-pressed={selectedId === indexer.id}
-                className={
-                  selectedId === indexer.id
-                    ? "indexer-list-item active"
-                    : "indexer-list-item"
-                }
-                key={indexer.id}
-                onClick={() => selectIndexer(indexer.id)}
-                type="button"
-              >
-                <span className="indexer-list-copy">
+              <div className="il-indexer-row" key={indexer.id}>
+                <div className="il-indexer-identity">
                   <strong>{indexer.displayName}</strong>
                   <small>{indexer.definitionId} · {languageLabel(indexer.capabilities.language)} · {indexer.capabilities.source === "jackett" ? "Jackett" : "Prowlarr"}</small>
-                </span>
-                <span className="indexer-list-meta">
-                  <span className={`privacy-pill ${t(indexer.privacy)}`}>
-                    {t(indexer.privacy)}
+                  <div className="il-tags">
+                    <span>{t(indexer.privacy)}</span>
+                    {indexer.capabilities.categories.map(category => <span key={category}>{categoryLabel(category)}</span>)}
+                    {indexer.tags.map(tag => <span className="il-tag" key={tag}>#{tag}</span>)}
+                  </div>
+                </div>
+                <div className="il-row-state">
+                  <span className={indexer.catalogAvailable && indexer.enabled ? "status-pill healthy" : "status-pill"}>
+                    {t(!indexer.catalogAvailable ? "Retired" : indexer.enabled ? "Enabled" : "Disabled")}
                   </span>
-                  <span
-                    className={
-                      indexer.catalogAvailable && indexer.enabled
-                        ? "status-pill healthy"
-                        : "status-pill"
-                    }
-                  >
-                    {t(!indexer.catalogAvailable
-                      ? "unavailable"
-                      : indexer.enabled
-                        ? "enabled"
-                        : "disabled")}
-                  </span>
-                </span>
-              </button>
+                  <small>{indexer.lastTest ? `${t(indexer.lastTest.status ?? (indexer.lastTest.success ? "success" : "failed"))} · ${indexer.lastTest.responseTimeMs ?? "—"} ms` : t("not tested")}</small>
+                </div>
+                <div className="il-row-actions" aria-label={indexer.displayName}>
+
+                  <button type="button" className="il-action" onClick={() => selectIndexer(indexer.id)}>{t("Configure")}</button>
+                  <button type="button" className="il-action" disabled={busy[indexer.id] || !indexer.enabled || !indexer.catalogAvailable} onClick={() => void runAction(indexer, "test")}>{t("Test")}</button>
+                  <button type="button" className="il-action" disabled={busy[indexer.id] || (!indexer.enabled && !indexer.catalogAvailable)} onClick={() => void runAction(indexer, "toggle")}>{t(indexer.enabled ? "Disable" : "Enable")}</button>
+                </div>
+                <p className="il-row-result" role="status">{results[indexer.id] ?? ""}</p>
+              </div>
             ))}
             {visible.length < filtered.length ? (
               <div className="show-more">
@@ -241,29 +234,10 @@ export function IndexerConfigurationPanel({
             ) : null}
           </div>
 
-          <div className="indexer-editor-panel" ref={editorPanelRef}>
-            {selected ? (
-              <IndexerEditor
-                connectors={connectors}
-                groups={groups}
-                indexer={selected}
-                key={selected.id}
-                onClose={() => setSelectedId(null)}
-                onSaved={onSaved}
-                onUnauthorized={onUnauthorized}
-                proxies={proxies}
-                token={token}
-              />
-            ) : (
-              <div className="editor-empty">
-                <span className="editor-empty-mark" aria-hidden="true">
-                  +
-                </span>
-                <h3>{t("Select an indexer")}</h3>
-                <p>{t("Choose a definition from the catalog to enable it, assign routing, or add credentials.")}{" "}</p>
-              </div>
-            )}
-          </div>
+          {selected ? <dialog className="il-config-dialog" ref={dialogRef} aria-modal="true" aria-label={`${t("Indexer configuration")}: ${selected.displayName}`} onCancel={event => { event.preventDefault(); setSelectedId(null); }}>
+              <IndexerEditor connectors={connectors} groups={groups} indexer={selected} key={selected.id}
+                onClose={() => setSelectedId(null)} onSaved={onSaved} onUnauthorized={onUnauthorized} proxies={proxies} token={token} />
+          </dialog> : null}
         </div>
       )}
     </section>

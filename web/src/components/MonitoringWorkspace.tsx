@@ -4,6 +4,7 @@ import { eventQuery, monitoringRequest, normalizeEvents, normalizeHealth, normal
 import { metric, Status, t, timestamp } from "./monitoring/shared";
 import { AuditTable } from "./monitoring/AuditTable";
 import "./monitoring/monitoring.css";
+import "./operations-ui.css";
 
 type Resource<T> = { data: T | null; error: string; loading: boolean; updated: string };
 function useResource<T>(path: string, token: string, normalize: (value: unknown) => T, revision: number) {
@@ -29,6 +30,7 @@ export function MonitoringWorkspace() {
   const [cursors, setCursors] = useState<Array<number | null>>([null]);
   const pageIndex = cursors.length - 1;
   const [search, setSearch] = useState(""), [status, setStatus] = useState("");
+  const [activity, setActivity] = useState("");
   const [sort, setSort] = useState<{ key: keyof IndexerStats; descending: boolean }>({ key: "name", descending: false });
   const [authorizedToken, setAuthorizedToken] = useState<string | null>(null);
   const [resetting, setResetting] = useState(""), [resetMessage, setResetMessage] = useState("");
@@ -64,20 +66,20 @@ export function MonitoringWorkspace() {
     finally { if (!controller.signal.aborted) setResetting(""); if (resetController.current === controller) resetController.current = null; }
   }
   const items = indexers.data ?? [];
-  const visible = items.filter((item) => item.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()) && (!status || item.status === status)).sort((a, b) => {
+  const visible = items.filter((item) => item.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()) && (!status || item.status === status) && (!activity || (activity === "failures" ? (item.failures ?? 0) > 0 || (item.authErrors ?? 0) > 0 : (item.requests ?? 0) > 0))).sort((a, b) => {
     const av = a[sort.key], bv = b[sort.key];
     if (av === null) return bv === null ? 0 : 1;
     if (bv === null) return -1;
     return (typeof av === "number" && typeof bv === "number" ? av - bv : String(av).localeCompare(String(bv))) * (sort.descending ? -1 : 1);
   });
   const columns: [keyof IndexerStats, string][] = [["name", "Indexer"], ["status", "Status"], ["requests", "Requests"], ["failures", "Failures"], ["authErrors", "Auth errors"], ["rssOperations", "RSS operations"], ["downloads", "Downloads"], ["meanResponseMs", "Mean response (ms)"], ["lastEvent", "Last event"]];
-  return <section className="monitoring-view">
+  return <section className="monitoring-view monitoring-workspace">
     <header className="page-heading"><div><h1>{t("Monitoring")}</h1><p className="page-description">{t("Server statistics, audit activity and dependency health.")}</p></div><button className="quiet-button" onClick={() => setRevision((v) => v + 1)} type="button">{t("Refresh")}</button></header>
     <label className="monitoring-auto"><input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />{t("Refresh every 30 seconds while visible")}</label>
     <section className="monitoring-panel" aria-labelledby="monitoring-indexers"><h2 id="monitoring-indexers">{t("Indexer statistics")}</h2>
       <LoadState state={indexers} />
       {indexers.data ? <><div className="monitoring-totals">{(["requests", "failures", "authErrors", "rssOperations", "downloads"] as const).map((key) => <span key={key}>{t(columns.find(([k]) => k === key)![1])}: <strong>{metric(items.some((i) => i[key] === null) ? null : items.reduce((sum, i) => sum + (i[key] ?? 0), 0))}</strong></span>)}</div>
-      <div className="monitoring-filters"><label>{t("Find indexer")}<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} /></label><label>{t("Status")}<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">{t("All")}</option>{["enabled", "disabled", "circuit-open", "half-open", "unknown"].map((s) => <option key={s} value={s}>{t(s)}</option>)}</select></label><button type="button" className="quiet-button" onClick={() => { setSearch(""); setStatus(""); }}>{t("Clear filters")}</button></div>
+      <div className="monitoring-filters"><label>{t("Find indexer")}<input type="search" value={search} onChange={(e) => setSearch(e.target.value)} /></label><label>{t("Status")}<select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">{t("All")}</option>{["enabled", "disabled", "circuit-open", "half-open", "unknown"].map((s) => <option key={s} value={s}>{t(s)}</option>)}</select></label><label>{t("Activity")}<select value={activity} onChange={e => setActivity(e.target.value)}><option value="">{t("All")}</option><option value="requests">{t("With requests")}</option><option value="failures">{t("With failures")}</option></select></label><button type="button" className="quiet-button" onClick={() => { setSearch(""); setStatus(""); setActivity(""); }}>{t("Clear filters")}</button></div>
       <div className="monitoring-scroll" tabIndex={0} role="region" aria-label={t("Indexer statistics")}><table><caption>{t("Indexer statistics")} · {visible.length}</caption><thead><tr>{columns.map(([key, label]) => <th scope="col" key={key} aria-sort={sort.key === key ? sort.descending ? "descending" : "ascending" : undefined}><button type="button" onClick={() => setSort({ key, descending: sort.key === key && !sort.descending })}>{t(label)}{sort.key === key ? sort.descending ? " ↓" : " ↑" : ""}</button></th>)}<th scope="col">{t("Circuit breaker")}</th></tr></thead><tbody>{visible.map((item) => <tr key={item.id}>{columns.map(([key]) => <td key={key}>{key === "name" ? <strong>{item.name}</strong> : key === "status" ? <Status value={item.status} /> : key === "lastEvent" ? timestamp(item.lastEvent) : metric(item[key] as number | null)}</td>)}<td><span>{t("Failure streak")}: {metric(item.failureStreak)} · {t("Backoff (s)")}: {metric(item.backoffSeconds)}</span>{authorizedToken === token && ["circuit-open", "half-open"].includes(item.status) ? <button type="button" className="quiet-button" disabled={Boolean(resetting)} onClick={() => void reset(item)} aria-label={t("Reset circuit breaker") + ": " + item.name}>{t(resetting === item.id ? "Resetting…" : "Reset circuit breaker")}</button> : null}</td></tr>)}</tbody></table></div>{visible.length === 0 ? <p>{t("No indexers match. Clear filters or configure an indexer.")}</p> : null}</> : null}
       <p className="muted">{t("Circuit-open pauses requests temporarily with automatic cooldown. Half-open probes recovery. Disabled indexers stay disabled until enabled in configuration.")}</p><p role="status">{resetMessage}</p>
     </section>

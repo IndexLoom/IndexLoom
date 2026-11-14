@@ -1,3 +1,4 @@
+import "./indexers/indexer-ui.css";
 import { useSystemRevision } from "../lib/events";
 import { translate, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../lib/i18n";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "indexers");
@@ -289,7 +290,7 @@ function IndexersManager({
   ).length;
 
   return (
-    <section className="settings-view" data-layout-kind="indexers" aria-labelledby="indexers-heading">
+    <section className="settings-view il-indexers" data-layout-kind="indexers" aria-labelledby="indexers-heading">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{t("Indexer control center")}</p>

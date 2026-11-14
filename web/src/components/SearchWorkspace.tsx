@@ -65,11 +65,12 @@ function AuthenticatedSearch({
   const [selectedPreset, setSelectedPreset] = useState("");
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [selection, setSelection] = useState<IndexerSelection>({
-    all: true,
-    groupIds: [],
-    indexerIds: [],
-  });
+  // Indexer catalog rows link here with ?view=search&indexer=<id>.
+  // The selected indexer is validated against the authenticated API before use.
+  const [requestedIndexer] = useState(() => new URLSearchParams(window.location.search).get("indexer")?.trim() || "");
+  const [selection, setSelection] = useState<IndexerSelection>(() => requestedIndexer
+    ? { all: false, groupIds: [], indexerIds: [requestedIndexer] }
+    : { all: true, groupIds: [], indexerIds: [] });
   const [searching, setSearching] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,9 +88,15 @@ function AuthenticatedSearch({
       fetchIndexers(token, controller.signal),
       fetchGroups(token, controller.signal),
     ])
-      .then(([health, indexers, groups]) =>
-        setWorkspace({ kind: "ready", health, indexers, groups }),
-      )
+      .then(([health, indexers, groups]) => {
+        setWorkspace({ kind: "ready", health, indexers, groups });
+        if (requestedIndexer && !indexers.some((indexer) =>
+          indexer.id === requestedIndexer && indexer.enabled && indexer.catalogAvailable
+        )) {
+          setSelection({ all: true, groupIds: [], indexerIds: [] });
+          setNotice("The chosen indexer is disabled or unavailable; select an enabled indexer.");
+        }
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if (error instanceof ApiError && error.status === 401) {
@@ -103,7 +110,7 @@ function AuthenticatedSearch({
         });
       });
     return () => controller.abort();
-  }, [onUnauthorized, token]);
+  }, [onUnauthorized, token, requestedIndexer]);
 
   useEffect(
     () => () => {

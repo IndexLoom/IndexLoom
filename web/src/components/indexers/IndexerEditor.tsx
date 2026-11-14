@@ -1,47 +1,8 @@
+import { type FormEvent, useState } from "react";
 import { translate, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../../lib/i18n";
+import { ApiError, type ConfigurationField, type ConfigurationValue, type FlareSolverrInstance,
+  type Indexer, type IndexerGroup, type OutboundProxy, saveIndexerConfiguration, saveIndexerOrganization } from "../../lib/api";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "indexers");
-import {
-  type FormEvent,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-import {
-  ApiError,
-  type ConfigurationField,
-  type ConfigurationValue,
-  type FlareSolverrInstance,
-  type FlareSolverrUpdate,
-  type Indexer,
-  type IndexerGroup,
-  type IndexerGroupUpdate,
-  type IndexerSelection,
-  type IndexerTestJob,
-  type OutboundProxy,
-  type OutboundProxyUpdate,
-  type ProxyKind,
-  type RoutingSettings,
-  fetchFlareSolverr,
-  fetchGroups,
-  fetchIndexerTestJob,
-  fetchIndexers,
-  fetchProxies,
-  fetchRouting,
-  removeGroup,
-  removeFlareSolverr,
-  removeProxy,
-  saveGroup,
-  saveFlareSolverr,
-  saveIndexerConfiguration,
-  saveIndexerOrganization,
-  saveProxy,
-  saveRouting,
-  startIndexerTests,
-} from "../../lib/api";
-import { AdminTokenGate, useAdminSession } from "../AdminSession";
 
 import { TrackerLoginPanel } from "./TrackerLoginPanel";
 
@@ -86,6 +47,14 @@ export function IndexerEditor({
   const [saving, setSaving] = useState(false);
   const [loginRevision, setLoginRevision] = useState(0);
   const configured = new Set(indexer.configuredSecrets);
+  const [failed, setFailed] = useState(false);
+  const publicFields = indexer.configurationSchema.fields.filter(field => !field.secret);
+  const siteFields = publicFields.filter(field => /url|host|site|base/i.test(field.name));
+  const credentialFields = publicFields.filter(field => !siteFields.includes(field) && /user|login|email|account/i.test(field.name));
+  const searchFields = publicFields.filter(field => !siteFields.includes(field) && !credentialFields.includes(field));
+  function renderField(field: ConfigurationField) {
+    return <PublicField key={field.name} field={field} value={values[field.name]} onChange={setValue} />;
+  }
 
   function setValue(field: ConfigurationField, value: ConfigurationValue) {
     setValues((current) => ({ ...current, [field.name]: value }));
@@ -114,8 +83,11 @@ export function IndexerEditor({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
+    let configurationSaved = false;
     setSaving(true);
     setStatus(null);
+    setFailed(false);
     const secrets: Record<string, string | null> = {};
     for (const field of indexer.configurationSchema.fields) {
       if (!field.secret) {
@@ -131,24 +103,19 @@ export function IndexerEditor({
       }
     }
     try {
-      const [configuration, organization] = await Promise.all([
-        saveIndexerConfiguration(token, indexer.id, {
-          userAgent: userAgent.trim() || null,
-          flaresolverrInstanceId: connectorId || null,
-          values,
-          secrets,
-        }),
-        saveIndexerOrganization(token, indexer.id, {
-          displayName: displayName.trim(),
-          enabled,
-          proxyId: proxyId || null,
-          groupIds: Array.from(groupIds).sort(),
-          tags: tags
-            .split(",")
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-        }),
-      ]);
+      // Apply sequentially so a failed organization update cannot race a configuration write.
+      const configuration = await saveIndexerConfiguration(token, indexer.id, {
+        userAgent: userAgent.trim() || null, flaresolverrInstanceId: connectorId || null, values, secrets,
+      });
+      configurationSaved = true;
+      onSaved(configuration);
+      setSecretInputs({});
+      setClearSecrets(new Set());
+      const organization = await saveIndexerOrganization(token, indexer.id, {
+        displayName: displayName.trim(), enabled, proxyId: proxyId || null,
+        groupIds: Array.from(groupIds).sort(),
+        tags: tags.split(",").map(tag => tag.trim()).filter(Boolean),
+      });
       setLoginRevision(revision => revision + 1);
       onSaved({
         ...configuration,
@@ -162,12 +129,13 @@ export function IndexerEditor({
       setClearSecrets(new Set());
       setStatus("Configuration saved. Secret values remain redacted.");
     } catch (error) {
+      setFailed(true);
       if (error instanceof ApiError && error.status === 401) {
         onUnauthorized();
         return;
       }
       setStatus(
-        error instanceof Error ? error.message : "configuration save failed",
+        `${configurationSaved ? t("Configuration saved; organization update failed. Retry Save changes.") + " " : ""}${error instanceof Error ? error.message : t("configuration save failed")}`,
       );
     } finally {
       setSaving(false);
@@ -184,7 +152,7 @@ export function IndexerEditor({
         </div>
         <div className="editor-header-actions">
           <div className="card-badges">
-            <span className={`privacy-pill ${t(indexer.privacy)}`}>
+            <span className={`privacy-pill ${indexer.privacy}`}>
               {t(indexer.privacy)}
             </span>
             <span
@@ -203,7 +171,7 @@ export function IndexerEditor({
           </div>
           <button
             aria-label={t("Close indexer configuration")}
-            className="icon-button"
+            className="il-action"
             onClick={onClose}
             type="button"
           >
@@ -215,7 +183,7 @@ export function IndexerEditor({
       {indexer.configurationSchema.flaresolverrRecommended ? (
         <p className="recommendation">{t("This definition recommends FlareSolverr challenge handling.")}{" "}</p>
       ) : null}
-      <div className="field-grid">
+      <fieldset className="il-editor-section" disabled={saving}><legend>{t("Overview")}</legend><div className="field-grid">
         <label className="wide-field">{t("Display name")}{" "}<input
             onChange={(event) => setDisplayName(event.target.value)}
             required
@@ -228,6 +196,17 @@ export function IndexerEditor({
             onChange={(event) => setEnabled(event.target.checked)}
             type="checkbox"
           />{t("Enabled for tests and search")}{" "}</label>
+      </div></fieldset>
+      {siteFields.length > 0 && <fieldset className="il-editor-section" disabled={saving}><legend>{t("Site settings")}</legend><div className="field-grid">{siteFields.map(renderField)}</div></fieldset>}
+      {(credentialFields.length > 0 || indexer.configurationSchema.fields.some(field => field.secret)) && <fieldset className="il-editor-section" disabled={saving}>
+        <legend>{t("Credentials")}</legend><div className="field-grid">
+          {credentialFields.map(renderField)}
+          {indexer.configurationSchema.fields.filter(field => field.secret).map(field => <SecretField key={field.name} field={field}
+            clear={clearSecrets.has(field.name)} configured={configured.has(field.name)} value={secretInputs[field.name] ?? ""}
+            onClear={toggleClear} onValue={(name, value) => setSecretInputs(current => ({ ...current, [name]: value }))} />)}
+        </div></fieldset>}
+      {searchFields.length > 0 && <fieldset className="il-editor-section" disabled={saving}><legend>{t("Search settings")}</legend><div className="field-grid">{searchFields.map(renderField)}</div></fieldset>}
+      <fieldset className="il-editor-section" disabled={saving}><legend>{t("Advanced routing and tags")}</legend><div className="field-grid">
         <label className="wide-field">{t("Tags (comma separated)")}{" "}<input
             onChange={(event) => setTags(event.target.value)}
             placeholder="anime, private"
@@ -261,7 +240,7 @@ export function IndexerEditor({
           >
             <option value="">{t("Inherit group or global route")}</option>
             {proxies
-              .filter((proxy) => proxy.enabled)
+              .filter((proxy) => proxy.enabled || proxy.id === proxyId)
               .map((proxy) => (
                 <option key={proxy.id} value={proxy.id}>
                   {proxy.name} ({proxy.kind})
@@ -281,7 +260,7 @@ export function IndexerEditor({
           >
             <option value="">{t("No FlareSolverr")}</option>
             {connectors
-              .filter((connector) => connector.enabled)
+              .filter((connector) => connector.enabled || connector.id === connectorId)
               .map((connector) => (
                 <option key={connector.id} value={connector.id}>
                   {connector.name}
@@ -289,39 +268,18 @@ export function IndexerEditor({
               ))}
           </select>
         </label>
-        {indexer.configurationSchema.fields.map((field) =>
-          field.secret ? (
-            <SecretField
-              clear={clearSecrets.has(field.name)}
-              configured={configured.has(field.name)}
-              field={field}
-              key={field.name}
-              onClear={toggleClear}
-              onValue={(name, value) =>
-                setSecretInputs((current) => ({ ...current, [name]: value }))
-              }
-              value={secretInputs[field.name] ?? ""}
-            />
-          ) : (
-            <PublicField
-              field={field}
-              key={field.name}
-              onChange={setValue}
-              value={values[field.name]}
-            />
-          ),
-        )}
-      </div>
+      </div></fieldset>
       {indexer.capabilities.authentication && <TrackerLoginPanel
         indexerId={indexer.id} token={token} revision={loginRevision}
         onUnauthorized={onUnauthorized} onComplete={() => setStatus("Tracker login completed.")}
       />}
       <div className="form-actions">
-        <button className="primary-button" disabled={saving} type="submit">
+        <button className="il-action il-primary" disabled={saving} type="submit">
           {t(saving ? "Saving changes…" : "Save changes")}
         </button>
+        <button className="il-action" type="button" disabled={saving} onClick={onClose}>{t("Cancel")}</button>
         {status ? (
-          <p className="form-status" role="status">
+          <p className="form-status" role={failed ? "alert" : "status"}>
             {t(status)}
           </p>
         ) : null}
@@ -433,7 +391,11 @@ function SecretField({
 function initialValues(indexer: Indexer): Record<string, ConfigurationValue> {
   const values = { ...indexer.values };
   for (const field of indexer.configurationSchema.fields) {
-    if (field.secret || values[field.name] !== undefined) {
+    if (field.secret) {
+      delete values[field.name];
+      continue;
+    }
+    if (values[field.name] !== undefined) {
       continue;
     }
     if (field.defaultValue !== undefined) {
@@ -451,7 +413,7 @@ function initialValues(indexer: Indexer): Record<string, ConfigurationValue> {
 function IndexerCapabilitiesPanel({ indexer }: { indexer: Indexer }) {
   const caps = indexer.capabilities;
   return (
-    <details className="capability-disclosure">
+    <details className="capability-disclosure" open>
       <summary>
         <span>{t("Definition details")}</span>
         <span className="muted">

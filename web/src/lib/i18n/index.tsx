@@ -109,7 +109,10 @@ export function t(message: string, variables?: Record<string, string | number>, 
     ?? message;
   if (variables) {
     for (const [name, value] of Object.entries(variables)) {
-      translated = translated.replaceAll(`{{${name}}}`, String(value));
+      // Accept both historical {count} and canonical {{count}} placeholders.
+      // Replace the double-braced form first to avoid leaving literal braces.
+      translated = translated.replaceAll(`{{${name}}}`, String(value))
+        .replaceAll(`{${name}}`, String(value));
     }
   }
   return translated;

@@ -12,6 +12,7 @@
     "dev": "vite --host 0.0.0.0",
     "i18n:check": "node scripts/check-i18n.mjs",
     "test:monitoring": "node --test scripts/check-monitoring.mjs",
+    "test:operations": "node --test src/components/monitoring/operations.test.mjs",
     "test:events": "node scripts/check-events.mjs",
     "test:history": "node --test scripts/check-search-history.mjs",
     "typecheck": "tsc -b --pretty false"

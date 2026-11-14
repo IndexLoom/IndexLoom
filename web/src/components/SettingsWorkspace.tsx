@@ -1,3 +1,4 @@
+import "./operations-ui.css";
 import { useSystemRevision } from "../lib/events";
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
 
@@ -88,7 +89,7 @@ export function SettingsWorkspace() {
   }
 
   return (
-    <section className="settings-view appearance-settings">
+    <section className="settings-view appearance-settings operations-settings">
       <header className="page-heading">
         <div>
           <p className="eyebrow">{t("Personal workspace")}</p>
@@ -96,14 +97,13 @@ export function SettingsWorkspace() {
           <p className="page-description">{t("Make IndexLoom look and behave the way you want.")}</p>
         </div>
       </header>
-      <div className="appearance-tabs" role="tablist" aria-label={t("Settings sections")}>
+      <div className="appearance-tabs" role="navigation" aria-label={t("Settings sections")}>
         {(Object.keys(labels) as Tab[]).filter((key) => key !== "email" || canManageMail).map((key) => (
           <button
-            aria-selected={key === tab}
+            aria-current={key === tab ? "page" : undefined}
             className={tab === key ? "active" : ""}
             key={key}
             onClick={() => setTab(key)}
-            role="tab"
             type="button"
           >{t(labels[key])}</button>
         ))}
@@ -111,7 +111,7 @@ export function SettingsWorkspace() {
 
       {tab === "logs" || tab === "backups" ? <ManagementSettings section={tab} /> : null}
       {tab === "themes" ? (
-        <div className="appearance-content" role="tabpanel">
+        <div className="appearance-content">
           <div className="setting-heading">
             <h2>{t("Interface language")}</h2>
             <p>{t("Choose the language used for controls, messages, categories and genres.")}</p>
@@ -186,7 +186,7 @@ export function SettingsWorkspace() {
       ) : null}
 
       {tab === "layout" ? (
-        <div className="appearance-content" role="tabpanel">
+        <div className="appearance-content">
           <div className="setting-heading">
             <h2>{t("Navigation")}</h2>
             <p>{t("Move the sidebar and reorder pages using drag and drop or arrow buttons.")}</p>
@@ -227,7 +227,7 @@ export function SettingsWorkspace() {
       ) : null}
 
       {tab === "css" ? (
-        <div className="appearance-content" role="tabpanel">
+        <div className="appearance-content">
           <div className="setting-heading">
             <h2>{t("Your own CSS")}</h2>
             <p>{t("Overrides are applied to this browser only. Import or export a profile to move the design to another device.")}</p>
@@ -251,14 +251,14 @@ export function SettingsWorkspace() {
       {tab === "database" ? <CatalogDiagnostics /> : null}
       {tab === "security" ? <SecuritySettings /> : null}
       {tab === "email" && canManageMail ? <EmailSettings /> : null}
-      <footer className="appearance-footer">
+      {["themes", "layout", "css"].includes(tab) ? <footer className="appearance-footer">
         <div>
           <button className="quiet-button" onClick={exportProfile} type="button">{t("Export profile")}</button>
           <button className="quiet-button" onClick={() => importInput.current?.click()} type="button">{t("Import profile")}</button>
           <input accept=".json,application/json" aria-label={t("Import appearance profile")} onChange={(event) => { void importFile(event); }} ref={importInput} style={{ display: "none" }} type="file" />
         </div>
         <button className="quiet-button" onClick={() => { reset(); setMessage("Appearance reset to Obsidian Violet."); }} type="button">{t("Reset appearance")}</button>
-      </footer>
+      </footer> : null}
       {message ? <p className="notice" role="status">{t(message)}</p> : null}
     </section>
   );
@@ -348,7 +348,7 @@ function CatalogDiagnostics() {
   }, [token, refreshKey, systemRevision]);
   if (!token) return <AdminTokenGate onSubmit={acceptToken} />;
   return (
-    <section className="appearance-content" role="tabpanel">
+    <section className="appearance-content">
       <div className="setting-heading">
         <h2>{t("Indexer database")}</h2>
         <p>{t("Installed catalog statistics and the last successful background synchronization.")}</p>
@@ -366,7 +366,7 @@ function CatalogDiagnostics() {
         {t(loading ? "Checking…" : "Refresh status")}
       </button>
       <button className="quiet-button" onClick={clearToken} type="button">{t("Lock database diagnostics")}</button>
-      <p className="muted">Refresh reloads diagnostics only; the server handles database updates automatically.</p>
+      <p className="muted">{t("Refresh reloads diagnostics only; the server handles database updates automatically.")}</p>
     </section>
   );
 }
