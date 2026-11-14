@@ -18,6 +18,7 @@ services:
     environment:
       INDEXLOOM_BIND: 0.0.0.0:8080
       INDEXLOOM_DATABASE_URL: sqlite:///data/indexloom.db?mode=rwc
+      INDEXLOOM_BACKUP_DIR: /data/backups
       INDEXLOOM_WEB_ROOT: /app/web
       INDEXLOOM_AUTH_MODE: ${INDEXLOOM_AUTH_MODE:-oidc}
       INDEXLOOM_ALLOW_UNSAFE_NO_AUTH: ${INDEXLOOM_ALLOW_UNSAFE_NO_AUTH:-false}

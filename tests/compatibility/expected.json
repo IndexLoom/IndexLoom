@@ -1,0 +1,20 @@
+{
+  "bitmagnet.yml": "runtime-config",
+  "borgzelle.yml": "runtime-config",
+  "crazyspirits-api.yml": "runtime-config",
+  "ebookbay.yml": "runtime-config",
+  "explosiv-world.yml": "runtime-config",
+  "extremebits.yml": "runtime-config",
+  "krazyzone.yml": "runtime-config",
+  "leech24.yml": "runtime-config",
+  "peeratiko.yml": "runtime-config",
+  "ptfiles.yml": "runtime-config",
+  "thegeeks.yml": "runtime-config",
+  "theplace.yml": "runtime-config",
+  "theshow.yml": "runtime-config",
+  "thorhub-api.yml": "runtime-config",
+  "torrent-turk.yml": "runtime-config",
+  "torrentby.yml": "runtime-config",
+  "trackermk.yml": "runtime-config",
+  "vault-network.yml": "runtime-config"
+}

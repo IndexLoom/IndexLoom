@@ -31,6 +31,10 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "update") {
+        return indexloom_server::updates::cli(&args[1..]).await;
+    }
     let bind = env_or("INDEXLOOM_BIND", "0.0.0.0:8080")
         .parse::<SocketAddr>()
         .context("INDEXLOOM_BIND must be a socket address")?;
@@ -85,9 +89,13 @@ async fn serve_autonomous(bind: SocketAddr) -> Result<()> {
     master_key.zeroize();
     let vault = vault.context("INDEXLOOM_MASTER_KEY is invalid")?;
 
+    indexloom_server::backup::consume_pending(&database_url).await?;
     let store = Store::connect(&database_url)
         .await
         .context("failed to initialize IndexLoom storage")?;
+    store
+        .diagnostic(indexloom_storage::management::DiagnosticEvent::Started)
+        .await?;
     store
         .purge_expired_auth_state()
         .await
@@ -151,6 +159,9 @@ async fn synchronize_catalog_or_retain(store: &Store, source: &CatalogSource) ->
             Ok(())
         }
         Err(error) => {
+            let _ = store
+                .diagnostic(indexloom_storage::management::DiagnosticEvent::CatalogFailure)
+                .await;
             let retained = store
                 .definition_count()
                 .await

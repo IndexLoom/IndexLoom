@@ -35,13 +35,18 @@ use url::Url;
 
 pub mod auth;
 pub mod automation;
+pub mod backup;
 mod blackhole;
 pub mod catalog;
+mod diagnostics;
 mod download;
+pub mod events;
 mod execution;
 mod integrations;
 pub mod local;
 mod management;
+mod management_bulk;
+mod monitoring;
 pub mod remote;
 mod search_cache;
 mod search_presets;
@@ -50,6 +55,7 @@ mod torrentpotato;
 mod torznab;
 mod tracker_login;
 mod tracker_sessions;
+pub mod updates;
 mod usenet;
 
 const MAX_CONFIGURATION_BODY: usize = 128 * 1024;
@@ -70,6 +76,8 @@ pub struct AppState {
     downloads: download::DownloadRegistry,
     search_permits: Arc<tokio::sync::Semaphore>,
     search_cache: search_cache::SearchCache,
+    events: events::EventBus,
+    update_lock: Arc<tokio::sync::Mutex<Option<std::time::Instant>>>,
 }
 
 impl AppState {
@@ -87,6 +95,8 @@ impl AppState {
             downloads: download::DownloadRegistry::new(),
             search_permits: execution::search_permits(),
             search_cache: search_cache::SearchCache::default(),
+            events: events::EventBus::default(),
+            update_lock: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -110,11 +120,14 @@ impl AppState {
             downloads: download::DownloadRegistry::new(),
             search_permits: execution::search_permits(),
             search_cache: search_cache::SearchCache::default(),
+            events: events::EventBus::default(),
+            update_lock: Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
     /// Drops cached authenticated indexer runtimes after a catalog refresh.
     pub async fn clear_execution_runtimes(&self) {
+        self.events.emit(crate::events::ChangeKind::Indexers);
         self.executor_cache.clear().await;
         self.search_cache.clear().await;
     }
@@ -173,8 +186,14 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
             "/api/v1/flaresolverr/{id}",
             put(upsert_flaresolverr).delete(delete_flaresolverr),
         )
+        .merge(events::routes())
+        .merge(updates::routes())
         .merge(management::routes())
+        .merge(management_bulk::routes())
+        .merge(diagnostics::routes())
+        .merge(backup::routes())
         .merge(execution::routes())
+        .merge(monitoring::routes())
         .merge(search_presets::routes())
         .merge(integrations::routes())
         .merge(automation::routes())
@@ -193,7 +212,10 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         .merge(torrentpotato::routes())
         .merge(download::public_routes())
         .merge(protected)
-        .layer(middleware::from_fn(security_headers));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            security_headers,
+        ));
 
     #[cfg(feature = "headless")]
     {
@@ -212,10 +234,28 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
     }
 }
 
-async fn security_headers(request: Request, next: Next) -> Response {
+async fn security_headers(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let audit_auth = matches!(request.method(), &axum::http::Method::POST)
+        && request.uri().path().starts_with("/api/v1/auth/");
+    let started = std::time::Instant::now();
     let auth_endpoint = request.uri().path().starts_with("/api/v1/auth/")
         || request.uri().path().contains("/login-challenge");
     let mut response = next.run(request).await;
+    if audit_auth {
+        monitoring::record(
+            &state,
+            None,
+            indexloom_storage::monitoring::Operation::Auth,
+            if response.status().is_success() {
+                None
+            } else {
+                Some(indexloom_storage::monitoring::Failure::Authentication)
+            },
+            started.elapsed(),
+            0,
+        )
+        .await;
+    }
     let headers = response.headers_mut();
     headers.insert(
         header::HeaderName::from_static("referrer-policy"),
@@ -342,9 +382,26 @@ async fn require_admin(State(state): State<AppState>, request: Request, next: Ne
     )
     .await
     {
+        if !request.uri().path().starts_with("/api/v1/auth/") {
+            monitoring::record(
+                &state,
+                None,
+                indexloom_storage::monitoring::Operation::Auth,
+                Some(indexloom_storage::monitoring::Failure::Authentication),
+                std::time::Duration::ZERO,
+                0,
+            )
+            .await;
+        }
         return error.into_response();
     }
+    let change = events::mutation_kind(request.method(), request.uri().path());
     let mut response = next.run(request).await;
+    if response.status().is_success()
+        && let Some(kind) = change
+    {
+        state.events.emit(kind);
+    }
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));

@@ -586,6 +586,82 @@ async fn role_policies_protect_direct_api_requests_not_just_frontend_controls() 
             .unwrap();
     }
     let app = router(state.clone(), PathBuf::from("missing-web-root"));
+    for role_token in [VIEWER, ADMIN] {
+        assert_eq!(
+            request_as(app.clone(), Method::GET, "/api/v1/backups", role_token, "").await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request_as(
+                app.clone(),
+                Method::GET,
+                "/api/v1/diagnostics/logs",
+                role_token,
+                ""
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            request_as(
+                app.clone(),
+                Method::POST,
+                "/api/v1/backups/upload",
+                role_token,
+                "{}"
+            )
+            .await,
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        request_as(
+            app.clone(),
+            Method::GET,
+            "/api/v1/diagnostics/logs",
+            OWNER,
+            ""
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request_as(
+            app.clone(),
+            Method::POST,
+            "/api/v1/indexers/bulk",
+            VIEWER,
+            r#"{"ids":["example-main"],"enabled":false}"#
+        )
+        .await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request_as(
+            app.clone(),
+            Method::POST,
+            "/api/v1/indexers/bulk",
+            ADMIN,
+            r#"{"ids":["example-main"],"enabled":false}"#
+        )
+        .await,
+        StatusCode::OK
+    );
+    assert_eq!(
+        request_as(
+            app.clone(),
+            Method::POST,
+            "/api/v1/indexers/bulk",
+            OWNER,
+            r#"{"ids":["example-main","missing"],"delete":true}"#
+        )
+        .await,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        state.store.list_indexers(&state.vault).await.unwrap().len(),
+        1
+    );
     assert_eq!(
         request_as(app.clone(), Method::GET, "/api/v1/indexers", VIEWER, "").await,
         StatusCode::OK

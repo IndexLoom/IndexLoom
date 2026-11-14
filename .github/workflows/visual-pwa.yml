@@ -99,7 +99,7 @@ jobs:
             }));
             await page.goto('http://127.0.0.1:4173/', {waitUntil: 'networkidle'});
             const nav = page.locator('nav[aria-label="Primary navigation"] button');
-            if (await nav.count() !== 4) throw new Error('Missing navigation at ' + size.width);
+            if (await nav.count() !== 5) throw new Error('Missing navigation at ' + size.width);
             const metrics = await page.evaluate(() => ({
               documentWidth: document.documentElement.scrollWidth,
               viewportWidth: document.documentElement.clientWidth,

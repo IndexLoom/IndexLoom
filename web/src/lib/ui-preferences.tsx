@@ -17,7 +17,7 @@ export const themes = {
 export type ThemeId = keyof typeof themes;
 export const searchBlocks = ["overview", "query", "status", "results"] as const;
 export const indexerBlocks = ["overview", "tools", "panel"] as const;
-export const navigationPages = ["search", "indexers", "history", "settings"] as const;
+export const navigationPages = ["search", "indexers", "history", "monitoring", "settings"] as const;
 export type Workspace = "search" | "indexers";
 export type UiPreferences = {
   version: 1;

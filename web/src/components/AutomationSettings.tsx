@@ -1,3 +1,4 @@
+import { useSystemRevision } from "../lib/events";
 import { useEffect, useState } from "react";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 import { automationRequest } from "./IntegrationSettings";
@@ -8,6 +9,7 @@ type Quota = { indexerId: string; hourlyLimit: number; dailyLimit: number; hourU
 type Entry = { id: number; indexerId: string; title: string; createdAt: number };
 const blank = { id: "", kind: "app-sync", target: "", intervalSeconds: 3600, enabled: true };
 export function AutomationSettings() {
+  const systemRevision = useSystemRevision(["automation", "settings"]);
   const { token, acceptToken } = useAdminSession();
   const [jobs, setJobs] = useState<Job[]>([]); const [quotas, setQuotas] = useState<Quota[]>([]); const [history, setHistory] = useState<Entry[]>([]);
   const [job, setJob] = useState(blank); const [quota, setQuota] = useState({ id: "", hourlyLimit: 0, dailyLimit: 0 });
@@ -17,7 +19,7 @@ export function AutomationSettings() {
     const [j, q, h] = await Promise.all([request<Job[]>("jobs"), request<Quota[]>("quotas"), request<Entry[]>("rss/history")]);
     setJobs(j); setQuotas(q); setHistory(h);
   }
-  useEffect(() => { if (token) void load().catch(() => setError(t("Could not load automation settings. Refresh to retry."))); }, [token]);
+  useEffect(() => { if (token) void load().catch(() => setError(t("Could not load automation settings. Refresh to retry."))); }, [token, systemRevision]);
   async function run(action: () => Promise<void>) {
     setBusy(true); setError(""); setMessage("");
     try { await action(); await load(); setMessage(t("Automation settings updated.")); } catch (e) { setError(e instanceof Error ? e.message : t("Request failed. Check the settings and try again.")); } finally { setBusy(false); }

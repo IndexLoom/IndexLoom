@@ -206,6 +206,12 @@ pub async fn run(state: AppState, source: CatalogSource, catalog_interval: u64) 
             } else {
                 false
             };
+            if !success {
+                let _ = state
+                    .store
+                    .diagnostic(indexloom_storage::management::DiagnosticEvent::JobFailure)
+                    .await;
+            }
             if state
                 .store
                 .finish_scheduled_job(&job.id, &lease, success)
@@ -251,6 +257,10 @@ async fn execute(
             }
         }
         _ => return Err(ApiError::bad_request("unknown job kind")),
+    }
+    state.events.emit(crate::events::ChangeKind::Automation);
+    if job.kind == "app-sync" {
+        state.events.emit(crate::events::ChangeKind::Integrations);
     }
     Ok(())
 }

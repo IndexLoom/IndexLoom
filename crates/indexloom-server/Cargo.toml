@@ -13,6 +13,7 @@ embedded-web = []
 headless = []
 
 [dependencies]
+sqlx.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
@@ -32,6 +33,7 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+semver = "1.0"
 subtle.workspace = true
 tar.workspace = true
 thiserror.workspace = true
@@ -45,6 +47,7 @@ uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+http-body-util = "0.1"
 tower.workspace = true
 
 [lints]

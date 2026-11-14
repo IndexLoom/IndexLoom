@@ -200,4 +200,14 @@ async fn exhausted_quota_blocks_interactive_and_rss_without_upstream_requests() 
     assert!(super::scan_indexer(&state, "local").await.is_err());
     assert!(store.rss_scan_states().await.unwrap().is_empty());
     assert_eq!(store.search_quotas().await.unwrap()[0].day_used, 1);
+    let indexer_metrics = store.indexer_statistics().await.unwrap().remove(0);
+    assert_eq!(
+        (
+            indexer_metrics.searches,
+            indexer_metrics.rss,
+            indexer_metrics.failed_queries,
+            indexer_metrics.consecutive_failures
+        ),
+        (1, 2, 3, 0)
+    );
 }

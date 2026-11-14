@@ -7,6 +7,8 @@ IndexLoom — local and remote operation
 
 USAGE:
   indexloom-server [--mode autonomous|external] [--remote HTTPS_URL]
+  indexloom-server update check [--prerelease]
+  indexloom-server update download TAG ASSET NEW_DESTINATION
 
 OPTIONS:
   --mode MODE     autonomous (default): full local SQLite + indexer engine

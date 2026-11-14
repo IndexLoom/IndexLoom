@@ -1,5 +1,7 @@
 //! Sandboxed direct HTTP and `FlareSolverr` execution primitives.
 
+pub mod catalog_compatibility;
+
 use std::{
     collections::BTreeSet,
     error::Error as StdError,

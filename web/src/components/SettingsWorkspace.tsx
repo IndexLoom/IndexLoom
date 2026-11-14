@@ -1,9 +1,12 @@
+import { useSystemRevision } from "../lib/events";
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
 
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 import { LanguageSwitcher, SelectiveLocalizationEditor, formatDateTime, translate } from "../lib/i18n";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "settings");
+import { ManagementSettings } from "./ManagementSettings";
 import { IntegrationSettings } from "./IntegrationSettings";
+import { UpdatesSettings } from "./UpdatesSettings";
 import { AutomationSettings } from "./AutomationSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { EmailSettings } from "./EmailSettings";
@@ -14,8 +17,9 @@ import {
   paletteKeys, searchBlocks, themes, useAppearance,
 } from "../lib/ui-preferences";
 
-type Tab = "themes" | "layout" | "css" | "database" | "security" | "email" | "applications" | "automation";
+type Tab = "logs" | "backups" | "themes" | "layout" | "css" | "database" | "security" | "email" | "applications" | "automation" | "updates";
 const labels: Record<Tab, string> = {
+  logs: "Logs / Diagnostics", backups: "Backups", updates: "Updates",
   themes: "Appearance", layout: "Layout", css: "Custom CSS", database: "Indexer database",
   applications: "Applications", automation: "Automation",
   security: "Security & users", email: "Email & notifications",
@@ -105,6 +109,7 @@ export function SettingsWorkspace() {
         ))}
       </div>
 
+      {tab === "logs" || tab === "backups" ? <ManagementSettings section={tab} /> : null}
       {tab === "themes" ? (
         <div className="appearance-content" role="tabpanel">
           <div className="setting-heading">
@@ -240,6 +245,7 @@ export function SettingsWorkspace() {
         </div>
       ) : null}
 
+      {tab === "updates" ? <UpdatesSettings /> : null}
       {tab === "applications" ? <IntegrationSettings /> : null}
       {tab === "automation" ? <AutomationSettings /> : null}
       {tab === "database" ? <CatalogDiagnostics /> : null}
@@ -321,6 +327,7 @@ function OrderEditor({ items, order, hidden, onChange, onToggle }: {
 }
 
 function CatalogDiagnostics() {
+  const systemRevision = useSystemRevision(["indexers", "settings", "automation"]);
   const { token, acceptToken, clearToken } = useAdminSession();
   const [status, setStatus] = useState<CatalogStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -338,7 +345,7 @@ function CatalogDiagnostics() {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [token, refreshKey]);
+  }, [token, refreshKey, systemRevision]);
   if (!token) return <AdminTokenGate onSubmit={acceptToken} />;
   return (
     <section className="appearance-content" role="tabpanel">

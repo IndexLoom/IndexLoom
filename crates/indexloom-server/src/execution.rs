@@ -101,8 +101,9 @@ pub(crate) fn routes() -> Router<AppState> {
 }
 
 /// Authenticated Prometheus text exposition for coarse-grained runtime counters.
-async fn metrics() -> impl IntoResponse {
-    (
+async fn metrics(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let durable = super::monitoring::prometheus(&state).await?;
+    Ok((
         [
             (
                 header::CONTENT_TYPE,
@@ -115,8 +116,8 @@ async fn metrics() -> impl IntoResponse {
             SEARCH_REQUESTS.load(Ordering::Relaxed),
             SEARCH_COMPLETED.load(Ordering::Relaxed),
             SEARCH_RELEASES.load(Ordering::Relaxed)
-        ),
-    )
+        ) + &durable,
+    ))
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -431,24 +432,60 @@ async fn run_test_job(state: AppState, job_id: String, indexer_ids: Vec<String>)
             tracing::error!(%error, indexer_id = %outcome.indexer_id, "failed to persist indexer test");
         }
         state.test_jobs.record_outcome(&job_id, outcome).await;
+        state.events.emit(crate::events::ChangeKind::Tests);
     }
 }
 
 async fn test_one(state: AppState, indexer_id: String) -> IndexerTestOutcome {
-    match build_executor(&state, &indexer_id).await {
-        Ok(handle) => {
-            let mut outcome = handle.executor.test().await;
-            outcome.indexer_id = indexer_id;
-            outcome.indexer_name = handle.display_name;
-            outcome
-        }
-        Err(message) => IndexerTestOutcome {
+    let start = Instant::now();
+    if !matches!(
+        state.store.claim_indexer_dispatch(&indexer_id).await,
+        Ok(true)
+    ) {
+        return IndexerTestOutcome {
             indexer_id,
-            indexer_name: "Unavailable indexer".to_owned(),
+            indexer_name: "Unavailable indexer".into(),
             success: false,
             response_time_ms: 0,
-            message,
-        },
+            message: "indexer circuit is open or monitoring unavailable".into(),
+        };
+    }
+    let (name, failure) = match build_executor(&state, &indexer_id).await {
+        Ok(handle) => (
+            handle.display_name,
+            handle
+                .executor
+                .test_checked()
+                .await
+                .err()
+                .as_ref()
+                .map(super::monitoring::classify),
+        ),
+        Err(_) => (
+            "Unavailable indexer".into(),
+            Some(indexloom_storage::monitoring::Failure::Configuration),
+        ),
+    };
+    super::monitoring::record(
+        &state,
+        Some(&indexer_id),
+        indexloom_storage::monitoring::Operation::Test,
+        failure,
+        start.elapsed(),
+        0,
+    )
+    .await;
+    IndexerTestOutcome {
+        indexer_id,
+        indexer_name: name,
+        success: failure.is_none(),
+        response_time_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+        message: failure
+            .map_or(
+                "test completed",
+                indexloom_storage::monitoring::Failure::code,
+            )
+            .into(),
     }
 }
 
@@ -526,6 +563,7 @@ async fn search_stream(
             Ordering::Relaxed,
         );
         SEARCH_COMPLETED.fetch_add(1, Ordering::Relaxed);
+        state.events.emit(crate::events::ChangeKind::Search);
         let processed = crate::search_processing::process(all_results, &result_options);
         yield Ok(ndjson_line(&SearchStreamEvent::Finished {
             processed,
@@ -771,25 +809,91 @@ async fn search_one(
     download_owner: Option<[u8; 32]>,
     feed: bool,
 ) -> SearchIndexerView {
+    let start = Instant::now();
+    let admitted = state.store.claim_indexer_dispatch(indexer_id).await;
+    if !matches!(admitted, Ok(true)) {
+        return SearchIndexerView {
+            indexer_instance_id: indexer_id.into(),
+            definition_id: None,
+            indexer_name: "Unavailable indexer".into(),
+            response_time_ms: 0,
+            results: Vec::new(),
+            error: Some("indexer circuit is open or monitoring unavailable".into()),
+        };
+    }
+    let mut failure = None;
+    let outcome = search_one_inner(
+        state,
+        indexer_id,
+        query,
+        limit,
+        filters,
+        download_owner,
+        feed,
+        &mut failure,
+    )
+    .await;
+    super::monitoring::record(
+        state,
+        Some(indexer_id),
+        if feed {
+            indexloom_storage::monitoring::Operation::Rss
+        } else {
+            indexloom_storage::monitoring::Operation::Search
+        },
+        if outcome.error.is_some() {
+            Some(failure.unwrap_or(indexloom_storage::monitoring::Failure::Configuration))
+        } else {
+            None
+        },
+        start.elapsed(),
+        outcome.results.len(),
+    )
+    .await;
+    outcome
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "The existing search execution method keeps tracker quota, cache, and release publication in one operation; moving them risks changing circuit recovery semantics."
+)]
+async fn search_one_inner(
+    state: &AppState,
+    indexer_id: &str,
+    query: &str,
+    limit: usize,
+    filters: &SearchParameters,
+    download_owner: Option<[u8; 32]>,
+    feed: bool,
+    failure: &mut Option<indexloom_storage::monitoring::Failure>,
+) -> SearchIndexerView {
     match build_executor(state, indexer_id).await {
         Ok(handle) => {
-            let cached_or_fetched = if let Some(cached) = state
-                .search_cache
-                .get(
-                    indexer_id,
-                    query,
-                    limit,
-                    filters,
-                    download_owner,
-                    &handle.executor,
-                )
+            let recovery = state
+                .store
+                .indexer_recovery_probe(indexer_id)
                 .await
+                .unwrap_or(true);
+            let cached_or_fetched = if !recovery
+                && let Some(cached) = state
+                    .search_cache
+                    .get(
+                        indexer_id,
+                        query,
+                        limit,
+                        filters,
+                        download_owner,
+                        &handle.executor,
+                    )
+                    .await
             {
                 Ok(cached)
             } else {
                 match state.store.reserve_search_quota(indexer_id).await {
                     Ok(true) => {}
                     outcome => {
+                        *failure = Some(indexloom_storage::monitoring::Failure::Quota);
                         return SearchIndexerView {
                             indexer_instance_id: indexer_id.to_owned(),
                             definition_id: Some(handle.definition_id),
@@ -811,6 +915,9 @@ async fn search_one(
                     .executor
                     .search_with_parameters(query, limit, filters)
                     .await;
+                if let Err(error) = &fetched {
+                    *failure = Some(super::monitoring::classify(error));
+                }
                 if let Ok(batch) = &fetched {
                     state
                         .search_cache
@@ -1180,7 +1287,11 @@ pub(crate) async fn scan_indexer(
     state: &AppState,
     id: &str,
 ) -> Result<Vec<SearchResult>, ApiError> {
-    let batch = search_one(state, id, "", 200, &SearchParameters::default(), None, true).await;
+    let feed_parameters = SearchParameters {
+        mode: Some("rss".to_owned()),
+        ..SearchParameters::default()
+    };
+    let batch = search_one(state, id, "", 200, &feed_parameters, None, true).await;
     if batch.error.is_some() {
         return Err(ApiError::bad_gateway(
             "RSS scan failed; baseline was preserved",

@@ -1,0 +1,28 @@
+apiVersion: indexloom.io/v1alpha1
+kind: Indexer
+metadata:
+  id: example
+  name: Example
+  description: Example definition
+  language: en-US
+provenance:
+  generatedBy: indexloom-importer/v1
+  source:
+    project: jackett
+    repository: https://github.com/Jackett/Jackett
+    revision: "0000000000000000000000000000000000000000"
+    path: src/Jackett.Common/Definitions/example.yml
+    sourceId: example
+    license: GPL-2.0-only
+    fileSha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    contentSha256: "1111111111111111111111111111111111111111111111111111111111111111"
+spec:
+  protocol: torrent
+  privacy: public
+  baseUrls: [https://example.invalid/]
+  implementation:
+    engine: cardigann
+    encoding: UTF-8
+    capabilities: {}
+    settings: []
+    search: { paths: [{ path: /search }], rows: { selector: .result }, fields: {} }

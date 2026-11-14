@@ -546,7 +546,9 @@ fn required_access(method: &Method, path: &str) -> AccessLevel {
     if path.contains("/login-challenge") {
         return AccessLevel::Admin;
     }
-    if path.starts_with("/api/v1/auth/users")
+    if path.starts_with("/api/v1/backups")
+        || path.starts_with("/api/v1/diagnostics")
+        || path.starts_with("/api/v1/auth/users")
         || path.starts_with("/api/v1/auth/mail")
         || path == "/api/v1/auth/audit"
         || path == "/api/v1/auth/password-policy/settings"

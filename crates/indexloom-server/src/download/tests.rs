@@ -97,7 +97,7 @@ async fn publish_hides_private_urls_and_issues_unpredictable_bound_handles() {
 async fn endpoint_requires_auth_and_is_single_use() {
     let (state, executor, release, headers) = fixture().await;
     let (path, _) = publish(&state, &executor, release, &headers).await;
-    let app = router(state, "missing-web-root".into());
+    let app = router(state.clone(), "missing-web-root".into());
     let unauthorized = app
         .clone()
         .oneshot(Request::builder().uri(&path).body(Body::empty()).unwrap())
@@ -143,6 +143,17 @@ async fn endpoint_requires_auth_and_is_single_use() {
         .await
         .unwrap();
     assert_eq!(repeat.status(), StatusCode::NOT_FOUND);
+    let statistics = state.store.indexer_statistics().await.unwrap();
+    assert_eq!(statistics[0].downloads, 1);
+    assert_eq!(statistics[0].response_count, 1);
+    let events = state
+        .store
+        .monitoring_events(&indexloom_storage::monitoring::EventFilter::default())
+        .await
+        .unwrap();
+    let audit = serde_json::to_string(&events).unwrap();
+    assert!(!audit.contains("passkey"));
+    assert!(!audit.contains(TOKEN));
 }
 
 #[tokio::test]

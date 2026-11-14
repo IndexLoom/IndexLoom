@@ -1,3 +1,4 @@
+import { useSystemRevision } from "../lib/events";
 import { translate, categoryLabel, languageLabel, searchModeLabel, formatNumber } from "../lib/i18n";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "indexers");
 import {
@@ -43,6 +44,7 @@ import {
 } from "../lib/api";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 
+import { BulkIndexerPanel } from "./indexers/BulkIndexerPanel";
 import { ProxyPanel, GroupPanel } from "./indexers/RoutingPanels";
 import { IndexerTestPanel } from "./indexers/IndexerTestPanel";
 import { IndexerConfigurationPanel } from "./indexers/IndexerConfigurationPanel";
@@ -62,6 +64,7 @@ type ManagerState =
     };
 
 type ManagementView =
+  | "bulk"
   | "catalog"
   | "tests"
   | "routing"
@@ -79,6 +82,7 @@ const managementNavigation: Array<{
     label: "Catalog",
     description: "Enable and configure indexers",
   },
+  { id: "bulk", label: "Bulk management", description: "Edit selected indexers" },
   { id: "tests", label: "Tests", description: "Check selected indexers" },
   {
     id: "routing",
@@ -110,6 +114,7 @@ function IndexersManager({
   token: string;
   onUnauthorized: () => void;
 }) {
+  const revision = useSystemRevision(["indexers", "tests", "settings", "automation"]);
   const [state, setState] = useState<ManagerState>({ kind: "loading" });
   const [managementView, setManagementView] =
     useState<ManagementView>("catalog");
@@ -150,7 +155,7 @@ function IndexersManager({
         });
       });
     return () => controller.abort();
-  }, [onUnauthorized, token]);
+  }, [onUnauthorized, token, revision]);
 
   if (state.kind === "loading") {
     return (
@@ -320,6 +325,7 @@ function IndexersManager({
       </nav>
 
       <div className="management-panel" data-ui-section="panel">
+        {managementView === "bulk" ? <BulkIndexerPanel token={token} indexers={state.indexers} groups={state.groups} onChanged={async () => { const indexers = await fetchIndexers(token, new AbortController().signal); setState(current => current.kind === "ready" ? { ...current, indexers } : current); }} /> : null}
         {managementView === "catalog" ? (
           <IndexerConfigurationPanel
             connectors={state.connectors}

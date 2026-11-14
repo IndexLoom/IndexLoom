@@ -42,3 +42,10 @@ file intentionally. Don't run the restore on a live database.
   and search settings in addition to encrypted credentials.
 - Schedule backups using your system's scheduler; this CLI does not silently perform
   unattended restores or manage retention.
+
+## In-app management
+
+Settings → Backups supports owner-only verified online snapshots, uploads,
+downloads, deletion and explicitly queued restore on restart. See
+[Stage D management](STAGE_D_MANAGEMENT.md#database-backups-and-queued-restore)
+for directory configuration, limits, endpoint contract and offline restart rules.

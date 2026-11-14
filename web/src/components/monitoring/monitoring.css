@@ -1,0 +1,27 @@
+.monitoring-view { display: grid; gap: 1rem; min-width: 0; }
+.monitoring-view .page-heading { margin-bottom: 0; }
+.monitoring-panel { min-width: 0; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--ui-radius, 8px); }
+.monitoring-panel h2 { margin: 0 0 .75rem; font-size: 1rem; }
+.monitoring-panel p { font-size: .8125rem; line-height: 1.5; }
+.monitoring-auto { display: flex; gap: .5rem; align-items: center; font-size: .8125rem; }
+.monitoring-filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; margin: .75rem 0; }
+.monitoring-filters label { display: grid; gap: .35rem; font-size: .8125rem; min-width: 8rem; }
+.monitoring-filters input, .monitoring-filters select { min-height: 36px; max-width: 100%; padding: .4rem .55rem; border: 1px solid var(--border); border-radius: 4px; background: var(--color-bg-sunken); color: var(--text); font: inherit; }
+.monitoring-totals { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.monitoring-scroll { max-width: 100%; overflow-x: auto; }
+.monitoring-scroll table { width: 100%; border-collapse: collapse; font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.monitoring-scroll caption { text-align: start; padding: .5rem 0; color: var(--muted); }
+.monitoring-scroll th, .monitoring-scroll td { text-align: start; padding: .55rem .65rem; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.monitoring-scroll th { white-space: nowrap; background: var(--color-bg-raised); }
+.monitoring-scroll th button { background: transparent; border: 0; color: inherit; font: inherit; font-weight: 600; min-height: 28px; cursor: pointer; text-align: start; }
+.monitoring-scroll td:last-child { min-width: 12rem; }
+.monitoring-scroll td > .quiet-button { display: block; margin-top: .4rem; }
+.monitoring-status { display: inline-block; font-size: .75rem; padding: .1rem .4rem; border: 1px solid var(--border); border-radius: 4px; white-space: nowrap; }
+.monitoring-status[data-status="circuit-open"], .monitoring-status[data-status="degraded"], .monitoring-status[data-status="failure"] { border-style: dashed; font-weight: 600; }
+.monitoring-status[data-status="healthy"], .monitoring-status[data-status="enabled"], .monitoring-status[data-status="success"] { border-width: 2px; }
+.monitoring-health { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: .5rem 1.5rem; }
+.monitoring-health li { display: grid; grid-template-columns: 1fr auto; gap: .4rem; padding: .55rem 0; border-bottom: 1px solid var(--border-soft); font-size: .8125rem; }
+.monitoring-health li > .muted { grid-column: 1 / -1; }
+.monitoring-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; margin-top: .75rem; font-size: .8125rem; }
+.monitoring-view :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 600px) { .monitoring-panel { padding: .75rem; } .monitoring-filters label { width: 100%; min-width: 0; } .monitoring-view .quiet-button { min-height: 44px; } .monitoring-health { grid-template-columns: 1fr; } }

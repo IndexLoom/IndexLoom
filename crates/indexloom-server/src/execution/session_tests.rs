@@ -465,3 +465,49 @@ async fn mock_fixture_checks_csrf_and_rotates_sessions_without_sockets() {
     );
     assert_eq!(observed.lock().unwrap().logins["alice"], 1);
 }
+
+#[tokio::test]
+async fn stage_d_monitoring_real_search_rss_and_test() {
+    let (port, _, task) = mock().await;
+    let store = Store::connect("sqlite::memory:").await.unwrap();
+    let vault = SecretVault::generate().unwrap();
+    configure(&store, &vault, port).await;
+    let app = state(store.clone(), vault);
+    let batch = super::super::search_one(
+        &app,
+        "alice",
+        "private-search-text",
+        10,
+        &indexloom_engine::SearchParameters::default(),
+        None,
+        false,
+    )
+    .await;
+    assert!(batch.error.is_none(), "{:?}", batch.error);
+    assert_eq!(batch.results.len(), 1);
+    let rss = crate::execution::scan_indexer(&app, "alice").await.unwrap();
+    assert_eq!(rss.len(), 1);
+    let outcome = super::super::test_one(app, "alice".into()).await;
+    assert!(outcome.success, "{}", outcome.message);
+    let stats = store.indexer_statistics().await.unwrap();
+    let alice = stats.iter().find(|r| r.indexer_id == "alice").unwrap();
+    assert_eq!(
+        (
+            alice.searches,
+            alice.rss,
+            alice.response_count,
+            alice.results
+        ),
+        (1, 1, 3, 2)
+    );
+    assert!(alice.response_sum_ms > 0);
+    let events = store
+        .monitoring_events(&indexloom_storage::monitoring::EventFilter::default())
+        .await
+        .unwrap();
+    let audit = serde_json::to_string(&events).unwrap();
+    assert!(!audit.contains("private-search-text"));
+    assert!(!audit.contains("fixture-password"));
+    assert!(!audit.contains("fixture-csrf"));
+    task.abort();
+}
