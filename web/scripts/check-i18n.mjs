@@ -3,7 +3,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const catalogs = [
-  "messages.ru.ts", "messages.ru.extra.ts", "messages.ru.dynamic.ts",
+  "messages.ru.ts", "messages.ru.extra.ts", "messages.ru.dynamic.ts", "messages.ru.monitoring.ts",
 ];
 const values = Object.create(null);
 for (const file of catalogs) {

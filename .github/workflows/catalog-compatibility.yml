@@ -1,0 +1,86 @@
+name: Real catalog compatibility
+on:
+  pull_request:
+    paths: ['crates/**', 'tools/prepare_compatibility.py', 'tests/compatibility/**', '.github/workflows/catalog-compatibility.yml', 'Cargo.*', 'web/src/lib/events*', 'web/scripts/check-events.mjs']
+  schedule:
+    - cron: '41 4 * * *'
+  workflow_dispatch:
+    inputs:
+      catalog_ref:
+        description: 'Official Indexers builder ref (use a full SHA for replay)'
+        default: main
+      jackett_ref:
+        description: 'Jackett ref (use a full SHA for replay)'
+        default: master
+      prowlarr_ref:
+        description: 'Prowlarr Indexers ref (use a full SHA for replay)'
+        default: master
+permissions:
+  contents: read
+jobs:
+  event-parser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node web/scripts/check-events.mjs
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: app
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: IndexLoom/Indexers
+          ref: ${{ inputs.catalog_ref || 'main' }}
+          path: catalog
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Jackett/Jackett
+          ref: ${{ inputs.jackett_ref || 'master' }}
+          path: jackett
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Prowlarr/Indexers
+          ref: ${{ inputs.prowlarr_ref || 'master' }}
+          path: prowlarr
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app
+      - uses: astral-sh/setup-uv@v6
+      - name: Generate canonical catalog and preserve every upstream variant
+        run: |
+          uv sync --project catalog --frozen --python 3.13
+          uv run --project catalog python app/tools/prepare_compatibility.py --catalog "$PWD/catalog" --jackett "$PWD/jackett" --prowlarr "$PWD/prowlarr" --output "$PWD/matrix"
+      - name: Check canonical definitions (zero unexpected failures or ID collisions)
+        working-directory: app
+        run: cargo run --locked -p indexloom-engine --example catalog_compatibility -- ../matrix/canonical ../matrix/canonical-report 501 0 tests/compatibility/expected.json
+      - name: Check ALL Jackett and Prowlarr variants (including overlapping IDs)
+        if: ${{ !cancelled() }}
+        working-directory: app
+        run: cargo run --locked -p indexloom-engine --example catalog_compatibility -- ../matrix/variants ../matrix/variants-report 1002 0 tests/compatibility/variants-expected.json variants
+      - name: Production HTML/XML/JSON behavior conformance
+        if: ${{ !cancelled() }}
+        working-directory: app
+        run: cargo test --locked -p indexloom-engine cardigann::conformance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-compatibility-${{ github.run_id }}
+          path: |
+            matrix/*-report.json
+            matrix/*-report.md
+            matrix/revisions.json
+            matrix/catalog.json
+          if-no-files-found: error

@@ -1,3 +1,4 @@
+import { useSystemRevision } from "../lib/events";
 import { useEffect, useState } from "react";
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 import { translate } from "../lib/i18n";
@@ -16,13 +17,14 @@ export async function automationRequest<T>(token: string, path: string, method =
   return await response.json() as T;
 }
 export function IntegrationSettings() {
+  const systemRevision = useSystemRevision(["integrations", "settings"]);
   const { token, acceptToken } = useAdminSession();
   const [apps, setApps] = useState<App[]>([]);
   const [app, setApp] = useState<App>(blankApp);
   const [profile, setProfile] = useState<Profile>(blankProfile);
   const [apiKey, setApiKey] = useState(""); const [feedKey, setFeedKey] = useState("");
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [error, setError] = useState("");
-  useEffect(() => { if (token) void automationRequest<App[]>(token, "integrations").then(setApps).catch(() => setError(t("Could not load applications. Refresh this page to retry."))); }, [token]);
+  useEffect(() => { if (token) void automationRequest<App[]>(token, "integrations").then(setApps).catch(() => setError(t("Could not load applications. Refresh this page to retry."))); }, [token, systemRevision]);
   if (!token) return <AdminTokenGate onSubmit={acceptToken} />;
   function request<T>(path: string, method?: string, body?: unknown): Promise<T> { return automationRequest<T>(token, path, method, body); }
   async function run(action: () => Promise<void>) {

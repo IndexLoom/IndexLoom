@@ -224,11 +224,7 @@ pub(crate) async fn resolve_ticket_artifact(
     if !current.executor.can_resolve_release(&release) {
         return Err(ApiError::not_found("indexer release is unavailable"));
     }
-    let artifact = current
-        .executor
-        .resolve_release(&release)
-        .await
-        .map_err(|_| ApiError::bad_gateway("tracker download failed"))?;
+    let artifact = super::monitoring::resolve_release(state, &current.executor, &release).await?;
     Ok(artifact)
 }
 
@@ -314,8 +310,8 @@ async fn download(
             "indexer configuration changed; search again",
         ));
     }
-    let artifact = entry.executor.resolve_release(&entry.release).await
-        .map_err(|_| ApiError { status: StatusCode::BAD_GATEWAY, body: super::ErrorBody { code: "DOWNLOAD_FAILED", message: "tracker download failed validation or could not be retrieved; search again to retry" } })?;
+    let artifact =
+        super::monitoring::resolve_release(&state, &entry.executor, &entry.release).await?;
     let mut response = match artifact {
         DownloadArtifact::Nzb(bytes) => (
             [

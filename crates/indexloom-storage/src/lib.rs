@@ -22,11 +22,14 @@ pub mod automation;
 mod catalog;
 mod download_tickets;
 pub mod integrations;
+pub mod management;
+pub mod monitoring;
 mod newznab;
 mod routing;
 mod search_presets;
 pub mod totp;
 mod tracker_sessions;
+pub mod updates;
 pub use tracker_sessions::TrackerSession;
 
 pub use catalog::{CatalogDefinitionInput, CatalogStatus, CatalogSyncReport};
