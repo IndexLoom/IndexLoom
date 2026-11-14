@@ -1,6 +1,7 @@
 //! Deterministic global result view. Grouped per-indexer rows are retained by the API.
 use indexloom_core::{ReleaseProtocol, SearchResult};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{cmp::Ordering, collections::HashMap};
 use time::OffsetDateTime;
 
@@ -143,19 +144,14 @@ fn identity(row: &SearchResult) -> Option<String> {
         .as_ref()
         .filter(|g| g.len() <= 2048 && !g.is_empty())
     {
-        if let Ok(url) = url::Url::parse(guid) {
-            if matches!(url.scheme(), "http" | "https") {
-                return Some(format!(
-                    "url:{}://{}{}",
-                    url.scheme(),
-                    url.host_str()?,
-                    url.path()
-                ));
-            }
-        } else if guid.starts_with("urn:") {
-            return Some(format!("urn:{guid}"));
-        }
-        return Some(format!("guid:{}:{guid}", row.definition_id));
+        // Two URLs with different release IDs in their query must never collapse.
+        // Hash the full GUID so passkeys never occur in dedupe keys or diagnostics.
+        let mut digest = Sha256::new();
+        digest.update(b"indexloom:dedupe-guid:v1");
+        digest.update(row.definition_id.as_bytes());
+        digest.update([0]);
+        digest.update(guid.as_bytes());
+        return Some(format!("guid:{:x}", digest.finalize()));
     }
     let title = row
         .title
@@ -314,6 +310,16 @@ mod tests {
                 .indexer_instance_id,
             "second"
         );
+    }
+    #[test]
+    fn different_query_parameters_do_not_collapse_distinct_guid_releases() {
+        let mut first = row("Release A", "private", None, 4096, 12);
+        first.source_guid = Some("https://tracker.test/download?id=1&passkey=secret".into());
+        let mut second = row("Release B", "private", None, 4096, 12);
+        second.source_guid = Some("https://tracker.test/download?id=2&passkey=secret".into());
+        let out = process([first, second], &ResultOptions::default());
+        assert_eq!(out.duplicate_count, 0);
+        assert_eq!(out.unique_results.len(), 2);
     }
     #[test]
     fn avoid_title_only_collapse_and_apply_filters() {
