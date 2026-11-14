@@ -125,7 +125,18 @@ missing fixture formats or canonical ID collisions. Cross-source/version collisi
 are expected in variant mode and are reported rather than discarded. Duplicate
 source-project/path identities always fail. Expected failure files map exact relative
 paths to exact failure stages (`schema`, `origin`, `runtime-config`, `raw-yaml`);
-they start empty. Changes require review; do not increase thresholds to hide regressions.
+the checked-in baselines enumerate known *security-policy* exclusions. The
+canonical baseline contains 18 explicit entries: 17 legacy tracker TLS
+certificate fingerprints (unsupported in favor of normal TLS/PEM CA validation)
+and the bitmagnet private/local address (blocked by public-address SSRF
+protection). The all-variants baseline has 35 matching Jackett/Prowlarr
+source paths (33 legacy certificate pins, 2 private endpoints). Baselines
+record exact YAML paths and the runtime-config failure stage; a tracker that
+starts passing without a reviewed policy change causes unexpected_passes,
+and a new broken definition causes an unexpected failure. This is an honest
+compatibility limitation, not a bypass: never disable TLS validation or
+private-address filtering to green-light the matrix. Changes require
+review; do not increase thresholds to hide regressions.
 JSON/Markdown reports, source SHAs and the official importer manifest are uploaded
 even on failure. Tracker availability, credentials, arbitrary definition-specific
 selectors and all possible engine features are **not** proven by these offline checks.
