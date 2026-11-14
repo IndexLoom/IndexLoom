@@ -18,8 +18,10 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use zeroize::Zeroize;
 
 pub mod auth;
+pub mod automation;
 mod catalog;
 mod download_tickets;
+pub mod integrations;
 mod newznab;
 mod routing;
 mod search_presets;

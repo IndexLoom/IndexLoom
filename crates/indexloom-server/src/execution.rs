@@ -787,6 +787,26 @@ async fn search_one(
             {
                 Ok(cached)
             } else {
+                match state.store.reserve_search_quota(indexer_id).await {
+                    Ok(true) => {}
+                    outcome => {
+                        return SearchIndexerView {
+                            indexer_instance_id: indexer_id.to_owned(),
+                            definition_id: Some(handle.definition_id),
+                            indexer_name: handle.display_name,
+                            response_time_ms: 0,
+                            results: Vec::new(),
+                            error: Some(
+                                if outcome.is_ok() {
+                                    "indexer search quota exhausted"
+                                } else {
+                                    "could not reserve indexer search quota"
+                                }
+                                .into(),
+                            ),
+                        };
+                    }
+                }
                 let fetched = handle
                     .executor
                     .search_with_parameters(query, limit, filters)
@@ -1154,3 +1174,17 @@ fn now() -> String {
 #[cfg(test)]
 #[path = "execution/tests.rs"]
 mod tests;
+
+/// Scheduled RSS scans propagate failures and never mint download tickets.
+pub(crate) async fn scan_indexer(
+    state: &AppState,
+    id: &str,
+) -> Result<Vec<SearchResult>, ApiError> {
+    let batch = search_one(state, id, "", 200, &SearchParameters::default(), None, true).await;
+    if batch.error.is_some() {
+        return Err(ApiError::bad_gateway(
+            "RSS scan failed; baseline was preserved",
+        ));
+    }
+    Ok(batch.results)
+}

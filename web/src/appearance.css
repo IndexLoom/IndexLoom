@@ -370,3 +370,9 @@ html[data-hidden-indexers~="panel"] .settings-view[data-layout-kind="indexers"] 
 }
 .advanced-search > p { margin: 12px 0; font-size: .73rem; }
 .advanced-search > button { margin: 0 0 14px; }
+
+.integration-settings, .automation-settings { display: grid; gap: 24px; min-inline-size: 0; }
+.integration-settings fieldset, .automation-settings fieldset { display: grid; gap: 12px; min-inline-size: 0; border: 1px solid var(--border); border-radius: var(--ui-radius); padding: 16px; }
+.integration-settings input, .integration-settings select, .automation-settings input, .automation-settings select { min-inline-size: 0; max-inline-size: 100%; }
+.integration-settings .appearance-controls, .automation-settings .appearance-controls { grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); }
+.integration-settings li, .automation-settings li { overflow-wrap: anywhere; margin-block-end: 12px; }

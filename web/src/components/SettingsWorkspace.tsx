@@ -3,6 +3,8 @@ import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "r
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 import { LanguageSwitcher, SelectiveLocalizationEditor, formatDateTime, translate } from "../lib/i18n";
 const t = (message: string, variables?: Record<string, string | number>) => translate(message, variables, "settings");
+import { IntegrationSettings } from "./IntegrationSettings";
+import { AutomationSettings } from "./AutomationSettings";
 import { SecuritySettings } from "./SecuritySettings";
 import { EmailSettings } from "./EmailSettings";
 import { ApiError, type CatalogStatus, fetchCatalogStatus } from "../lib/api";
@@ -12,9 +14,10 @@ import {
   paletteKeys, searchBlocks, themes, useAppearance,
 } from "../lib/ui-preferences";
 
-type Tab = "themes" | "layout" | "css" | "database" | "security" | "email";
+type Tab = "themes" | "layout" | "css" | "database" | "security" | "email" | "applications" | "automation";
 const labels: Record<Tab, string> = {
   themes: "Appearance", layout: "Layout", css: "Custom CSS", database: "Indexer database",
+  applications: "Applications", automation: "Automation",
   security: "Security & users", email: "Email & notifications",
 };
 const paletteLabels: Record<PaletteKey, string> = {
@@ -237,6 +240,8 @@ export function SettingsWorkspace() {
         </div>
       ) : null}
 
+      {tab === "applications" ? <IntegrationSettings /> : null}
+      {tab === "automation" ? <AutomationSettings /> : null}
       {tab === "database" ? <CatalogDiagnostics /> : null}
       {tab === "security" ? <SecuritySettings /> : null}
       {tab === "email" && canManageMail ? <EmailSettings /> : null}
