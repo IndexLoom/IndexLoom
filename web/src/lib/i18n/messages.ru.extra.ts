@@ -459,5 +459,6 @@ export const ruExtra: Readonly<Record<string,string>> = {
   "The chosen indexer is disabled or unavailable; select an enabled indexer.": "Выбранный индексатор выключен или недоступен. Выберите активный индексатор.",
   "Testing…": "Проверяем…",
   "Saving changes…": "Сохраняем изменения…",
-  "Retired": "Недоступен"
+  "Retired": "Недоступен",
+  "Enable the indexer before searching": "Включите индексатор, чтобы использовать поиск"
 };

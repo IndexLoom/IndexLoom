@@ -213,7 +213,11 @@ export function IndexerConfigurationPanel({
                   <small>{indexer.lastTest ? `${t(indexer.lastTest.status ?? (indexer.lastTest.success ? "success" : "failed"))} · ${indexer.lastTest.responseTimeMs ?? "—"} ms` : t("not tested")}</small>
                 </div>
                 <div className="il-row-actions" aria-label={indexer.displayName}>
-
+                  {indexer.enabled && indexer.catalogAvailable ? (
+                    <a className="il-action" href={`?view=search&indexer=${encodeURIComponent(indexer.id)}`}>{t("Search")}</a>
+                  ) : (
+                    <span className="il-action il-action-disabled" aria-disabled="true" title={t("Enable the indexer before searching")}>{t("Search")}</span>
+                  )}
                   <button type="button" className="il-action" onClick={() => selectIndexer(indexer.id)}>{t("Configure")}</button>
                   <button type="button" className="il-action" disabled={busy[indexer.id] || !indexer.enabled || !indexer.catalogAvailable} onClick={() => void runAction(indexer, "test")}>{t("Test")}</button>
                   <button type="button" className="il-action" disabled={busy[indexer.id] || (!indexer.enabled && !indexer.catalogAvailable)} onClick={() => void runAction(indexer, "toggle")}>{t(indexer.enabled ? "Disable" : "Enable")}</button>
