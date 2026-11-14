@@ -21,6 +21,7 @@ pub struct LocalInstance {
     server: JoinHandle<()>,
     catalog: JoinHandle<()>,
     automation: JoinHandle<()>,
+    notifications: JoinHandle<()>,
 }
 
 impl LocalInstance {
@@ -35,6 +36,7 @@ impl Drop for LocalInstance {
         self.server.abort();
         self.catalog.abort();
         self.automation.abort();
+        self.notifications.abort();
     }
 }
 
@@ -60,6 +62,7 @@ pub async fn start(
         .await
         .context("failed to bind localhost")?;
     let endpoint = listener.local_addr()?;
+    let notifications = tokio::spawn(crate::notifications::run(state.clone()));
     let scheduler_state = state.clone();
     let server = tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, router(state, PathBuf::new())).await {
@@ -90,5 +93,6 @@ pub async fn start(
         server,
         catalog,
         automation,
+        notifications,
     })
 }

@@ -546,7 +546,8 @@ fn required_access(method: &Method, path: &str) -> AccessLevel {
     if path.contains("/login-challenge") {
         return AccessLevel::Admin;
     }
-    if path.starts_with("/api/v1/backups")
+    if path.starts_with("/api/v1/notifications")
+        || path.starts_with("/api/v1/backups")
         || path.starts_with("/api/v1/diagnostics")
         || path.starts_with("/api/v1/auth/users")
         || path.starts_with("/api/v1/auth/mail")
@@ -745,6 +746,14 @@ async fn login(
 }
 
 fn send_login_notification(state: &AppState, user: &AuthUser) {
+    let notification_state = state.clone();
+    tokio::spawn(async move {
+        crate::notifications::emit(
+            &notification_state,
+            crate::notifications::Event::new("auth.login", uuid::Uuid::now_v7().to_string()),
+        )
+        .await;
+    });
     let Some(sender) = state.mail_sender.clone() else {
         return;
     };
@@ -1453,6 +1462,28 @@ mod tests {
         );
         assert_ne!(digest("a"), digest("b"));
         assert_eq!(AuthMode::Disabled, AuthMode::Disabled);
+    }
+
+    #[test]
+    fn notification_metadata_and_mutations_require_owner_role() {
+        use axum::http::Method;
+        for method in [
+            Method::GET,
+            Method::HEAD,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+        ] {
+            for path in [
+                "/api/v1/notifications",
+                "/api/v1/notifications/channels",
+                "/api/v1/notifications/templates",
+                "/api/v1/notifications/deliveries",
+                "/api/v1/notifications/events",
+            ] {
+                assert_eq!(required_access(&method, path), AccessLevel::Owner);
+            }
+        }
     }
 
     #[test]

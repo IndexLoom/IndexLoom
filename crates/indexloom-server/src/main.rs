@@ -139,6 +139,7 @@ async fn serve_autonomous(bind: SocketAddr) -> Result<()> {
         .await
         .with_context(|| format!("failed to bind {bind}"))?;
 
+    tokio::spawn(indexloom_server::notifications::run(state.clone()));
     tracing::info!(%bind, "IndexLoom is ready");
     axum::serve(listener, router(state, web_root))
         .with_graceful_shutdown(shutdown_signal())

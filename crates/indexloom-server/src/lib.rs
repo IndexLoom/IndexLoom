@@ -47,6 +47,7 @@ pub mod local;
 mod management;
 mod management_bulk;
 mod monitoring;
+pub mod notifications;
 pub mod remote;
 mod search_cache;
 mod search_presets;
@@ -197,6 +198,7 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         .merge(search_presets::routes())
         .merge(integrations::routes())
         .merge(automation::routes())
+        .merge(notifications::routes())
         .merge(tracker_login::routes())
         .merge(download::routes())
         .merge(blackhole::routes())
@@ -238,7 +240,8 @@ async fn security_headers(State(state): State<AppState>, request: Request, next:
     let audit_auth = matches!(request.method(), &axum::http::Method::POST)
         && request.uri().path().starts_with("/api/v1/auth/");
     let started = std::time::Instant::now();
-    let auth_endpoint = request.uri().path().starts_with("/api/v1/auth/")
+    let private_response = request.uri().path().starts_with("/api/v1/auth/")
+        || request.uri().path().starts_with("/api/v1/notifications")
         || request.uri().path().contains("/login-challenge");
     let mut response = next.run(request).await;
     if audit_auth {
@@ -273,7 +276,7 @@ async fn security_headers(State(state): State<AppState>, request: Request, next:
         header::HeaderName::from_static("permissions-policy"),
         HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
     );
-    if auth_endpoint {
+    if private_response {
         headers.insert(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store, private"),

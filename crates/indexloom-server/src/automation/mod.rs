@@ -206,6 +206,16 @@ pub async fn run(state: AppState, source: CatalogSource, catalog_interval: u64) 
             } else {
                 false
             };
+            let mut event = crate::notifications::Event::new(
+                if success {
+                    "automation.completed"
+                } else {
+                    "automation.failed"
+                },
+                format!("job:{}:{lease}", job.id),
+            );
+            event.job = job.id.clone();
+            crate::notifications::emit(&state, event).await;
             if !success {
                 let _ = state
                     .store

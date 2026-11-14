@@ -431,6 +431,16 @@ async fn run_test_job(state: AppState, job_id: String, indexer_ids: Vec<String>)
         {
             tracing::error!(%error, indexer_id = %outcome.indexer_id, "failed to persist indexer test");
         }
+        let mut event = crate::notifications::Event::new(
+            if outcome.success {
+                "indexer.test.passed"
+            } else {
+                "indexer.test.failed"
+            },
+            format!("test:{job_id}:{}", outcome.indexer_id),
+        );
+        event.indexer = outcome.indexer_id.clone();
+        crate::notifications::emit(&state, event).await;
         state.test_jobs.record_outcome(&job_id, outcome).await;
         state.events.emit(crate::events::ChangeKind::Tests);
     }
