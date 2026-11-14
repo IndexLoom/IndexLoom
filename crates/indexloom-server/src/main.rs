@@ -4,7 +4,6 @@ use std::{
     io::Read,
     net::SocketAddr,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -93,17 +92,6 @@ async fn serve_autonomous(bind: SocketAddr) -> Result<()> {
         .purge_expired_auth_state()
         .await
         .context("failed to prune expired login state")?;
-    let maintenance_store = store.clone();
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(3600));
-        ticker.tick().await;
-        loop {
-            ticker.tick().await;
-            if let Err(error) = maintenance_store.purge_expired_auth_state().await {
-                tracing::warn!(%error, "session housekeeping failed");
-            }
-        }
-    });
     if matches!(auth_settings.mode, AuthMode::Local | AuthMode::Hybrid)
         && store.auth_user_count().await? == 0
         && admin_token.is_none()
@@ -131,17 +119,14 @@ async fn serve_autonomous(bind: SocketAddr) -> Result<()> {
         auth_settings,
         mail_sender,
     );
-    if catalog_interval != 0 {
-        if catalog_interval < 300 {
-            anyhow::bail!("INDEXLOOM_CATALOG_SYNC_SECONDS must be 0 or at least 300");
-        }
-        tokio::spawn(catalog_sync_loop(
-            store.clone(),
-            catalog_source,
-            Duration::from_secs(catalog_interval),
-            state.clone(),
-        ));
+    if catalog_interval != 0 && !(300..=2_592_000).contains(&catalog_interval) {
+        anyhow::bail!("INDEXLOOM_CATALOG_SYNC_SECONDS must be 0 or between 300 and 2592000");
     }
+    tokio::spawn(indexloom_server::automation::run(
+        state.clone(),
+        catalog_source,
+        catalog_interval,
+    ));
     let listener = TcpListener::bind(bind)
         .await
         .with_context(|| format!("failed to bind {bind}"))?;
@@ -175,24 +160,6 @@ async fn synchronize_catalog_or_retain(store: &Store, source: &CatalogSource) ->
             }
             tracing::warn!(%error, retained, "catalog sync failed; retaining last valid catalog");
             Ok(())
-        }
-    }
-}
-
-async fn catalog_sync_loop(
-    store: Store,
-    source: CatalogSource,
-    interval: Duration,
-    state: AppState,
-) {
-    let mut ticker = tokio::time::interval(interval);
-    ticker.tick().await;
-    loop {
-        ticker.tick().await;
-        match synchronize(&store, &source).await {
-            Ok(report) if report.updated => state.clear_execution_runtimes().await,
-            Ok(_) => {}
-            Err(error) => tracing::warn!(%error, "scheduled catalog synchronization failed"),
         }
     }
 }

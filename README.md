@@ -46,8 +46,37 @@ explicit HTTP, SOCKS and FlareSolverr routing.
   optional FlareSolverr for definitions that need browser challenge handling.
 - Synchronize a separate, reproducible catalog transactionally while retaining
   the last valid snapshot when an update fails.
+- Synchronize selected indexers into Sonarr, Radarr, Lidarr, Readarr,
+  Whisparr, Mylar3 and LazyLibrarian with Disabled, AddOnly and
+  ownership-checked FullSync, with encrypted app credentials.
+- Set per-indexer hourly/daily search quotas, schedule durable catalog, RSS and
+  maintenance jobs, and track new RSS releases after an initial baseline scan.
 - Keep the execution engine, storage, API, frontend and catalog tooling behind
   explicit crate and repository boundaries.
+
+## Security dependency patches
+
+The lockfile uses patched `libsqlite3-sys 0.39.1` and `rsa 0.10.0`.
+Two temporary local crates.io patches are kept in `vendor/`:
+
+- `sqlx-sqlite 0.9.0` changes only its SQLite dependency range to
+  `>=0.39.1, <0.40.0`, because the released SQLx version excludes the fixed
+  SQLite library. Track upstream [#4379](https://github.com/launchbadge/sqlx/issues/4379)
+  and [#4402](https://github.com/launchbadge/sqlx/issues/4402).
+- `openidconnect 4.1.0` uses the actual RSA 0.10 implementation, its SHA-2
+  types, and a fallible RNG adapter. RS256/384/512 and PS256/384/512 signing
+  and verification remain enabled; issuer, audience, nonce, verified email,
+  and administrator allowlist checks remain enforced.
+
+`indexloom-yaml` replaces `serde_yaml_ng` and `unsafe-libyaml` with safe Rust
+`serde-saphyr 2.1.1`. It preserves ordered Cardigann mappings, YAML 1.2 boolean
+and null semantics, interpolation text, and numeric-looking strings with
+leading zeros or underscores. Duplicate keys are rejected at every depth;
+the existing 2 MiB catalog definition limit also applies to direct parser
+calls, alongside the parser's resource budgets. Non-finite numbers and
+mapping keys that cannot be represented as JSON object keys are rejected.
+
+See [vendor patch notes](vendor/README.md) before updating either dependency.
 
 ## Architecture
 
@@ -212,6 +241,19 @@ not change server configuration or indexer credentials.
 
 See [UI customization guide](docs/design/APPEARANCE.md) for CSS examples,
 selectors, limitations and data retention.
+
+## Applications and automation
+
+**Settings → Applications** configures application connections and per-app
+indexer filters. **Settings → Automation** manages persistent background
+tasks, search request quotas and RSS release history. Application passwords
+and API keys are encrypted; RSS history stores no original tracker URLs.
+
+Stage C details, HTTP/LAN security policy, and currently unsupported provider
+versions are documented in [Stage C integrations](docs/STAGE_C.md).
+Download-client adapters, Grab forwarding and system-event notifications are
+intentionally deferred. This is a pre-alpha compatibility layer, not a claim
+of live verification with all downstream app versions.
 
 ## Binary releases
 

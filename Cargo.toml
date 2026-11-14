@@ -8,6 +8,7 @@ members = [
   "crates/indexloom-native",
   "crates/indexloom-server",
   "crates/indexloom-storage",
+  "crates/indexloom-yaml",
 ]
 
 [workspace.package]
@@ -34,12 +35,11 @@ getrandom = "0.4.3"
 gtmpl = "0.7.1"
 flate2 = "1.1.9"
 fancy-regex = "0.19.0"
-reqwest = { version = "0.13.4", default-features = false, features = ["brotli", "charset", "cookies", "deflate", "form", "gzip", "http2", "json", "rustls", "socks", "stream", "zstd"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["brotli", "charset", "cookies", "deflate", "form", "gzip", "http2", "json", "query", "rustls", "socks", "stream", "zstd"] }
 regex = "1.12.3"
 scraper = "0.27.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-serde_yaml = { package = "serde_yaml_ng", version = "0.10.0" }
 sha2 = "0.10.9"
 sqlx = { version = "0.9.0", default-features = false, features = ["json", "macros", "migrate", "runtime-tokio", "sqlite", "time", "uuid"] }
 subtle = "2.6.1"
@@ -64,3 +64,7 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
+
+[patch.crates-io]
+sqlx-sqlite = { path = "vendor/sqlx-sqlite" }
+openidconnect = { path = "vendor/openidconnect" }

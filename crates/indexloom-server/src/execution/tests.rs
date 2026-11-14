@@ -151,3 +151,53 @@ fn completed_job(id: &str, age: std::time::Duration) -> TestJob {
 
 #[path = "session_tests.rs"]
 mod persistent_sessions;
+
+#[tokio::test]
+async fn exhausted_quota_blocks_interactive_and_rss_without_upstream_requests() {
+    let store = indexloom_storage::Store::connect("sqlite::memory:")
+        .await
+        .unwrap();
+    let vault = indexloom_storage::SecretVault::generate().unwrap();
+    store
+        .upsert_definition(
+            "example",
+            "test",
+            None,
+            "indexloom.io/v1alpha1",
+            crate::tests::DEFINITION,
+            &"0".repeat(64),
+        )
+        .await
+        .unwrap();
+    store
+        .create_indexer("local", "example", "Local", true)
+        .await
+        .unwrap();
+    store.save_search_quota("local", 1, 1).await.unwrap();
+    assert!(store.reserve_search_quota("local").await.unwrap());
+    let state = crate::AppState::new(
+        store.clone(),
+        vault,
+        crate::AdminToken::new("quota-test-admin-token-at-least-32-bytes").unwrap(),
+    );
+    for feed in [false, true] {
+        let result = super::search_one(
+            &state,
+            "local",
+            "fixture",
+            20,
+            &indexloom_engine::SearchParameters::default(),
+            None,
+            feed,
+        )
+        .await;
+        assert_eq!(
+            result.error.as_deref(),
+            Some("indexer search quota exhausted")
+        );
+        assert!(result.results.is_empty());
+    }
+    assert!(super::scan_indexer(&state, "local").await.is_err());
+    assert!(store.rss_scan_states().await.unwrap().is_empty());
+    assert_eq!(store.search_quotas().await.unwrap()[0].day_used, 1);
+}

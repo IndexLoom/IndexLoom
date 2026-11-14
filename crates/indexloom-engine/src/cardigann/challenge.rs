@@ -476,7 +476,7 @@ impl CardigannExecutor {
                 for section in ["selectorinputs", "getselectorinputs"] {
                     if let Some(inputs) = auth.get(key(section)).and_then(mapping) {
                         for (name, spec) in inputs {
-                            let name = scalar(name).ok_or(EngineError::InvalidLoginChallenge)?;
+                            let name = name.clone();
                             let spec = mapping(spec).ok_or(EngineError::InvalidLoginChallenge)?;
                             let selector = spec
                                 .get(key("selector"))
@@ -570,10 +570,7 @@ impl CardigannExecutor {
             }
             // Explicit custom interactive fields allow site-specific PIN/input
             // names without guessing their values or storing them in config.
-            if let Some(items) = auth
-                .get(key("interactive"))
-                .and_then(YamlValue::as_sequence)
-            {
+            if let Some(items) = auth.get(key("interactive")).and_then(YamlValue::as_array) {
                 for item in items {
                     let item = mapping(item).ok_or(EngineError::InvalidLoginChallenge)?;
                     let selector = item
@@ -853,10 +850,7 @@ fn form_has_challenge(auth: &Mapping, form: ElementRef<'_>) -> bool {
     if form_has_code(form) || captcha_present(auth, form) {
         return true;
     }
-    if let Some(items) = auth
-        .get(key("interactive"))
-        .and_then(YamlValue::as_sequence)
-    {
+    if let Some(items) = auth.get(key("interactive")).and_then(YamlValue::as_array) {
         for item in items {
             if let Some(selector) = mapping(item)
                 .and_then(|m| m.get(key("selector")))

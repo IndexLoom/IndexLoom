@@ -197,26 +197,26 @@ fn executor(proxy: &ProxyRoute, mode: &str, id: &str) -> CardigannExecutor {
         .authentication
         .as_mut()
         .unwrap()
-        .as_mapping_mut()
+        .as_object_mut()
         .unwrap();
     if mode == "text" {
         auth.get_mut(key("captcha"))
             .unwrap()
-            .as_mapping_mut()
+            .as_object_mut()
             .unwrap()
-            .insert(key("type"), key("text"));
+            .insert("type".into(), YamlValue::String("text".into()));
         auth.get_mut(key("captcha"))
             .unwrap()
-            .as_mapping_mut()
+            .as_object_mut()
             .unwrap()
-            .insert(key("selector"), key("#captcha"));
+            .insert("selector".into(), YamlValue::String("#captcha".into()));
     }
     if matches!(mode, "plain" | "pin" | "custom") {
         auth.remove(key("captcha"));
     }
     if mode == "custom" {
         auth.insert(
-            key("interactive"),
+            "interactive".into(),
             serde_yaml::from_str("[{selector: '.manual', label: 'Security word'}]").unwrap(),
         );
     }

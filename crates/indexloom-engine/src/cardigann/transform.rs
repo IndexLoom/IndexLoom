@@ -19,7 +19,7 @@ pub(super) fn error(name: &str, reason: &'static str) -> EngineError {
 pub(super) fn arguments(filter: &serde_yaml::Mapping) -> Result<Vec<String>, EngineError> {
     let args = match filter.get(key("args")) {
         None | Some(YamlValue::Null) => Vec::new(),
-        Some(YamlValue::Sequence(values)) => values
+        Some(YamlValue::Array(values)) => values
             .iter()
             .map(|v| scalar(v).ok_or_else(|| error("arguments", "arguments must be scalars")))
             .collect::<Result<_, _>>()?,
@@ -40,7 +40,7 @@ pub(super) fn apply(
     encoding: &str,
 ) -> Result<String, EngineError> {
     let filters = filters
-        .as_sequence()
+        .as_array()
         .ok_or_else(|| error("pipeline", "filters must be a sequence"))?;
     if filters.len() > 128 {
         return Err(error("pipeline", "more than 128 filters"));

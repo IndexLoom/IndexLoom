@@ -46,7 +46,7 @@ pub struct CategoryMapping {
 }
 
 fn entry<'a>(mapping: &'a Mapping, name: &str) -> Option<&'a Value> {
-    mapping.get(Value::String(name.to_owned()))
+    mapping.get(name)
 }
 
 fn scalar(value: &Value) -> Option<String> {
@@ -60,30 +60,31 @@ fn scalar(value: &Value) -> Option<String> {
 
 #[must_use]
 pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
-    let capabilities = definition.spec.implementation.capabilities.as_mapping();
+    let capabilities = definition.spec.implementation.capabilities.as_object();
     let mut search_modes = Vec::new();
     let mut categories = BTreeSet::new();
     let mut category_mappings = Vec::new();
 
     if let Some(modes) = capabilities
         .and_then(|caps| entry(caps, "modes"))
-        .and_then(Value::as_mapping)
+        .and_then(Value::as_object)
     {
         for (name, fields) in modes {
-            if let Some(name) = scalar(name) {
-                let parameters = fields
-                    .as_sequence()
-                    .map_or_else(Vec::new, |seq| seq.iter().filter_map(scalar).collect());
-                search_modes.push(SearchMode { name, parameters });
-            }
+            let parameters = fields
+                .as_array()
+                .map_or_else(Vec::new, |seq| seq.iter().filter_map(scalar).collect());
+            search_modes.push(SearchMode {
+                name: name.clone(),
+                parameters,
+            });
         }
     }
     if let Some(mapping) = capabilities
         .and_then(|caps| entry(caps, "categorymappings"))
-        .and_then(Value::as_sequence)
+        .and_then(Value::as_array)
     {
         for value in mapping {
-            let Some(value) = value.as_mapping() else {
+            let Some(value) = value.as_object() else {
                 continue;
             };
             let Some(id) = entry(value, "id").and_then(scalar) else {
@@ -104,22 +105,18 @@ pub fn summarize(definition: &IndexerDefinition) -> IndexerCapabilities {
     // Some source definitions use category maps rather than categorymappings.
     if let Some(mapping) = capabilities
         .and_then(|caps| entry(caps, "categories"))
-        .and_then(Value::as_mapping)
+        .and_then(Value::as_object)
     {
-        for key in mapping.keys() {
-            if let Some(category) = scalar(key) {
-                categories.insert(category);
-            }
-        }
+        categories.extend(mapping.keys().cloned());
     }
-    let search = definition.spec.implementation.search.as_mapping();
+    let search = definition.spec.implementation.search.as_object();
     let search_paths = search
         .and_then(|search| entry(search, "paths"))
-        .and_then(Value::as_sequence)
+        .and_then(Value::as_array)
         .map_or(0, Vec::len);
     let authentication = definition.spec.implementation.authentication.as_ref();
     let captcha = authentication
-        .and_then(Value::as_mapping)
+        .and_then(Value::as_object)
         .is_some_and(|auth| entry(auth, "captcha").is_some());
     let source = match definition.provenance.source.project {
         SourceProject::Jackett => "jackett",

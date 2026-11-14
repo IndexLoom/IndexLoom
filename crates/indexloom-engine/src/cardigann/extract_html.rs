@@ -165,10 +165,7 @@ pub(super) fn field(
         if let Some(cases) = spec.get(key("case")).and_then(mapping) {
             let mut value = None;
             for (condition, replacement) in cases {
-                let condition = scalar(condition).ok_or(EngineError::InvalidSearchDefinition(
-                    "case selector must be scalar",
-                ))?;
-                let css = Css::parse(&render_template(&condition, render)?)?;
+                let css = Css::parse(&render_template(condition, render)?)?;
                 if !css.select(element, true)?.is_empty() {
                     value = Some(render_template(
                         &scalar(replacement).unwrap_or_default(),

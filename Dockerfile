@@ -16,6 +16,8 @@ RUN apt-get update \
 WORKDIR /source
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
+# Local audited compatibility patches used by workspace [patch.crates-io].
+COPY vendor/ ./vendor/
 COPY migrations/ ./migrations/
 # Buildx executes amd64 and arm64 stages concurrently. Shared writeable Cargo
 # registry/target caches race when unpacking crates; private cache mounts keep

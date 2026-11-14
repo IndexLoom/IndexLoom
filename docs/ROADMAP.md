@@ -38,10 +38,19 @@ stabilization remain before `0.2.x` is complete.
 
 ## Application integrations (`0.3.x`)
 
-- Torznab-compatible API surface.
-- Download-client integrations and notifications.
-- Statistics, rate limiting, scheduling, and backup/restore.
-- Compatibility-tested runtime import adapters where licensing permits.
+- Implemented: Torznab/Newznab search APIs, encrypted 7-day download tickets
+  and Blackhole export (see Stage B).
+- Implemented in Stage C: Sonarr, Radarr, Lidarr, Readarr, Whisparr, Mylar3
+  and LazyLibrarian synchronization with ownership-scoped AddOnly/FullSync
+  and independently configured app profiles.
+- Implemented in Stage C: per-indexer search quotas, persistent background
+  scheduler and RSS new-release history with a silent first-scan baseline.
+- Deferred by project decision: direct download-client integrations,
+  server-side Grab forwarding and general event notification channels.
+- Pending: confirm additional app APIs against live deployments, improve
+  retry feedback and multi-instance coordination, enhance statistics,
+  backup/restore UI and compatibility-tested runtime import adapters.
+- See [Stage C](STAGE_C.md) for exact endpoints and restrictions.
 
 ## Stabilization (`0.x`)
 

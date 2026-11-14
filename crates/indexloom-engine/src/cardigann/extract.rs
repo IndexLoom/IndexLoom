@@ -12,7 +12,6 @@ pub(super) fn complete_result_fields(
 ) -> BTreeMap<String, String> {
     fields
         .keys()
-        .filter_map(scalar)
         .map(|name| {
             let name = name.split('|').next().unwrap_or_default().to_owned();
             let value = result.get(&name).cloned().unwrap_or_default();
@@ -49,9 +48,7 @@ pub(super) fn fields(
         for (name_value, spec_value) in pending {
             let name = name_value;
             let spec = spec_value;
-            let name = scalar(name).ok_or(EngineError::InvalidSearchDefinition(
-                "field name must be scalar",
-            ))?;
+            let name = name.clone();
             let mut parts = name.split('|');
             let field = parts.next().unwrap_or_default();
             let modifiers: Vec<_> = parts.collect();
@@ -66,7 +63,7 @@ pub(super) fn fields(
             let spec = mapping(spec).ok_or(EngineError::InvalidSearchDefinition(
                 "field must be a mapping",
             ))?;
-            if spec.keys().filter_map(scalar).any(|key| {
+            if spec.keys().any(|key| {
                 ![
                     "text",
                     "selector",

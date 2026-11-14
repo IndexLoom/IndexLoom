@@ -20,6 +20,7 @@ pub struct LocalInstance {
     pub endpoint: SocketAddr,
     server: JoinHandle<()>,
     catalog: JoinHandle<()>,
+    automation: JoinHandle<()>,
 }
 
 impl LocalInstance {
@@ -33,6 +34,7 @@ impl Drop for LocalInstance {
     fn drop(&mut self) {
         self.server.abort();
         self.catalog.abort();
+        self.automation.abort();
     }
 }
 
@@ -58,29 +60,35 @@ pub async fn start(
         .await
         .context("failed to bind localhost")?;
     let endpoint = listener.local_addr()?;
+    let scheduler_state = state.clone();
     let server = tokio::spawn(async move {
         if let Err(error) = axum::serve(listener, router(state, PathBuf::new())).await {
             tracing::error!(%error, "local IndexLoom runtime stopped");
         }
     });
 
-    // The native UI remains usable before the first catalog refresh.
-    // Initial network sync is best effort and never blocks opening the app.
+    // Native execution is foreground-only. The scheduler is aborted with the
+    // local instance, so iOS/Android suspension never promises background work.
+    let catalog_source = CatalogSource::from_values(
+        None,
+        "https://github.com/IndexLoom/Indexers/releases/latest/download/manifest.json",
+    )
+    .context("built-in catalog URL is invalid")?;
+    let initial_source = catalog_source.clone();
     let catalog = tokio::spawn(async move {
-        let endpoint =
-            "https://github.com/IndexLoom/Indexers/releases/latest/download/manifest.json";
-        match CatalogSource::from_values(None, endpoint) {
-            Ok(source) => {
-                if let Err(error) = synchronize(&store, &source).await {
-                    tracing::warn!(%error, "local catalog refresh failed");
-                }
-            }
-            Err(error) => tracing::warn!(%error, "invalid catalog URL"),
+        if let Err(error) = synchronize(&store, &initial_source).await {
+            tracing::warn!(%error, "local catalog refresh failed");
         }
     });
+    let automation = tokio::spawn(crate::automation::run(
+        scheduler_state,
+        catalog_source,
+        21600,
+    ));
     Ok(LocalInstance {
         endpoint,
         server,
         catalog,
+        automation,
     })
 }

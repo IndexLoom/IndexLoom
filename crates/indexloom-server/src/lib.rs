@@ -34,10 +34,12 @@ mod embedded_web {
 use url::Url;
 
 pub mod auth;
+pub mod automation;
 mod blackhole;
 pub mod catalog;
 mod download;
 mod execution;
+mod integrations;
 pub mod local;
 mod management;
 pub mod remote;
@@ -174,6 +176,8 @@ pub fn router(state: AppState, web_root: PathBuf) -> Router {
         .merge(management::routes())
         .merge(execution::routes())
         .merge(search_presets::routes())
+        .merge(integrations::routes())
+        .merge(automation::routes())
         .merge(tracker_login::routes())
         .merge(download::routes())
         .merge(blackhole::routes())

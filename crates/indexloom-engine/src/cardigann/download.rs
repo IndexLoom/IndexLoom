@@ -310,7 +310,7 @@ impl CardigannExecutor {
             }
             if let Some(selectors) = block
                 .and_then(|b| b.get(key("selectors")))
-                .and_then(YamlValue::as_sequence)
+                .and_then(YamlValue::as_array)
             {
                 let mut candidate_error = None;
                 for selector in selectors {

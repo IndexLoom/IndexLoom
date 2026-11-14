@@ -476,7 +476,7 @@ impl CardigannExecutor {
             let supported = mapping(&self.definition.spec.implementation.capabilities)
                 .and_then(|caps| caps.get(key("modes")))
                 .and_then(mapping)
-                .is_some_and(|modes| modes.contains_key(YamlValue::String(mode.to_owned())));
+                .is_some_and(|modes| modes.contains_key(mode));
             if !supported {
                 return Err(EngineError::UnsupportedSearchMode(mode.to_owned()));
             }
@@ -509,8 +509,7 @@ impl CardigannExecutor {
                 continue;
             }
             let mut path_context = execution_context.clone();
-            if let Some(restrictions) = path.get(key("categories")).and_then(YamlValue::as_sequence)
-            {
+            if let Some(restrictions) = path.get(key("categories")).and_then(YamlValue::as_array) {
                 let allowed = restrictions.iter().filter_map(scalar).collect::<Vec<_>>();
                 if allowed.first().is_none_or(|v| v != "!") && !categories.is_empty() {
                     path_context.categories.retain(|v| allowed.contains(v));
