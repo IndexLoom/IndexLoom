@@ -1,6 +1,6 @@
 import "./operations-ui.css";
 import { useSystemRevision } from "../lib/events";
-import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type DragEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { AdminTokenGate, useAdminSession } from "./AdminSession";
 import { LanguageSwitcher, SelectiveLocalizationEditor, formatDateTime, translate } from "../lib/i18n";
@@ -88,6 +88,21 @@ export function SettingsWorkspace() {
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
+  const availableTabs = (Object.keys(labels) as Tab[]).filter((key) => key !== "email" || canManageMail);
+  function moveTab(current: Tab, event: KeyboardEvent<HTMLButtonElement>) {
+    if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const position = availableTabs.indexOf(current);
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? availableTabs.length - 1
+      : (position + (event.key === "ArrowRight" ? 1 : -1) + availableTabs.length) % availableTabs.length;
+    const selected = availableTabs[next];
+    if (selected) {
+      setTab(selected);
+      document.getElementById("settings-tab-" + selected)?.focus();
+    }
+  }
+
   return (
     <section className="settings-view appearance-settings operations-settings">
       <header className="page-heading">
@@ -97,18 +112,24 @@ export function SettingsWorkspace() {
           <p className="page-description">{t("Make IndexLoom look and behave the way you want.")}</p>
         </div>
       </header>
-      <div className="appearance-tabs" role="navigation" aria-label={t("Settings sections")}>
-        {(Object.keys(labels) as Tab[]).filter((key) => key !== "email" || canManageMail).map((key) => (
+      <div className="appearance-tabs" role="tablist" aria-label={t("Settings sections")}>
+        {availableTabs.map((key) => (
           <button
-            aria-current={key === tab ? "page" : undefined}
+            id={"settings-tab-" + key}
+            role="tab"
+            aria-selected={key === tab}
+            aria-controls="settings-active-panel"
+            tabIndex={key === tab ? 0 : -1}
             className={tab === key ? "active" : ""}
             key={key}
             onClick={() => setTab(key)}
+            onKeyDown={(event) => moveTab(key, event)}
             type="button"
           >{t(labels[key])}</button>
         ))}
       </div>
 
+      <div id="settings-active-panel" role="tabpanel" aria-labelledby={"settings-tab-" + tab} tabIndex={0}>
       {tab === "logs" || tab === "backups" ? <ManagementSettings section={tab} /> : null}
       {tab === "themes" ? (
         <div className="appearance-content">
@@ -260,6 +281,7 @@ export function SettingsWorkspace() {
         <button className="quiet-button" onClick={() => { reset(); setMessage("Appearance reset to Obsidian Violet."); }} type="button">{t("Reset appearance")}</button>
       </footer> : null}
       {message ? <p className="notice" role="status">{t(message)}</p> : null}
+      </div>
     </section>
   );
 }
